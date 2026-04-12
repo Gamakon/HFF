@@ -1,0 +1,21 @@
+[package]
+name = "hff"
+version = "0.1.0"
+edition = "2021"
+authors = ["Andrew Morgan <andrew@gamakon.com>"]
+description = "Hyperspherical Fitness Functions for many-objective optimization"
+license = "MIT"
+repository = "https://github.com/Gamakon/HFF"
+
+[lib]
+name = "hff_core"
+crate-type = ["cdylib", "rlib"]
+
+[dependencies]
+ndarray = "0.15"
+rayon = "1.8"
+rand = "0.8"
+rand_distr = "0.4"
+statrs = "0.16"
+pyo3 = { version = "0.20", features = ["extension-module"] }
+numpy = "0.20"
