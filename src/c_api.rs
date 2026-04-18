@@ -272,6 +272,16 @@ pub extern "C" fn hff_cdf_correction(theta: f64, dimensions: usize) -> f64 {
     higd::cdf_beta_correction(theta, dimensions)
 }
 
+/// Log of the Beta-CDF correction. Returns ln(CDF) directly; useful when the
+/// raw CDF underflows f64 (large dimensions with small theta — the regime
+/// typical of image-reconstruction-style problems). Always representable in
+/// f64 since ln is well-behaved all the way to the left tail.
+#[cfg(feature = "c-api")]
+#[no_mangle]
+pub extern "C" fn hff_log_cdf_correction(theta: f64, dimensions: usize) -> f64 {
+    higd::log_cdf_beta_correction(theta, dimensions)
+}
+
 /// Raw angular IGD (no CDF correction).
 ///
 /// # Safety

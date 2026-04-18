@@ -78,8 +78,17 @@ int32_t hff_higd(
  * CDF-correct a raw angular distance theta (radians) given objective count.
  * Returns dimension-independent percentile in [0, 1] — makes fitness values
  * comparable across runs with different numbers of objectives.
+ *
+ * For large `dimensions` and small theta the result underflows f64 — in that
+ * regime use hff_log_cdf_correction instead.
  */
 double hff_cdf_correction(double theta, size_t dimensions);
+
+/*
+ * Log of the Beta-CDF correction. Always representable in f64 (no underflow).
+ * Preferred when many-objective fitness values live in the deep left tail.
+ */
+double hff_log_cdf_correction(double theta, size_t dimensions);
 
 /*
  * Raw angular IGD (no CDF correction). Same argument semantics as hff_higd;

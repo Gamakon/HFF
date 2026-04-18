@@ -25,6 +25,7 @@ use rand::SeedableRng;
 use rand_distr::{Distribution, Normal};
 use rayon::prelude::*;
 use statrs::function::beta::beta_reg;
+use statrs::function::gamma::ln_gamma;
 
 /// Generate a uniformly distributed random point on the FULL d-dimensional
 /// unit hypersphere using Mueller-Marsaglia (Gaussian normalization) method.
@@ -139,6 +140,90 @@ pub fn cdf_beta_correction(theta: f64, dimensions: usize) -> f64 {
 
     // I_{sin²(θ)}((d-1)/2, 1/2)
     beta_reg(alpha, 0.5, x)
+}
+
+/// Log of the Beta-CDF correction: returns ln(I_{sin²θ}(α, 0.5)).
+///
+/// For large `dimensions` and small `theta`, the raw CDF value underflows
+/// f64 because the prefactor exp(α·ln(x) + β·ln(1−x) − lnB(α,β)) is well
+/// below f64::MIN_POSITIVE. This routine keeps the prefactor in log space,
+/// evaluates the continued fraction in linear space (it is O(1) and well
+/// conditioned), and returns their sum as an f64 log. The log value is
+/// always representable in f64 (range roughly [-1e5, 0]), so callers can
+/// compare dimension-invariant fitness values in the deep left tail.
+///
+/// If x is at or beyond the edges, returns `-inf` (for x≤0) or `0.0` (for x≥1).
+#[inline]
+pub fn log_cdf_beta_correction(theta: f64, dimensions: usize) -> f64 {
+    let alpha = (dimensions - 1) as f64 / 2.0;
+    let beta = 0.5_f64;
+    let x = theta.sin().powi(2);
+
+    if x <= 0.0 {
+        return f64::NEG_INFINITY;
+    }
+    if x >= 1.0 {
+        return 0.0;
+    }
+    if dimensions < 2 {
+        // Degenerate; fall back to linear value.
+        return theta.ln();
+    }
+
+    // Lentz's continued fraction for I_x(a,b) (numerical recipes).
+    // Uses the symmetry I_x(a,b) = 1 − I_{1−x}(b,a) when x past the pivot.
+    let symm = x >= (alpha + 1.0) / (alpha + beta + 2.0);
+    let (aa, bb, xx) = if symm { (beta, alpha, 1.0 - x) } else { (alpha, beta, x) };
+
+    // log of the prefactor: a·ln(x) + b·ln(1−x) − ln B(a,b)
+    let ln_pref = aa * xx.ln() + bb * (1.0 - xx).ln()
+        - (ln_gamma(aa) + ln_gamma(bb) - ln_gamma(aa + bb));
+
+    // Continued fraction H. Well conditioned; stay in linear space.
+    let eps = 1.0e-15_f64;
+    let fpmin = 1.0e-300_f64;
+    let qab = aa + bb;
+    let qap = aa + 1.0;
+    let qam = aa - 1.0;
+    let mut c = 1.0_f64;
+    let mut d = 1.0 - qab * xx / qap;
+    if d.abs() < fpmin { d = fpmin; }
+    d = 1.0 / d;
+    let mut h = d;
+    for m in 1..=200 {
+        let m = m as f64;
+        let m2 = m * 2.0;
+        let mut t = m * (bb - m) * xx / ((qam + m2) * (aa + m2));
+        d = 1.0 + t * d;
+        if d.abs() < fpmin { d = fpmin; }
+        c = 1.0 + t / c;
+        if c.abs() < fpmin { c = fpmin; }
+        d = 1.0 / d;
+        h *= d * c;
+        t = -(aa + m) * (qab + m) * xx / ((aa + m2) * (qap + m2));
+        d = 1.0 + t * d;
+        if d.abs() < fpmin { d = fpmin; }
+        c = 1.0 + t / c;
+        if c.abs() < fpmin { c = fpmin; }
+        d = 1.0 / d;
+        let del = d * c;
+        h *= del;
+        if (del - 1.0).abs() <= eps { break; }
+    }
+
+    // log( I_x(a,b) ) in the unflipped branch = ln_pref + ln(h/a)
+    let log_ix = ln_pref + (h / aa).ln();
+
+    if symm {
+        // I_x(a,b) = 1 − I_{1−x}(b,a). If I_{1−x}(b,a) is tiny,
+        // ln(1 − tiny) ≈ −I_{1−x}(b,a) ≈ −exp(log_ix), so ln(1−ε) ≈ -ε to
+        // first order; but for log-space callers we want the log of the
+        // actual CDF value. Compute via log1p(-exp(log_ix)).
+        let v = log_ix.exp();
+        if v >= 1.0 { f64::NEG_INFINITY } else { (1.0 - v).ln() }
+    } else {
+        log_ix
+    }
 }
 
 /// Normalize a solution vector to unit length.
