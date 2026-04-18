@@ -1,23 +1,41 @@
 // HFF -- Hyperspherical Fitness Functions
 //
-// Exposes 4 PyO3 functions:
-//   - calculate_hyperspherical_fitness_hf1_f64
-//   - calculate_hyperspherical_fitness_hf1_enhanced
-//   - calculate_higd
-//   - calculate_angular_igd
-
-use pyo3::prelude::*;
-use pyo3::wrap_pyfunction;
-use pyo3::exceptions::PyValueError;
-use numpy::{IntoPyArray, PyArray1, PyReadonlyArray2};
-use ndarray::{Array1, s};
-use rayon::prelude::*;
+// Pure Rust core with optional Python (pyo3) and C (extern "C") binding layers.
+//
+// Binding layers (opt-in via Cargo features):
+//   - feature "python" (default): PyO3 module `hff_core`
+//       * calculate_hyperspherical_fitness_hf1_f64
+//       * calculate_hyperspherical_fitness_hf1_enhanced
+//       * calculate_higd
+//       * calculate_angular_igd
+//   - feature "c-api": C ABI symbols exported from the cdylib
+//       * hff_hf1_f64
+//       * hff_hf1_enhanced
+//       * hff_higd
+//       * hff_angular_igd
 
 /// Core mathematical functions for Hyperspherical Fitness calculations
 pub mod core_functions;
 
 /// Hyperspherical Inverted Generational Distance (HIGD) - dimensionally-robust IGD variant
 pub mod higd;
+
+/// C ABI bindings for use from Go (cgo), C/C++, and any other C-FFI-capable language.
+#[cfg(feature = "c-api")]
+pub mod c_api;
+
+#[cfg(feature = "python")]
+use pyo3::prelude::*;
+#[cfg(feature = "python")]
+use pyo3::wrap_pyfunction;
+#[cfg(feature = "python")]
+use pyo3::exceptions::PyValueError;
+#[cfg(feature = "python")]
+use numpy::{IntoPyArray, PyArray1, PyReadonlyArray2};
+#[cfg(feature = "python")]
+use ndarray::{Array1, s};
+#[cfg(feature = "python")]
+use rayon::prelude::*;
 
 /// Calculate HF1 geometric fitness with standard f64 precision
 ///
@@ -42,6 +60,7 @@ pub mod higd;
 /// - Uses Rayon for automatic parallelization across individuals
 /// - Optimized for large populations (scales well with n_individuals)
 /// - Memory usage: O(n_individuals) temporary storage
+#[cfg(feature = "python")]
 #[pyfunction]
 fn calculate_hyperspherical_fitness_hf1_f64(
     py: Python,
@@ -137,6 +156,7 @@ fn calculate_hyperspherical_fitness_hf1_f64(
 /// - Philosophy: Direct minimization convergence
 /// - Reference: (0, 0, ..., 0, 1) in R^(m+1) - augmented space
 /// - Use case: Benchmark comparisons, absolute optimization
+#[cfg(feature = "python")]
 #[pyfunction]
 fn calculate_hyperspherical_fitness_hf1_enhanced(
     py: Python,
@@ -253,6 +273,7 @@ fn calculate_hyperspherical_fitness_hf1_enhanced(
 // These match the signatures expected by demo/nsga3_nsga2balcrowd.py
 // (hff_core.calculate_higd / calculate_angular_igd).
 
+#[cfg(feature = "python")]
 #[pyfunction]
 #[pyo3(signature = (solutions, n_reference_points, dimensions, seed, positive_orthant=true))]
 fn calculate_higd(
@@ -271,6 +292,7 @@ fn calculate_higd(
     ))
 }
 
+#[cfg(feature = "python")]
 #[pyfunction]
 #[pyo3(signature = (solutions, n_reference_points, dimensions, seed, positive_orthant=true))]
 fn calculate_angular_igd(
@@ -289,6 +311,7 @@ fn calculate_angular_igd(
     ))
 }
 
+#[cfg(feature = "python")]
 #[pymodule]
 fn hff_core(_py: Python, m: &PyModule) -> PyResult<()> {
     // Core HF1 fitness functions
