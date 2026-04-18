@@ -122,7 +122,7 @@ fn angular_distance(a: &[f64], b: &[f64]) -> f64 {
 /// Reference: The angular distribution on the n-sphere follows a Beta
 /// distribution when transformed via sin²(θ).
 #[inline]
-fn cdf_beta_correction(theta: f64, dimensions: usize) -> f64 {
+pub fn cdf_beta_correction(theta: f64, dimensions: usize) -> f64 {
     let alpha = (dimensions - 1) as f64 / 2.0;
     let x = theta.sin().powi(2);  // sin²(θ)
 

@@ -259,6 +259,19 @@ pub unsafe extern "C" fn hff_higd(
     HFF_OK
 }
 
+/// Apply the Beta-CDF correction to a raw angular distance. Transforms
+/// raw theta into a dimension-independent percentile rank in [0, 1], using
+/// I_{sin²θ}((d−1)/2, 1/2) — the CDF of angular distance between uniformly
+/// random points on an (m−1)-sphere (Cai, Fan, Jiang 2013). This is what
+/// makes fitness comparable across runs with different objective counts.
+///
+/// Returns the corrected value directly; no error code, no buffer.
+#[cfg(feature = "c-api")]
+#[no_mangle]
+pub extern "C" fn hff_cdf_correction(theta: f64, dimensions: usize) -> f64 {
+    higd::cdf_beta_correction(theta, dimensions)
+}
+
 /// Raw angular IGD (no CDF correction).
 ///
 /// # Safety
