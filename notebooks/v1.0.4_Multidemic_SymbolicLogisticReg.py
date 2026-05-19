@@ -1064,13 +1064,20 @@ plt2.show()
 ranked = hgh.rerank_hof_classification(
     hof, train, validation, target_col, finalTerminals, toolbox, settings
 )
-print(f"\nTop 10 HOF models by HFF angular distance (north_pole={settings.north_pole_method}):")
-print(ranked.head(10)[[
-    "model", "length",
-    "train_auc", "val_auc",
-    "train_f1", "val_f1",
-    "threshold", "angular_distance",
-]].to_string(index=False))
+
+# Pareto-marked HOF table — ★ next to non-dominated models on the six
+# classification objectives (AUC, F1, Accuracy across train + val). HFF
+# projection uses the same vector, so the agreement between the HFF ranking
+# and the Pareto front is a direct visual sanity check.
+hgh.print_hof_with_pareto(
+    ranked,
+    columns=["model", "length", "train_auc", "val_auc",
+             "train_f1", "val_f1", "train_acc", "val_acc",
+             "threshold", "angular_distance"],
+    top_n=10,
+    title=f"Top 10 HOF models by HFF angular distance "
+          f"(north_pole={settings.north_pole_method})",
+)
 
 # %% [markdown]
 # ## 6.2 Set-level HIGD diagnostic

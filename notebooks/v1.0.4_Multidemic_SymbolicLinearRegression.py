@@ -883,13 +883,17 @@ pyplot.show()
 ranked = hgh.rerank_hof_regression(
     hof, train, validation, target_col, finalTerminals, toolbox, settings
 )
-print(f"\nTop 10 HOF models by HFF angular distance (north_pole={settings.north_pole_method}):")
-print(ranked.head(10)[[
-    "model", "length",
-    "train_mse", "val_mse",
-    "train_mae", "val_mae",
-    "max_err", "angular_distance",
-]].to_string(index=False))
+
+# Pareto-marked HOF table — ★ next to non-dominated models on the same
+# 5 objectives the HFF projection uses (train/val MSE, train/val MAE, max_err).
+hgh.print_hof_with_pareto(
+    ranked,
+    columns=["model", "length", "train_mse", "val_mse",
+             "train_mae", "val_mae", "max_err", "angular_distance"],
+    top_n=10,
+    title=f"Top 10 HOF models by HFF angular distance "
+          f"(north_pole={settings.north_pole_method})",
+)
 
 # %% [markdown]
 # ## 6.2 Set-level HIGD diagnostic

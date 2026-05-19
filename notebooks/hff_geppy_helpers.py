@@ -345,6 +345,70 @@ def _eval_individual_on_df(
     return sigmoid_array(scaled) if apply_sigmoid else scaled
 
 
+def _mark_pareto(df: pd.DataFrame, objective_cols: Sequence[str], minimise: Sequence[bool]) -> pd.DataFrame:
+    """Mark each row as Pareto-optimal (non-dominated) on the given objectives.
+
+    *minimise* must align with *objective_cols*: True means lower is better.
+    Adds an ``is_pareto`` bool column and returns the dataframe (modified
+    in place for convenience).
+    """
+    if df.empty:
+        return df
+    n = len(df)
+    M = df[list(objective_cols)].to_numpy(dtype=np.float64)
+    # For each i, dominated if there exists j != i with M[j] no-worse on every
+    # objective and strictly better on at least one.
+    sense = np.array([1.0 if m else -1.0 for m in minimise], dtype=np.float64)
+    Ms = M * sense  # turn everything into "lower-is-better" axes
+    flags = np.ones(n, dtype=bool)
+    for i in range(n):
+        diff = Ms - Ms[i]  # (n, k); negative entries = j is better on that axis
+        no_worse = np.all(diff <= 0.0, axis=1)
+        strictly_better = np.any(diff < 0.0, axis=1)
+        dominated_by_some_j = np.any(no_worse & strictly_better & (np.arange(n) != i))
+        flags[i] = not bool(dominated_by_some_j)
+    df["is_pareto"] = flags
+    return df
+
+
+def print_hof_with_pareto(
+    df: pd.DataFrame,
+    columns: Sequence[str],
+    top_n: int = 10,
+    title: str = "Top HOF models",
+):
+    """Print the top-N HOF rows with a ★ next to Pareto-optimal entries.
+
+    Also reports how many of the top-N are Pareto-optimal, and the total
+    number of Pareto-optimal models across the whole HOF.
+    """
+    if df.empty:
+        print("(no HOF models to report)")
+        return
+    n_show = min(top_n, len(df))
+    total_pareto = int(df["is_pareto"].sum()) if "is_pareto" in df.columns else 0
+    pareto_in_top = int(df.head(n_show)["is_pareto"].sum()) if "is_pareto" in df.columns else 0
+
+    print(f"\n{title} (★ = Pareto-optimal)")
+    header = " " + " ".join(f"{c:>11}" for c in columns)
+    print(" " + "-" * (len(header) - 1))
+    print(header)
+    print(" " + "-" * (len(header) - 1))
+    for _, row in df.head(n_show).iterrows():
+        marker = "★" if row.get("is_pareto", False) else " "
+        cells = []
+        for c in columns:
+            v = row[c]
+            if isinstance(v, (int, np.integer)):
+                cells.append(f"{int(v):>11d}")
+            elif isinstance(v, float):
+                cells.append(f"{v:>11.4f}")
+            else:
+                cells.append(f"{str(v):>11s}")
+        print(f"{marker} " + " ".join(cells))
+    print(f"\nPareto-optimal in top {n_show}: {pareto_in_top}    Pareto-optimal in full HOF: {total_pareto} / {len(df)}")
+
+
 def rerank_hof_regression(
     hof,
     train: pd.DataFrame,
@@ -410,7 +474,14 @@ def rerank_hof_regression(
     for slot, (_, row, _) in enumerate(bundles):
         row["angular_distance"] = float(angular[slot])
         rows.append(row)
-    return pd.DataFrame(rows).sort_values("angular_distance").reset_index(drop=True)
+    df = pd.DataFrame(rows).sort_values("angular_distance").reset_index(drop=True)
+    # Pareto mark on the same objectives the HFF projection uses (all minimised).
+    _mark_pareto(
+        df,
+        objective_cols=["train_mse", "val_mse", "train_mae", "val_mae", "max_err"],
+        minimise=[True, True, True, True, True],
+    )
+    return df
 
 
 def rerank_hof_classification(
@@ -516,7 +587,15 @@ def rerank_hof_classification(
     for slot, (row, _) in enumerate(bundles):
         row["angular_distance"] = float(angular[slot])
         rows.append(row)
-    return pd.DataFrame(rows).sort_values("angular_distance").reset_index(drop=True)
+    df = pd.DataFrame(rows).sort_values("angular_distance").reset_index(drop=True)
+    # Pareto mark on the six classification objectives (all MAXIMISED:
+    # AUC/F1/Acc on train and val). HFF projection uses the same vector.
+    _mark_pareto(
+        df,
+        objective_cols=["train_auc", "val_auc", "train_f1", "val_f1", "train_acc", "val_acc"],
+        minimise=[False, False, False, False, False, False],
+    )
+    return df
 
 
 # -----------------------------------------------------------------------------
