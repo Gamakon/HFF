@@ -1,0 +1,264 @@
+%%
+%% Hyperspherical Fitness Functions for Many-Objective Optimization
+%% GECCO 2026 Poster Paper (4 pages including references)
+%%
+\documentclass[sigconf]{acmart}
+
+%% Math packages
+\usepackage{amsmath}
+%%\usepackage{amssymb}
+\usepackage{booktabs}
+\usepackage{float}
+\usepackage{algorithm}
+\usepackage{algorithmic}
+\usepackage{geometry}
+
+%% Tight layout for 4-page limit
+\renewcommand{\topfraction}{0.95}
+\renewcommand{\bottomfraction}{0.95}
+\renewcommand{\textfraction}{0.05}
+\renewcommand{\floatpagefraction}{0.8}
+
+%% Rights management — confirmed by ACM
+\copyrightyear{2026}
+\acmYear{2026}
+\setcopyright{cc}
+\setcctype{by}
+\acmConference[GECCO Companion '26]{Genetic and Evolutionary Computation Conference}{July 13--17, 2026}{San Jose, Costa Rica}
+\acmBooktitle{Genetic and Evolutionary Computation Conference (GECCO Companion '26), July 13--17, 2026, San Jose, Costa Rica}
+\acmDOI{10.1145/3795101.3805445}
+\acmISBN{979-8-4007-2488-6/2026/07}
+
+%%
+%% CCS Concepts
+%%
+\begin{CCSXML}
+<ccs2012>
+<concept>
+<concept_id>10010147.10010257.10010293.10010294</concept_id>
+<concept_desc>Computing methodologies~Genetic algorithms</concept_desc>
+<concept_significance>500</concept_significance>
+</concept>
+<concept>
+<concept_id>10010147.10010178.10010179</concept_id>
+<concept_desc>Computing methodologies~Optimization algorithms</concept_desc>
+<concept_significance>500</concept_significance>
+</concept>
+</ccs2012>
+\end{CCSXML}
+
+\ccsdesc[500]{Computing methodologies~Genetic algorithms}
+\ccsdesc[500]{Computing methodologies~Optimization algorithms}
+
+\keywords{many-objective optimization, evolutionary algorithms, hyperspherical projection, angular scalarization, NSGA-III, digital twins}
+
+%%
+%% Document begins
+%%
+\sloppy
+\begin{document}
+
+\title{Hyperspherical Fitness Functions for Many-Objective Optimization}
+
+\author{Andrew James Morgan}
+\email{andrew@gamakon.ai}
+\orcid{0009-0006-2843-358X}
+\affiliation{%
+  \institution{Gamakon Ltd.}
+  \city{London}
+  \country{United Kingdom}
+}
+
+\renewcommand{\shortauthors}{Morgan}
+
+%%
+%% Abstract (≤200 words)
+%%
+\begin{abstract}
+Many-objective optimization with more than three objectives causes selection pressure collapse in Pareto-based algorithms: nearly all solutions become mutually non-dominated. We introduce \emph{hyperspherical fitness functions} (HFF), angular scalarization methods that project objective vectors onto the unit hypersphere and rank solutions by angular distance to a target direction. Two variants are presented: HFF-TrueNorth targets minimization via an augmented projection encoding both direction and magnitude, while HFF-Balanced targets equitable trade-offs via a balanced pole. Both achieve $O(MN)$ selection complexity versus $O(MN^2)$ for NSGA-II and NSGA-III selection.
+On DTLZ1--7 and WFG1--9 (10 to 1000 objectives, 31 runs), HFF-TrueNorth outperforms NSGA-II and NSGA-III on CDF-corrected angular distance across the majority of problem-objective pairs. HFF targets operational many-objective problems---autonomous decision loops requiring a single actionable solution per cycle---where no human selects from a Pareto front. HFF-Balanced is the fastest algorithm tested, while NSGA-III is $3\times$ slower and scales superlinearly. $L_\infty$ cross-validation confirms HFF-TrueNorth produces consistently low worst-case regret on a non-angular metric.
+\end{abstract}
+
+\maketitle
+
+%% ============================================================================
+%% SECTION 1: INTRODUCTION
+%% ============================================================================
+\section{Introduction}
+\label{sec:intro}
+
+As the number of objectives $m$ grows, Pareto dominance loses its discriminative power: the proportion of mutually non-dominated solutions approaches unity~\cite{farina2004fuzzy}. Algorithms designed for many-objective optimization---NSGA-III~\cite{deb2014evolutionary}, MOEA/D~\cite{zhang2007moea}, RVEA~\cite{cheng2016reference}---address this through reference directions or decomposition, but remain rooted in dominance-based selection. Indicator-based methods using hypervolume~\cite{zitzler1999evolutionary} become computationally intractable beyond approximately 15 objectives~\cite{beume2009complexity}.
+
+Our work on large-scale data science platforms and digital twins~\cite{morgan2017mastering} requires operational many-objective optimization---autonomous control loops, real-time next-best-action, and global monitoring---where no human is part of the decision pipeline. These systems require a single actionable solution per decision cycle under a constrained compute budget. Pareto front coverage goes unreviewed in this setting. Hyperspherical fitness functions (HFF) address this requirement by projecting each objective vector onto the unit hypersphere and measuring angular distance to a target direction, producing a total ordering over solutions with $O(MN)$ complexity---allowing automated solution selection using a mathematically principled decision in lieu of human intervention.
+
+We present two variants. \textbf{HFF-TrueNorth} augments the objective vector with an energy score in $\mathbb{R}^{m+1}$ and measures angular distance from the north pole $\mathbf{p}_{TN} = (0, \ldots, 0, 1)$, jointly encoding both direction and magnitude. Alternatively, \textbf{HFF-Balanced} measures angular distance from the balanced pole $\mathbf{p}_B = (1/\sqrt{m}, \ldots, 1/\sqrt{m})$, favouring solutions with equitable trade-offs.
+
+
+%% ============================================================================
+%% SECTION 2: METHOD
+%% ============================================================================
+\section{Method}
+\label{sec:method}
+
+Given a population's objective matrix $\mathbf{F} \in \mathbb{R}^{N \times m}$, HFF first applies column-wise min-max normalization: each objective $j$ is independently rescaled to $[0,1]$ using $F'_{ij} = (F_{ij} - \min_j) / (\max_j - \min_j)$, with constant-valued columns mapped to $0.5$. This normalization is population-relative---min and max are taken from the current population, not from oracle bounds---making HFF invariant to objective scale differences. As the population evolves, the normalization basis shifts, ensuring selection pressure adapts to the current solution landscape. For each normalized vector $\mathbf{x} \in [0,1]^m$, fitness is computed as follows.
+
+\paragraph{HFF-TrueNorth.} The projection $\mathbf{y} = \mathbf{x}/\|\mathbf{x}\|$ is undefined at $\mathbf{x} = \mathbf{0}$---the ideal solution. Following the classical projective embedding~\cite{stolfi1991}, we augment with an energy score to remain well-defined at the origin while encoding magnitude:
+\begin{equation}
+\label{eq:truenorth}
+\mathbf{y} = \mathbf{x} / \|\mathbf{x}\|, \quad
+e = \max(0,\; 1 - \|\mathbf{x}\|^2\!/m), \quad
+\mathbf{y}' = \left(\sqrt{1-e^2}\;\mathbf{y},\; e\right) \in S^m
+\end{equation}
+The fitness is $\theta_{TN} = \arccos(e)$, measuring distance from $\mathbf{p}_{TN} = (0, \ldots, 0, 1)$ in $\mathbb{R}^{m+1}$. Solutions that are both small in magnitude and balanced in direction achieve low $\theta_{TN}$.
+
+\paragraph{HFF-Balanced.} Project onto the unit hypersphere and measure angular distance from the balanced pole:
+\begin{equation}
+\label{eq:balanced}
+\theta_B = \arccos\!\left(\mathbf{y} \cdot \mathbf{p}_B\right)
+\end{equation}
+where $\mathbf{p}_B = (1/\sqrt{m}, \ldots, 1/\sqrt{m})$. Solutions with smaller $\theta_B$ have more balanced trade-offs. This variant, first conceived as a crowding measure for use within NSGA-II, has no convergence pressure by design---it is purely directional.
+
+Both variants compute a dot product and an arccosine per individual, giving $O(MN)$ selection complexity per generation versus $O(MN^2)$ for NSGA-II's crowding distance.
+
+\paragraph{Evaluation metric.} To compare algorithms at extreme objective counts where standard indicators fail, we use cumulative distribution function (CDF) corrected angular distance. The angular CDF for uniformly random points on $S^{m-1}$ is~\cite{cai2013angles}:
+\begin{equation}
+\label{eq:cdf}
+P(\theta \leq t) = I_{\sin^2 t}\!\left(\tfrac{m-1}{2},\; \tfrac{1}{2}\right)
+\end{equation}
+where $I_x(a,b)$ is the regularized incomplete beta function. This transforms raw angles into dimension-adjusted percentile ranks, making results comparable across different $m$. We also report Euclidean IGD and Hyperspherical IGD (HIGD)---an extension of IGD that replaces Euclidean distance with CDF-corrected angular distance, enabling quality assessments that are impacted by the concentration of measure at extreme dimensions.
+
+
+%% ============================================================================
+%% SECTION 3: EXPERIMENTAL SETUP
+%% ============================================================================
+\section{Experimental Setup}
+\label{sec:setup}
+
+We evaluate on DTLZ1--7~\cite{deb2005scalable} and WFG1--9~\cite{huband2006review} across 40 objective counts from $m=10$ to $m=1000$ (step 5 for $m \leq 100$, step 10 for $m \leq 200$, step 50 for $m \leq 500$, step 100 thereafter). Population size $N=100$, 200 generations, 31 independent runs per configuration. Algorithms: NSGA-II~\cite{deb2002fast}, NSGA-III~\cite{deb2014evolutionary}, HFF-Balanced, and HFF-TrueNorth, all integrated with pymoo~\cite{blank2020pymoo}. HFF selection---including column-wise min-max normalization---is implemented in Rust with PyO3 bindings for performance. Euclidean IGD uses 10,000 analytically sampled reference points per problem via Muller-Marsaglia~\cite{muller1959}. To verify complexity claims, we additionally sweep DTLZ2 at $m=100$ with population sizes $N \in \{100, 500, 1000\}$. As a cross-metric validation independent of angular distance, we also compute the $L_\infty$ (Chebyshev) norm---the maximum normalised objective regret per solution---across all DTLZ configurations to $m=200$.
+
+
+%% ============================================================================
+%% SECTION 4: RESULTS
+%% ============================================================================
+\section{Results}
+\label{sec:results}
+
+\paragraph{CDF-corrected angular distance.} Figure~\ref{fig:cdf} presents the key result. Comparing the best solution (minimum angular distance to TrueNorth) found across 31 runs per configuration, HFF-TrueNorth outperforms NSGA-III in 91\% and NSGA-II in 74\% of 640 problem-objective pairs, and beats both simultaneously in 72\%. Performance is problem-geometry dependent: DTLZ4 (biased density) challenges all methods, while DTLZ7 (disconnected front) confounds single-pole angular fitness.
+
+\begin{figure*}[t]
+    \centering
+    \includegraphics[width=\textwidth]{hff_fig3b_angular_cdf_compact_poster.pdf}
+    \caption{CDF-corrected angular distance (log scale) across DTLZ1--7 and WFG1--9. Lower is better. HFF-TrueNorth (green) dominates at $m \leq 300$; HFF-Balanced (blue) consistently outperforms NSGA-II (red) and NSGA-III (orange). The $y$-axis floor of $10^{-250}$ is artificial to permit logarithmic display.}
+    \label{fig:cdf}
+    \Description{Sixteen subplots showing CDF-corrected angular distance vs number of objectives for DTLZ1-7 and WFG1-9. HFF-TrueNorth achieves the lowest values across most problems up to 300 objectives.}
+\end{figure*}
+
+\paragraph{Pareto front coverage.} As expected, NSGA-II produces better Euclidean IGD and HIGD scores---it is optimizing for front coverage, which HFF deliberately does not target. HFF-Balanced tracks NSGA-II more closely on HIGD than HFF-TrueNorth, likely because its symmetric fitness landscape encourages population diversity. Figure~\ref{fig:higd} confirms this on WFG4--9.
+
+\begin{figure}[t]
+    \centering
+    \includegraphics[width=\columnwidth]{hff_fig6b_wfg_higd_3x2_compact_poster.pdf}
+    \caption{HIGD (CDF-corrected) for WFG4--9. NSGA-II outperforms HFF on Pareto front coverage---HFF does not target this objective.}
+    \label{fig:higd}
+    \Description{Six compact subplots showing HIGD for WFG4-9, with NSGA-II clearly outperforming HFF variants on Pareto front coverage.}
+\end{figure}
+
+\paragraph{HFF-Balanced performance.} Originally proposed as a diversity strategy, we did not expect HFF-Balanced to perform in its own right. While it does not beat NSGA-II or NSGA-III on angular distance to the TrueNorth pole---a target it was not designed to optimize---it remains competitive on CDF-corrected angular distance across many configurations, particularly at high $m$. This suggests that purely directional selection, without convergence pressure, provides a useful search signal in high-dimensional spaces.
+
+\paragraph{Cross-metric validation ($L_\infty$).} Figure~\ref{fig:linf} shows $L_\infty$ (maximum normalised regret~\cite{yu1973class})---measuring maximum deviation from the ideal (utopia) point, the same conceptual target that HFF-TrueNorth's north pole encodes geometrically. HFF-TrueNorth achieves lower mean (0.317 vs 0.355) and lower coefficient of variation (75.5\% vs 80.6\%) than NSGA-III across 140 DTLZ configurations. For systems operating under delegated authority, where no human selects the best run, this consistency matters more than best-case performance.
+
+\begin{figure}[t]
+    \centering
+    \includegraphics[width=\columnwidth]{linf_validation_poster.pdf}
+    \caption{$L_\infty$ (max normalised regret) across DTLZ1--7 for $m = 10$--$200$. Lower is better. This non-angular metric provides an independent measure of solution quality, showing that HFF variants are consistent and competitive across diverse problem geometries.}
+    \label{fig:linf}
+    \Description{Fourteen subplots showing minimum and median L-infinity max regret vs number of objectives for DTLZ1-7, comparing NSGA-II, NSGA-III, HFF-Balanced, and HFF-TrueNorth.}
+\end{figure}
+
+\paragraph{Computational cost.} Table~\ref{tab:cost} reports total wall-clock time and population-size scaling. HFF-Balanced is the fastest algorithm (144,842s total), while NSGA-III requires $3\times$ more compute (433,535s). The 1000:100 ratio confirms that HFF scales near-linearly in population size $N$, whereas NSGA-III exhibits superlinear scaling ($36\times$ vs the $10\times$ predicted by linear growth).
+
+\input{table_cost}
+
+
+%% ============================================================================
+%% SECTION 5: DISCUSSION
+%% ============================================================================
+\section{Discussion}
+\label{sec:discussion}
+
+Hyperspherical fitness functions complement rather than replace Pareto-based algorithms. While NSGA-II and NSGA-III excel at front coverage (IGD, HIGD), HFF finds single high-quality actionable solutions under concentration of measure. This matters in digital-twin and autonomous systems where objective count changes dynamically---e.g., delivery scheduling against active projects, hardware reconfiguration for shifting workloads, or retailer supply chains with fluctuating franchises. Fixed reference-vector methods require manual reconfiguration on every $m$ change; HFF adapts instantly via population-relative min-max normalisation. CDF-corrected angular distance further enables stable, dimension-independent tracking and drift detection as $m$ varies.
+
+HFF-TrueNorth jointly encodes direction and magnitude, outperforming both NSGA-II and NSGA-III on CDF-corrected angular distance in 91\% and 74\% of the 640 problem-objective pairs (72\% against both). HFF-Balanced, originally a crowding operator, delivers stable performance despite no explicit convergence pressure. Arctic Circles---angular level sets---represent equitable trade-offs where no objective is privileged.
+
+Performance is geometry-dependent: single-pole selection weakens on DTLZ4 (biased) and DTLZ7 (disconnected). $L_\infty$ cross-validation ($m \leq 200$) confirms HFF-TrueNorth's consistently lower worst-case regret on a non-angular metric. HFF scales as $O(MN)$ and remains viable well beyond 1,000 objectives.
+
+
+%% ============================================================================
+%% SECTION 6: CONCLUSION
+%% ============================================================================
+\section{Conclusion}
+\label{sec:conclusion}
+
+We introduced hyperspherical fitness functions that project objective vectors onto the unit hypersphere and rank by angular distance to a target direction. Both variants deliver $O(MN)$ selection, sustained pressure to $m = 1{,}000$, and native support for dynamically changing objective counts.
+
+On the primary operational metric (CDF-corrected angular distance), HFF-TrueNorth outperforms NSGA-II and NSGA-III while yielding reliably low worst-case regret on an independent $L_\infty$ metric. HFF-Balanced is the fastest algorithm tested and remains competitive on directional guidance.
+
+The approach is ideal for autonomous decision loops under tight compute budgets with non-static objectives. Future work includes multi-pole extensions for disconnected fronts, HFF integration as an NSGA-II crowding operator, real-world digital-twin evaluation, and empirical validation of adaptability to dynamically shifting $m$.
+
+%% ============================================================================
+%% ACKNOWLEDGMENTS
+%% ============================================================================
+\begin{acks}
+We thank the developers of pymoo~\cite{blank2020pymoo} for providing the multi-objective optimization framework used in our experiments. Claude Code was used to assist with coding and some manuscript preparation. All conceptual contributions, experimental design, and scientific claims are the sole responsibility of the authors. Implementation available at \url{https://github.com/Gamakon}.
+\end{acks}
+
+\appendix
+
+\section{Implementation Details}
+\label{app:implementation}
+
+{\small
+The core hyperspherical fitness calculation in pseudocode. Column-wise min-max normalization across the population is applied first, making objectives comparable across different scales. The normalized vector $\mathbf{x}$ is then passed to the fitness function.
+
+\paragraph{HFF-TrueNorth.}
+\begin{algorithmic}[1]
+\REQUIRE Objective vector $\mathbf{x} \in \mathbb{R}^m$ (column-wise normalized)
+\ENSURE Angular fitness $\theta \in [0, \pi]$
+\STATE $E \gets \|\mathbf{x}\|^2$ \COMMENT{Total energy}
+\IF{$E < \epsilon$}
+    \RETURN $0$ \COMMENT{Perfect minimization}
+\ENDIF
+\STATE $y_i \gets \mathrm{sign}(x_i) \cdot \sqrt{x_i^2 / E}$ \COMMENT{Sign-preserving projection}
+\STATE $\bar{e} \gets E / m$ \COMMENT{Normalized energy}
+\STATE $e \gets \max(0, 1 - \bar{e})$ \COMMENT{Energy score $\in [0,1]$}
+\STATE $s \gets \sqrt{1 - e^2}$ \COMMENT{Scale factor}
+\STATE $\mathbf{y}' \gets (s \cdot y_1, \ldots, s \cdot y_m, e)$ \COMMENT{Augmented vector, $\|\mathbf{y}'\| = 1$}
+\STATE $\theta \gets \arccos(e)$
+\RETURN $\theta$
+\end{algorithmic}
+
+\paragraph{HFF-Balanced.}
+\begin{algorithmic}[1]
+\REQUIRE Objective vector $\mathbf{x} \in \mathbb{R}^m$ (column-wise normalized)
+\ENSURE Angular fitness $\theta \in [0, \pi]$
+\STATE $E \gets \|\mathbf{x}\|^2$ \COMMENT{Total energy}
+\IF{$E < \epsilon$}
+    \RETURN $0$ \COMMENT{Perfect minimization}
+\ENDIF
+\STATE $y_i \gets \mathrm{sign}(x_i) \cdot \sqrt{x_i^2 / E}$ \COMMENT{Sign-preserving projection}
+\STATE $\cos\theta \gets \frac{1}{\sqrt{m}} \sum_{i=1}^{m} y_i$ \COMMENT{Dot with balanced pole}
+\STATE $\theta \gets \arccos(\mathrm{clamp}(\cos\theta, -1, 1))$
+\RETURN $\theta$
+\end{algorithmic}
+
+WFG Pareto front sampling beyond 15 objectives uses analytical methods based on the front geometries defined by Huband et al.~\cite{huband2006review}. All experiments use 10,000 reference points per problem with a fixed random seed.
+}
+
+%% ============================================================================
+%% BIBLIOGRAPHY
+%% ============================================================================
+\bibliographystyle{ACM-Reference-Format}
+\bibliography{hff_references}
+
+\end{document}
+

@@ -43,7 +43,10 @@ def calculate_fitness_hf1_enhanced(
 
     Args:
         objectives: (n_individuals, n_objectives) array.
-        normalize: Apply column-wise min-max normalization.
+        normalize: Apply column-wise min-max normalisation inside the Rust
+            core. Pass False when objectives are already bounded (e.g.
+            classification metrics in [0, 1]) — otherwise the column-best
+            individual is mapped to all-ones and collapses onto the pole.
         decrowding: Apply decrowding transform.
         north_pole_method: "balanced" or "truenorth".
 
@@ -55,10 +58,10 @@ def calculate_fitness_hf1_enhanced(
         objectives = objectives.reshape(1, -1)
     if objectives.shape[0] == 0:
         return np.array([])
-    if normalize:
-        objectives = _column_normalize(objectives)
+    # The Rust core handles its own normalisation when `normalize=True` —
+    # we no longer double-normalise in Python.
     return hff_core.calculate_hyperspherical_fitness_hf1_enhanced(
-        objectives, decrowding, north_pole_method
+        objectives, decrowding, north_pole_method, normalize
     )
 
 
