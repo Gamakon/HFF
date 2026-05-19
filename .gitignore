@@ -6,3 +6,12 @@ dist/
 *.dylib
 *.pyd
 .venv/
+.claude/
+.ipynb_checkpoints/
+
+# Notebook run artefacts (kept out of git on purpose)
+notebooks/data/*.png
+notebooks/data/numerical_expression_tree
+notebooks/data/wids_expression_tree
+notebooks/data/heart_cleveland.csv
+notebooks/v1.0.4_*.md

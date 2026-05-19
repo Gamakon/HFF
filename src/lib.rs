@@ -140,6 +140,11 @@ fn calculate_hyperspherical_fitness_hf1_f64(
 /// * `north_pole_method` - String specifying north pole method:
 ///   - "balanced": BalancedNorth Fitness - equal objective trade-offs (default)
 ///   - "truenorth": TrueNorth Fitness - direct minimization convergence
+/// * `normalize` - Whether to apply column-wise min-max normalisation
+///   internally (default `true`). Set to `false` when your objectives are
+///   already bounded (e.g. classification metrics in [0, 1]). Skipping
+///   normalisation also avoids the degenerate case where the column-best
+///   individual is mapped to all-ones and collapses onto the pole.
 ///
 /// # Returns
 ///
@@ -158,16 +163,19 @@ fn calculate_hyperspherical_fitness_hf1_f64(
 /// - Use case: Benchmark comparisons, absolute optimization
 #[cfg(feature = "python")]
 #[pyfunction]
+#[pyo3(signature = (objectives, decrowding=None, north_pole_method=None, normalize=None))]
 fn calculate_hyperspherical_fitness_hf1_enhanced(
     py: Python,
     objectives: PyReadonlyArray2<f64>,
     decrowding: Option<bool>,
     north_pole_method: Option<&str>,
+    normalize: Option<bool>,
 ) -> PyResult<Py<PyArray1<f64>>> {
     let objectives = objectives.as_array();
     let (n_individuals, n_objectives) = objectives.dim();
     let decrowding = decrowding.unwrap_or(false);
     let north_pole_method = north_pole_method.unwrap_or("balanced");
+    let normalize = normalize.unwrap_or(true);
 
     if n_individuals == 0 {
         return Ok(Array1::zeros(0).into_pyarray(py).to_owned());
@@ -216,9 +224,11 @@ fn calculate_hyperspherical_fitness_hf1_enhanced(
         None
     };
 
-    // CRITICAL: Column-wise min-max normalization before core calculation
-    let normalized_objectives = if n_individuals > 1 {
-        // Column-wise min-max normalization
+    // Optional column-wise min-max normalisation. Callers with already-bounded
+    // objectives (e.g. classification metrics in [0, 1]) should pass
+    // `normalize=False` — otherwise the column-best individual maps to
+    // all-ones and collapses onto the reference pole.
+    let normalized_objectives = if normalize && n_individuals > 1 {
         let mut normalized = objectives.to_owned();
         for j in 0..n_objectives {
             let column: Vec<f64> = (0..n_individuals)
@@ -242,7 +252,8 @@ fn calculate_hyperspherical_fitness_hf1_enhanced(
         }
         normalized
     } else {
-        // Single individual - no normalization possible
+        // Either the caller opted out, or there's a single individual
+        // (normalisation would be a no-op).
         objectives.to_owned()
     };
 

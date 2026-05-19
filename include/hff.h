@@ -42,11 +42,18 @@ int32_t hff_hf1_f64(
 );
 
 /*
- * HF1 enhanced -- performs column-wise min-max normalisation internally and
- * supports the two north-pole methods.
+ * HF1 enhanced -- supports both north-pole methods and optional column-wise
+ * min-max normalisation.
  *
  *   north_pole_method   null-terminated C string, "balanced" or "truenorth".
  *                       Pass NULL for "balanced".
+ *   normalize           0 to skip the internal column-wise min-max pass
+ *                       (use when objectives are already bounded, e.g.
+ *                       classification metrics in [0, 1]); non-zero to
+ *                       normalise. Skipping is recommended whenever the
+ *                       caller's input already fits a known dynamic range,
+ *                       since normalisation maps the column-best individual
+ *                       to all-ones and collapses it onto the reference pole.
  */
 int32_t hff_hf1_enhanced(
     const double* objectives,
@@ -54,6 +61,7 @@ int32_t hff_hf1_enhanced(
     size_t        n_objectives,
     int32_t       decrowding,
     const char*   north_pole_method,
+    int32_t       normalize,
     double*       out_fitness
 );
 

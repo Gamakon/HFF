@@ -163,6 +163,7 @@ pub unsafe extern "C" fn hff_hf1_enhanced(
     n_objectives: usize,
     decrowding: c_int,
     north_pole_method: *const c_char,
+    normalize: c_int,
     out_fitness: *mut f64,
 ) -> c_int {
     if objectives.is_null() || out_fitness.is_null() {
@@ -193,6 +194,7 @@ pub unsafe extern "C" fn hff_hf1_enhanced(
     let input = slice::from_raw_parts(objectives, n * m);
     let output = slice::from_raw_parts_mut(out_fitness, n);
     let decrowding = decrowding != 0;
+    let normalize = normalize != 0;
 
     let stats = if decrowding {
         population_stats_for_decrowding(input, n, m)
@@ -200,8 +202,16 @@ pub unsafe extern "C" fn hff_hf1_enhanced(
         None
     };
 
-    let mut normalized: Vec<f64> = input.to_vec();
-    min_max_normalize_rowmajor(&mut normalized, n, m);
+    // Optional column-wise min-max normalisation. Callers with already-bounded
+    // objectives should pass normalize=0 to skip — otherwise the column-best
+    // individual maps to all-ones and collapses onto the reference pole.
+    let normalized: Vec<f64> = if normalize {
+        let mut buf = input.to_vec();
+        min_max_normalize_rowmajor(&mut buf, n, m);
+        buf
+    } else {
+        input.to_vec()
+    };
 
     let results: Vec<f64> = (0..n)
         .into_par_iter()
@@ -351,6 +361,7 @@ mod tests {
                 m,
                 0,
                 method.as_ptr(),
+                1,                        // normalize
                 out_enh.as_mut_ptr(),
             );
             assert_eq!(r1, HFF_OK);
@@ -388,6 +399,7 @@ mod tests {
                 2,
                 0,
                 bad.as_ptr(),
+                1,                        // normalize
                 out.as_mut_ptr(),
             );
             assert_eq!(r, HFF_ERR_INVALID);
