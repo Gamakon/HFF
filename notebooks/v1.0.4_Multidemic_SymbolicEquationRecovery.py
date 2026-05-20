@@ -162,6 +162,14 @@ import hff
 import hff_geppy_helpers as hgh
 import equation_problems as eq
 
+# Optionally load the 120 Feynman SR benchmark equations into the
+# registry. Safe to skip on import failure — the built-in six still
+# work without it.
+try:
+    import feynman_problems  # noqa: F401  (extends eq.REGISTRY in place)
+except Exception as _e:
+    print(f"[warn] feynman_problems not loaded: {_e}")
+
 print(f"hff library OK (test fitness: {hgh.hff_fitness_regression([0.1]*6)})")
 print(f"registry: {list(eq.REGISTRY.keys())}")
 
