@@ -793,7 +793,14 @@ if settings.enable_linear_scaling:
 import sympy as _sp
 import equation_problems as _eq
 _symplified_raw = symplified_best
-_feynman, _rule = hgh.feynman_shape_rewrite(symplified_best, library=_eq.KNOWN_CONSTANTS)
+# Pass the user's input column names as problem_vars so the rewriter
+# knows what counts as a variable vs a snap-library constant. Without
+# this, library-named physical constants (G, M_sun, etc) get mistakenly
+# bucketed as variables and the rewrite collapses incorrectly.
+_feynman, _rule = hgh.feynman_shape_rewrite(
+    symplified_best, library=_eq.KNOWN_CONSTANTS,
+    problem_vars=finalTerminals,
+)
 if _rule is not None:
     print(f"Raw simplified form:        {_symplified_raw}")
     print(f"Feynman-shape rewrite ({_rule}):")
