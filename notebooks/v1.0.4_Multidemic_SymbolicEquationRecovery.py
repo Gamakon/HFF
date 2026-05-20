@@ -340,9 +340,14 @@ else:
 # %% [markdown]
 # ## 2.1 Primitive set + globals
 #
-# 🔴 **CONFIGURE HERE** — arithmetic + protected divide + sqrt by default.
-# `sqrt` is added because several registry problems (pendulum, keplers3)
-# legitimately involve a square root.
+# 🔴 **CONFIGURE HERE** — arithmetic + protected divide + sqrt + the
+# trig/exp/log functions that dominate the Feynman SR corpus.
+#
+# Motif mining across the 120 Feynman equations (see
+# ``motif_report.md``) shows the most-reused shapes after raw
+# arithmetic are: ``cos(x)`` (×13), ``sin(x)`` (×6), and exponential
+# Bose-factors. Adding these to the primitive set lets evolution build
+# physics-flavoured forms directly instead of polynomial approximations.
 
 # %%
 # CONFIGURE HERE
@@ -357,9 +362,39 @@ def protected_sqrt(x):
     return math.sqrt(abs(x)) if math.isfinite(x) else 0.0
 
 
+def protected_log(x):
+    """log(|x|), bottomed-out at log(eps) so the gene survives x→0."""
+    if not math.isfinite(x):
+        return 0.0
+    ax = abs(x)
+    return math.log(ax) if ax > 1e-30 else math.log(1e-30)
+
+
+def protected_exp(x):
+    """exp(x) clipped to keep the search finite under noisy intermediates."""
+    if not math.isfinite(x):
+        return 0.0
+    return math.exp(max(-50.0, min(50.0, x)))
+
+
 pset.add_function(protected_sqrt, 1)
+
+# 🔴 CONFIGURE HERE — set to True to expose the trig + exp/log primitives.
+# Off by default because they widen the search space significantly and slow
+# convergence on the simple built-in problems; ON when sweeping the Feynman
+# corpus, where ≈30 of 120 equations contain sin/cos/exp/log.
+USE_WIDE_PRIMITIVES = False
+_is_feynman_problem = PROBLEM_ID.startswith(("I_", "II_", "III_", "test_"))
+if USE_WIDE_PRIMITIVES or _is_feynman_problem:
+    pset.add_function(math.sin, 1)
+    pset.add_function(math.cos, 1)
+    pset.add_function(protected_exp, 1)
+    pset.add_function(protected_log, 1)
+    print(f"Wide primitive set enabled: sin, cos, exp, log added.")
+
 pset.add_rnc_terminal()
 experiment["final_terminal_inputs"] = finalTerminals
+experiment["wide_primitives"] = USE_WIDE_PRIMITIVES or _is_feynman_problem
 
 # %% [markdown]
 # ## 2.2 Fitness, genes, toolbox
@@ -700,6 +735,8 @@ CUSTOM_SYMBOLIC_FUNCTION_MAP = hgh.custom_symbolic_function_map()
 # math.sqrt(abs(x)) so we must mirror that here, otherwise sympy treats
 # sqrt(negative) as imaginary and ruins the discovered expression.
 CUSTOM_SYMBOLIC_FUNCTION_MAP["protected_sqrt"] = lambda x: sp.sqrt(sp.Abs(x))
+CUSTOM_SYMBOLIC_FUNCTION_MAP["protected_exp"]  = sp.exp
+CUSTOM_SYMBOLIC_FUNCTION_MAP["protected_log"]  = lambda x: sp.log(sp.Abs(x))
 
 raw_gene_sym = gep.simplify(best_ind, symbolic_function_map=CUSTOM_SYMBOLIC_FUNCTION_MAP)
 

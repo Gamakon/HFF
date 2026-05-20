@@ -67,11 +67,26 @@ KNOWN_CONSTANTS = {
     "R":            8.314462618,           # ideal gas constant
     "g":            9.80665,               # standard gravity
 
-    # Composite constants commonly appearing in physics laws:
+    # Composite constants commonly appearing in physics laws. The
+    # frequency hints come from notebooks/motif_report.md (Feynman SR
+    # benchmark mining); top non-trivial constants are π, 1/π, √2,
+    # 1/√π. Added here so the snap library catches them directly
+    # rather than reconstructing from individual library entries.
+    "1_over_pi":    1 / sp.pi,
+    "1_over_sqpi":  1 / sp.sqrt(sp.pi),
+    "sqrt_pi":      sp.sqrt(sp.pi),
     "2pi":          2 * sp.pi,
     "4pi":          4 * sp.pi,
     "4pi_sq":       4 * sp.pi ** 2,
+    "8pi":          8 * sp.pi,
     "2pi_over_sqg": 2 * sp.pi / sp.sqrt(sp.Float(9.80665)),
+    "h_over_2pi":   6.62607015e-34 / (2 * sp.pi),    # ħ — reduced Planck
+    "1_over_4pi_eps0": 8.9875517923e9,               # k_e in Coulomb form
+
+    # NOTE: variable-bearing motifs (Lorentz factor 1/√(1−v²/c²),
+    # Bose denominator exp(hf/kT)−1) live elsewhere — they would need
+    # a different snap mechanism (pattern matching, not scalar matching).
+    # Tracked as a research extension; not in the current scalar library.
 }
 
 
