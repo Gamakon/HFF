@@ -15,3 +15,9 @@ notebooks/data/numerical_expression_tree
 notebooks/data/wids_expression_tree
 notebooks/data/heart_cleveland.csv
 notebooks/v1.0.4_*.md
+notebooks/data/equations/
+!notebooks/data/equations/feynman/      # but keep the vendored Feynman CSVs
+notebooks/data/figures/
+notebooks/sweep.log
+notebooks/circle_test.log
+notebooks/_test_feynman_load.py          # smoke test, not a source artefact

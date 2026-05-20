@@ -175,9 +175,13 @@ def custom_symbolic_function_map():
         operator.abs.__name__: operator.abs,
         operator.floordiv.__name__: operator.floordiv,
         operator.truediv.__name__: operator.truediv,
-        "protected_div_zero": operator.truediv,
-        "protected_div_one": operator.truediv,
-        "protected_div_orig": operator.truediv,
+        # Wrap divides so gep.simplify doesn't crash when the constant
+        # folder picks up a 0 denominator (e.g. ``protected_div_zero(x, x-x)``).
+        # The runtime versions all guard against this; the symbolic
+        # versions need to too.
+        "protected_div_zero": lambda a, b: a / b if b != 0 else sp.Integer(0),
+        "protected_div_one":  lambda a, b: a / b if b != 0 else sp.Integer(1),
+        "protected_div_orig": lambda a, b: a / b if b != 0 else a,
         math.log.__name__: sp.log,
         math.sin.__name__: sp.sin,
         math.cos.__name__: sp.cos,
@@ -816,3 +820,515 @@ def holdout_higd_diagnostic(
         seed=settings.higd_seed,
         positive_orthant=False,
     )
+
+
+# -----------------------------------------------------------------------------
+# Constant snapping for equation recovery
+# -----------------------------------------------------------------------------
+#
+# When evolution fits a symbolic regression model whose underlying truth is
+# a known equation like F = G·m1·m2/r², the LSM-fitted constant `a` ends up
+# close to G but not exactly equal. We "snap" numeric constants in the
+# simplified expression to known physical constants when they agree to a
+# configurable relative tolerance.
+#
+# Pipeline (called from the equation-recovery notebook):
+#   1. gep.simplify(individual) -> sympy expression for the gene
+#   2. Compose with the linear scaling: a * gene + b
+#   3. sympy.simplify on the composition  -- catches (√π)² → π
+#   4. sympy.nsimplify in "shallow" mode -- catches obvious closed forms
+#      (π, e, √2) at rationals up to 1/2, 1/3, 1/4, 2/3, 3/4
+#   5. Walk the resulting expression tree; for every numeric atom, find
+#      the closest match in the user-supplied constants library across
+#      these candidate forms (in order): c, -c, 1/c, -1/c, c², -c², √c,
+#      -√c, 1/c², 1/√c, plus shallow rationals scaling each. First hit
+#      within the relative-error tolerance wins.
+#   6. Optional final sympy.simplify to collapse anything snapping
+#      revealed.
+#
+# Returns the simplified-and-snapped sympy expression plus a per-constant
+# report (what was snapped, what the rel_err was, and for unmatched
+# atoms the three closest candidates).
+
+
+_SHALLOW_RATIONALS = (
+    1, 2, 3, 4,                # integers
+    1.0 / 2, 1.0 / 3, 1.0 / 4, # halves, thirds, quarters
+    2.0 / 3, 3.0 / 4,
+)
+
+
+def _candidate_forms(c: float):
+    """Generate candidate values for matching a numeric atom against a
+    library constant ``c``.
+
+    Order matters — simpler forms first so they win ties. Yields
+    (candidate_value, label, complexity).
+    """
+    if c == 0:
+        return
+    yield (c,        "c",      1)
+    yield (-c,       "-c",     1)
+    yield (1.0 / c,  "1/c",    2)
+    yield (-1.0 / c, "-1/c",   2)
+    yield (c * c,    "c**2",   2)
+    yield (-c * c,   "-c**2",  2)
+    if c > 0:
+        s = math.sqrt(c)
+        yield (s,    "sqrt(c)",  2)
+        yield (-s,   "-sqrt(c)", 2)
+    if c != 0:
+        yield (1.0 / (c * c), "1/c**2", 3)
+        if c > 0:
+            yield (1.0 / math.sqrt(c), "1/sqrt(c)", 3)
+    # mixed-with-rationals — c × {1/2, 1/3, …}
+    for q in _SHALLOW_RATIONALS:
+        if q == 1:
+            continue
+        for sign in (+1, -1):
+            yield (sign * q * c, f"{sign:+d}*{q}*c", 3)
+            if c > 0:
+                yield (sign * q * math.sqrt(c), f"{sign:+d}*{q}*sqrt(c)", 4)
+
+
+def _best_snap(x: float, library: dict, rel_tol: float):
+    """Find the best library candidate for the numeric atom *x*.
+
+    Returns ``(name, sympy_expr, rel_err, label)`` if a match within
+    rel_tol exists, else returns ``None`` plus the three closest
+    candidates as ``(_, [(name, rel_err, label), ...])``.
+    """
+    import sympy as sp
+
+    if x == 0:
+        return None, []
+
+    candidates = []
+    for name, c_val in library.items():
+        c_float = float(c_val) if isinstance(c_val, (int, float, sp.Float, sp.Integer, sp.Rational)) else float(sp.N(c_val))
+        for cand_val, label, complexity in _candidate_forms(c_float):
+            if cand_val == 0:
+                continue
+            rel = abs(x - cand_val) / abs(cand_val)
+            candidates.append((name, label, rel, complexity, c_val))
+
+    if not candidates:
+        return None, []
+
+    # Sort by (rel_err, complexity) — closest match first, simpler form on ties.
+    candidates.sort(key=lambda t: (t[2], t[3]))
+    best = candidates[0]
+    if best[2] <= rel_tol:
+        name, label, rel, complexity, c_sym = best
+        snapped = _label_to_sympy(label, c_sym)
+        return (name, snapped, rel, label), candidates[:3]
+    return None, candidates[:3]
+
+
+def _label_to_sympy(label: str, c_sym):
+    """Translate a candidate label ("c", "-1/c", "sqrt(c)", "+1*0.5*c", ...)
+    into a sympy expression substituting *c_sym* for c."""
+    import sympy as sp
+
+    c = c_sym if isinstance(c_sym, sp.Expr) else sp.nsimplify(c_sym, rational=False)
+    # Simple forms
+    table = {
+        "c": c, "-c": -c,
+        "1/c": 1 / c, "-1/c": -1 / c,
+        "c**2": c**2, "-c**2": -c**2,
+        "sqrt(c)": sp.sqrt(c), "-sqrt(c)": -sp.sqrt(c),
+        "1/c**2": 1 / c**2, "1/sqrt(c)": 1 / sp.sqrt(c),
+    }
+    if label in table:
+        return table[label]
+    # Composite "+1*0.5*c" or "-1*0.5*sqrt(c)"
+    # Parse: sign * q * (c | sqrt(c))
+    parts = label.split("*")
+    sign = 1 if parts[0].startswith("+") else -1
+    q = float(parts[1])
+    if "sqrt" in label:
+        return sign * sp.Rational(q).limit_denominator(20) * sp.sqrt(c)
+    return sign * sp.Rational(q).limit_denominator(20) * c
+
+
+def _prune_tiny_additive(expr, rel_tol: float = 1e-3, seed: int = 0):
+    """Drop additive terms whose typical magnitude is negligible compared
+    to the dominant variable-bearing term.
+
+    Sums like ``π·r² + (−2·E + √3·π)`` need TWO things done:
+      1. Group the *numeric* (no-free-symbols) Add terms together so
+         cancellations like ``−2·E + √3·π ≈ 0.005`` are recognised as a
+         single combined constant.
+      2. Evaluate each variable-bearing Add term at random probe points
+         in the unit domain and use the largest median magnitude as
+         reference scale.
+
+    The combined numeric constant survives if its absolute value exceeds
+    ``rel_tol × reference_magnitude``; otherwise it is dropped.
+    Variable-bearing terms are individually scored the same way.
+    """
+    import sympy as sp
+
+    if not isinstance(expr, sp.Add):
+        return expr
+
+    var_terms = [t for t in expr.args if t.free_symbols]
+    const_terms = [t for t in expr.args if not t.free_symbols]
+
+    free_syms = sorted(expr.free_symbols, key=lambda s: s.name)
+    rng = np.random.default_rng(seed)
+    n_probe = 64
+    sample = {s: rng.uniform(0.5, 5.0, size=n_probe) for s in free_syms}
+
+    var_mags = []
+    for t in var_terms:
+        try:
+            fn = sp.lambdify(free_syms, t, modules="numpy")
+            vals = np.asarray(fn(*[sample[s] for s in free_syms]), dtype=np.float64)
+            var_mags.append(float(np.median(np.abs(vals))))
+        except Exception:
+            var_mags.append(float("inf"))
+
+    # Combine numeric constants into a single bag; cancellations become
+    # visible numerically. Substituting them back symbolically keeps the
+    # presentation faithful when they survive.
+    if const_terms:
+        combined_sym = sp.Add(*const_terms)
+        try:
+            combined_val = abs(float(combined_sym))
+        except (TypeError, ValueError):
+            combined_val = float("inf")
+    else:
+        combined_sym = None
+        combined_val = 0.0
+
+    ref = max(var_mags) if var_mags else combined_val
+    if not math.isfinite(ref) or ref == 0:
+        return expr
+
+    threshold = rel_tol * ref
+    kept_var = [t for t, m in zip(var_terms, var_mags) if m > threshold]
+    keep_const = combined_val > threshold
+
+    pieces = list(kept_var)
+    if keep_const and combined_sym is not None:
+        pieces.append(combined_sym)
+
+    if not pieces:
+        return sp.Integer(0)
+    if len(pieces) == len(expr.args) and keep_const:
+        # nothing dropped; keep the original tree
+        return expr
+    if len(pieces) == 1:
+        return pieces[0]
+    return sp.Add(*pieces)
+
+
+def snap_constants(
+    expr,
+    library: dict,
+    rel_tol: float = 1e-3,
+    nsimplify_mode: str = "shallow",
+    verbose: bool = True,
+):
+    """Snap numeric atoms in a sympy expression to known library constants.
+
+    *expr*           sympy expression (or anything ``sympify`` accepts).
+    *library*        ``{"name": value}``. Values can be floats or sympy.
+    *rel_tol*        relative tolerance for accepting a snap (default 1e-3).
+    *nsimplify_mode* "shallow" runs nsimplify with [pi, E, sqrt(2)] as
+                     rational-coefficient candidates; "none" skips it;
+                     "deep" lets nsimplify explore freely (slower, more
+                     speculative).
+    *verbose*        print a per-atom snap report.
+
+    Returns ``(snapped_expr, report)`` where report is a list of dicts
+    capturing what was matched and what near-misses were considered.
+    """
+    import sympy as sp
+
+    expr = sp.sympify(expr)
+
+    # 1. Optional sympy simplify — only safe when the expression has no
+    # very small floats, since sp.simplify can collapse e.g. 6.671e-11 to 0.
+    # We try it, but only keep the simplification if no Float atoms vanished.
+    if nsimplify_mode != "none":
+        try:
+            simplified = sp.simplify(expr)
+            atoms_before = set(expr.atoms(sp.Float))
+            atoms_after = set(simplified.atoms(sp.Float))
+            # If the simplify lost any tiny Float (magnitude < 1e-3 in
+            # absolute terms) treat it as a destructive collapse and skip.
+            lost_tiny = any(abs(float(a)) < 1e-3 for a in atoms_before - atoms_after)
+            if not lost_tiny:
+                expr = simplified
+        except Exception:
+            pass
+
+    # 1b. Collapse constant subtrees into single Float atoms. Without this
+    # step, ``1.158·√3·√L`` stays as three separate symbolic factors and
+    # the snap can't see the implied 2.006 coefficient. With it,
+    # ``Float(1.158)·sqrt(3)`` → ``Float(2.006)`` and snapping proceeds.
+    try:
+        def _is_pure_constant_subtree(node):
+            if node.is_Symbol:
+                return False
+            if not node.args:
+                return False
+            return node.is_constant() and not any(s.is_Symbol for s in node.free_symbols)
+        expr = expr.replace(_is_pure_constant_subtree, lambda n: sp.Float(n.evalf()))
+    except Exception:
+        pass
+
+    # 2. Library snap. The library typically includes pi, E, plus physical
+    # constants like G. _best_snap walks each library entry through every
+    # candidate form (±c, ±1/c, c², ±√c, shallow rationals × c) and picks
+    # the simplest within tolerance. This replaces the previous nsimplify
+    # approach which was too generous (matched 3.0 to E/3 + 2π/3).
+    report = []
+    subs = {}
+    for atom in list(expr.atoms(sp.Float)):
+        x = float(atom)
+        result, top = _best_snap(x, library, rel_tol)
+        if result is not None:
+            name, sym, rel, label = result
+            subs[atom] = sym
+            report.append({
+                "atom": x,
+                "matched_to": name,
+                "form": label,
+                "rel_err": rel,
+                "snapped_to": sym,
+                "status": "matched",
+            })
+        else:
+            report.append({
+                "atom": x,
+                "matched_to": None,
+                "rel_err": None,
+                "snapped_to": None,
+                "status": "unmatched",
+                "nearest": [
+                    {"name": n, "form": l, "rel_err": r}
+                    for n, l, r, *_ in top
+                ],
+            })
+
+    if subs:
+        expr = expr.xreplace(subs)
+        try:
+            expr = sp.simplify(expr)
+        except Exception:
+            pass
+
+    # Prune tiny additive residuals (the "+ ε" that LSM leaves behind when
+    # the gene's constants don't exactly equal the truth's symbolic ones).
+    # Only top-level Add terms are considered; constants buried inside
+    # products are left alone because there they multiply, not add, and
+    # small multipliers can be meaningful (G = 6.7e-11 etc).
+    expr = _prune_tiny_additive(expr, rel_tol=rel_tol)
+
+    if verbose:
+        print(f"Constant snap report (rel_tol = {rel_tol:.0e}, mode = {nsimplify_mode})")
+        if not report:
+            print("  (no numeric atoms to snap)")
+        for r in report:
+            if r["status"] == "matched":
+                print(f"  {r['atom']:>14.6g}  →  {r['matched_to']}  "
+                      f"({r['form']}, rel_err {r['rel_err']:.1e})  ★")
+            else:
+                near = r.get("nearest", [])[:3]
+                nearest_txt = ", ".join(
+                    f"{n['name']} ({n['form']}) rel_err {n['rel_err']:.1e}"
+                    for n in near
+                )
+                print(f"  {r['atom']:>14.6g}  →  (unmatched — nearest: {nearest_txt})")
+
+    return expr, report
+
+
+def snap_levels(
+    expr,
+    library: dict,
+    levels: dict | None = None,
+):
+    """Snap *expr* at three tolerance levels and return all three.
+
+    Default levels (override by passing your own dict):
+        strict:     rel_tol = 1e-4  (only snap on 4 sig-figs agreement)
+        default:    rel_tol = 1e-3  (the documented setting)
+        aggressive: rel_tol = 1e-2  (accept anything within 1 percent)
+
+    Returns ``{level_name: (snapped_expr, snap_report)}``. Use
+    :func:`score_snap_levels` to rank them by holdout MSE.
+    """
+    if levels is None:
+        levels = {
+            "strict":     1e-4,
+            "default":    1e-3,
+            "aggressive": 1e-2,
+        }
+    out = {}
+    for name, tol in levels.items():
+        snapped, rep = snap_constants(
+            expr, library=library, rel_tol=tol,
+            nsimplify_mode="shallow", verbose=False,
+        )
+        out[name] = (snapped, rep)
+    return out
+
+
+def score_snap_levels(
+    level_results: dict,
+    holdout_df: "pd.DataFrame",
+    target: str,
+    variables: Sequence[str],
+):
+    """Evaluate each snap level's expression on a holdout DataFrame.
+
+    Returns a ranked list of dicts:
+        [{"level": ..., "expr": ..., "mse": ..., "r2": ...}, ...]
+    sorted by MSE ascending (best first). Levels whose expression fails
+    to evaluate are reported with ``mse=inf``.
+    """
+    import sympy as sp
+    from sklearn.metrics import mean_squared_error, r2_score
+
+    syms = [sp.Symbol(v) for v in variables]
+    y_true = holdout_df[target].values.astype(np.float64)
+    inputs = [holdout_df[v].values.astype(np.float64) for v in variables]
+
+    scored = []
+    for name, (expr, _report) in level_results.items():
+        try:
+            fn = sp.lambdify(syms, _strip_abs_positive_domain(expr), modules="numpy")
+            y_pred = np.asarray(fn(*inputs), dtype=np.float64)
+            mask = np.isfinite(y_pred)
+            if mask.sum() < len(y_true) / 2:
+                scored.append({"level": name, "expr": expr, "mse": float("inf"),
+                               "r2": float("nan"), "note": "non-finite predictions"})
+                continue
+            mse = float(mean_squared_error(y_true[mask], y_pred[mask]))
+            r2 = float(r2_score(y_true[mask], y_pred[mask]))
+            scored.append({"level": name, "expr": expr, "mse": mse, "r2": r2, "note": ""})
+        except Exception as e:
+            scored.append({"level": name, "expr": expr, "mse": float("inf"),
+                           "r2": float("nan"), "note": f"{type(e).__name__}: {e}"})
+    scored.sort(key=lambda r: r["mse"])
+    return scored
+
+
+def print_snap_level_comparison(scored: list[dict]):
+    """Print the snap-level scorecard."""
+    print("\nSnap-level comparison (sorted by holdout MSE, lowest first)")
+    print("-" * 90)
+    print(f"  {'level':<11} {'MSE':<14} {'R²':<10} {'expression':<50}")
+    print("-" * 90)
+    for r in scored:
+        winner_marker = "★ " if r is scored[0] else "  "
+        mse_s = f"{r['mse']:.4g}" if math.isfinite(r["mse"]) else "inf"
+        r2_s = f"{r['r2']:.4f}" if not math.isnan(r["r2"]) else "—"
+        expr_s = str(r["expr"])[:50]
+        print(f"{winner_marker}{r['level']:<11} {mse_s:<14} {r2_s:<10} {expr_s:<50}")
+        if r.get("note"):
+            print(f"               note: {r['note']}")
+    print(f"\nWinning snap level: {scored[0]['level']!r}  →  {scored[0]['expr']}")
+
+
+def _strip_abs_positive_domain(expr):
+    """Replace ``Abs(x)`` with ``x`` for the purposes of structural
+    comparison against a truth that doesn't assume positive inputs.
+
+    Our registry problems all have positive input domains, but
+    ``protected_sqrt`` maps to ``sqrt(Abs(x))`` so the discovered
+    expression carries an ``Abs`` that sympy refuses to remove. Stripping
+    it for structural comparison is sound when we KNOW the domain is
+    positive.
+    """
+    import sympy as sp
+    return expr.replace(sp.Abs, lambda x: x)
+
+
+def equation_recovery_report(
+    discovered_expr,
+    truth_expr,
+    variables: Sequence[str],
+    rel_tol_numeric: float = 1e-6,
+    n_samples: int = 10000,
+    seed: int = 0,
+    var_ranges: dict | None = None,
+):
+    """Compare a discovered sympy expression against a known truth.
+
+    Returns a dict with:
+      - ``exact``: True if sympy.simplify(discovered - truth) == 0
+      - ``numerical``: True if the two expressions agree to rel_tol_numeric
+        on random samples drawn from var_ranges (or [0.1, 10] each).
+      - ``max_rel_err``: worst relative error seen across the sample.
+
+    Use the truth expression you've stored in the problem registry.
+    """
+    import sympy as sp
+
+    discovered = sp.sympify(discovered_expr)
+    truth = sp.sympify(truth_expr)
+    syms = [sp.Symbol(v) for v in variables]
+
+    # Structural check — strip Abs() from discovered before comparing
+    # because protected_sqrt → sqrt(Abs(x)) and sympy can't prove
+    # Abs(x) == x without a positive-domain assumption. We also accept
+    # a "near-zero" diff because Float arithmetic between LSM-fitted
+    # constants and library entries can leave a residual O(1e-15) over
+    # symbolic factors.
+    exact = False
+    try:
+        diff = sp.simplify(_strip_abs_positive_domain(discovered) - truth)
+        if diff == 0:
+            exact = True
+        else:
+            # If the diff is a pure number times symbolic factors, the
+            # numeric coefficient must be ~0 for the expressions to be
+            # equal. Otherwise check if all numerical coefficients of
+            # the diff are < 1e-12.
+            try:
+                free_syms = sorted(diff.free_symbols, key=lambda s: s.name)
+                if free_syms:
+                    fn = sp.lambdify(free_syms, diff, modules="numpy")
+                    probe = [np.ones(8) * v for v in (0.5, 1.0, 2.0, 5.0)]
+                    # Evaluate at probe points
+                    vals = []
+                    for vp in probe:
+                        vals.append(float(np.max(np.abs(fn(*[vp] * len(free_syms))))))
+                    if max(vals) < 1e-12:
+                        exact = True
+                else:
+                    if abs(float(diff)) < 1e-12:
+                        exact = True
+            except Exception:
+                pass
+    except Exception:
+        pass
+
+    # Numerical check
+    rng = np.random.default_rng(seed)
+    ranges = var_ranges or {v: (0.1, 10.0) for v in variables}
+    samples = {v: rng.uniform(*ranges[v], size=n_samples) for v in variables}
+
+    try:
+        f_disc = sp.lambdify(syms, discovered, modules="numpy")
+        f_true = sp.lambdify(syms, truth, modules="numpy")
+        y_disc = np.asarray(f_disc(*[samples[v] for v in variables]), dtype=np.float64)
+        y_true = np.asarray(f_true(*[samples[v] for v in variables]), dtype=np.float64)
+        mask = np.isfinite(y_disc) & np.isfinite(y_true) & (np.abs(y_true) > 1e-30)
+        rel = np.abs(y_disc[mask] - y_true[mask]) / np.abs(y_true[mask])
+        max_rel = float(rel.max()) if rel.size else float("inf")
+        numerical = max_rel < rel_tol_numeric
+    except Exception as e:
+        max_rel = float("inf")
+        numerical = False
+
+    return {
+        "exact": exact,
+        "numerical": numerical,
+        "max_rel_err": max_rel,
+    }
