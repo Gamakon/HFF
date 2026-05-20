@@ -149,8 +149,29 @@ import pandas as pd
 import multiprocess as mp
 
 from deap import creator, base, tools
+
+# Headless detection — when running as a script there's no display, so
+# switch matplotlib to Agg BEFORE importing pyplot. Plot helper saves
+# figures under data/figures/classification/.
+HEADLESS = (not sys.stdout.isatty()) or bool(os.environ.get("HFF_HEADLESS"))
+if HEADLESS:
+    import matplotlib
+    matplotlib.use("Agg")
+
 import matplotlib.pyplot as plt
 import seaborn as sns
+
+
+def _save_or_show(name: str, fig_dir: str = "data/figures/classification"):
+    """Save the current figure when headless; show() interactively otherwise."""
+    if HEADLESS:
+        os.makedirs(fig_dir, exist_ok=True)
+        path = os.path.join(fig_dir, f"{name}.png")
+        plt.savefig(path, dpi=110, bbox_inches="tight")
+        plt.close()
+        print(f"  saved figure → {path}")
+    else:
+        plt.show()
 
 from sklearn.metrics import (
     accuracy_score, f1_score, roc_auc_score, roc_curve, auc,
@@ -343,7 +364,7 @@ yourData[target_col].value_counts().plot(kind="bar")
 plt.title("Target distribution (Heart Disease, Cleveland)")
 plt.xlabel(target_col)
 plt.ylabel("count")
-plt.show()
+_save_or_show("eda_target_distribution")
 
 # %% [markdown]
 # # 2. Design
@@ -1092,7 +1113,7 @@ pyplot.xlabel("False positive rate")
 pyplot.ylabel("True positive rate")
 pyplot.title(f"Holdout ROC — best HOF model ({settings.north_pole_method})")
 pyplot.legend(loc="lower right")
-pyplot.show()
+_save_or_show("holdout_roc")
 
 # %% [markdown]
 # ### 4.3.2 Precision–Recall curve
@@ -1107,7 +1128,7 @@ pyplot.ylabel("Precision")
 pyplot.title("Holdout Precision–Recall curve")
 pyplot.xlim(0, 1)
 pyplot.ylim(0, 1.02)
-pyplot.show()
+_save_or_show("precision_recall")
 
 # %% [markdown]
 # ### 4.3.3 Confusion matrix (holdout)
@@ -1120,7 +1141,7 @@ sns.heatmap(cm, annot=True, fmt="d", cbar=False, cmap="Blues")
 pyplot.xlabel("predicted")
 pyplot.ylabel("actual")
 pyplot.title(f"Confusion matrix — holdout (threshold = {best_threshold:.3f})")
-pyplot.show()
+_save_or_show("confusion_matrix")
 
 # %% [markdown]
 # ### 4.3.4 Predicted probability distribution by true class
@@ -1141,7 +1162,7 @@ pyplot.xlabel("predicted probability of positive")
 pyplot.ylabel("count")
 pyplot.title("Holdout probability distribution by true class")
 pyplot.legend()
-pyplot.show()
+_save_or_show("prob_distribution_by_class")
 
 # %% [markdown]
 # ### 4.3.5 Train vs Holdout probability distributions — overfit check
@@ -1161,7 +1182,7 @@ pyplot.xlabel("predicted probability")
 pyplot.ylabel("count")
 pyplot.title("Overfit check: predicted probabilities, train (blue) vs holdout (green)")
 pyplot.legend()
-pyplot.show()
+_save_or_show("overfit_train_vs_holdout")
 
 # %% [markdown]
 # # 5. Deployment
@@ -1221,7 +1242,15 @@ for bar, val in zip(ax.containers, [base, ours]):
         ax.annotate(f"{v:.2f}", xy=(rect.get_x() + rect.get_width() / 2, v),
                     xytext=(0, 3), textcoords="offset points",
                     ha="center", fontsize=9)
-plt2.show()
+# plt2 is just `import matplotlib.pyplot as plt2` — same backend Agg if HEADLESS.
+if HEADLESS:
+    os.makedirs("data/figures/classification", exist_ok=True)
+    path = "data/figures/classification/business_value.png"
+    plt2.savefig(path, dpi=110, bbox_inches="tight")
+    plt2.close()
+    print(f"  saved figure → {path}")
+else:
+    plt2.show()
 
 # %% [markdown]
 # ## 5.2 Next Steps: Implementation
@@ -1349,3 +1378,12 @@ print(json.dumps(experiment, sort_keys=False, indent=4, default=str))
 # [DEAP](https://github.com/DEAP/deap),
 # [PyO3](https://github.com/PyO3/pyo3) and
 # [maturin](https://github.com/PyO3/maturin).
+
+# %%
+# Clean pool shutdown — avoids the pickle-teardown race in script mode.
+if HEADLESS and "pool" in dir() and pool is not None:
+    try:
+        pool.close()
+        pool.join()
+    except Exception:
+        pass

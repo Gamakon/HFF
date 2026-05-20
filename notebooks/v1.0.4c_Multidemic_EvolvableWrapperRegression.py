@@ -191,11 +191,30 @@ import pandas as pd
 import multiprocess as mp
 
 from deap import creator, base, tools
+
+# Headless detection — same pattern as the other v1.0.4 notebooks.
+HEADLESS = (not sys.stdout.isatty()) or bool(os.environ.get("HFF_HEADLESS"))
+if HEADLESS:
+    import matplotlib
+    matplotlib.use("Agg")
+
 import matplotlib.pyplot as plt
 import seaborn as sns
 
 import hff
 import hff_geppy_helpers as hgh
+
+
+def _save_or_show(name: str, fig_dir: str = "data/figures/wrapper_regression"):
+    """Save the current figure when headless; show() interactively otherwise."""
+    if HEADLESS:
+        os.makedirs(fig_dir, exist_ok=True)
+        path = os.path.join(fig_dir, f"{name}.png")
+        plt.savefig(path, dpi=110, bbox_inches="tight")
+        plt.close()
+        print(f"  saved figure → {path}")
+    else:
+        plt.show()
 
 print(f"hff library OK (test fitness: {hgh.hff_fitness_regression([0.1]*5)})")
 
@@ -310,7 +329,7 @@ experiment["splits"] = {"train": len(train), "validation": len(validation), "hol
 
 # %%
 sns.pairplot(data=train, vars=yourSymbols)
-plt.show()
+_save_or_show("eda_pairplot")
 
 # %% [markdown]
 # # 2. Design
@@ -1053,7 +1072,7 @@ pyplot.rcParams["figure.figsize"] = [20, 11]
 pyplot.plot(holdout_Yp[startrow:endrow])      # predictions = blue
 pyplot.plot(holdout_Yt[startrow:endrow])      # actuals = orange
 pyplot.title("Holdout: predicted (blue) vs actual (orange)")
-pyplot.show()
+_save_or_show("holdout_pred_vs_actual_tail100")
 
 # %% [markdown]
 # Zoom in on a middle slice
@@ -1066,7 +1085,7 @@ pyplot.rcParams["figure.figsize"] = [20, 11]
 pyplot.plot(holdout_Yp[startrow:endrow])
 pyplot.plot(holdout_Yt[startrow:endrow])
 pyplot.title(f"Holdout zoom (rows {startrow}..{endrow}): predicted (blue) vs actual (orange)")
-pyplot.show()
+_save_or_show("holdout_pred_vs_actual_zoom")
 
 # %% [markdown]
 # ### 4.3.2 Histogram of holdout prediction errors
@@ -1079,7 +1098,7 @@ hfig = pyplot.figure()
 ax = hfig.add_subplot(111)
 ax.hist(holdout_Yt - holdout_Yp, numBins, color="green", alpha=0.8)
 ax.set_title("Holdout prediction errors (Yt − Yp)")
-pyplot.show()
+_save_or_show("holdout_error_hist")
 
 # %% [markdown]
 # ### 4.3.3 Overfit check — train errors vs holdout errors
@@ -1095,7 +1114,7 @@ ax = hfig.add_subplot(111)
 ax.hist(train_Yp - train_Y, numBins, color="blue", alpha=0.8)   # blue: training errors
 ax.hist(holdout_Yt - holdout_Yp, numBins, color="green", alpha=0.8)  # green: holdout errors
 ax.set_title("Overfit check: train errors (blue) vs holdout errors (green)")
-pyplot.show()
+_save_or_show("overfit_train_vs_holdout")
 
 # %% [markdown]
 # # 5. Deployment
@@ -1118,7 +1137,7 @@ hfig2 = pyplot.figure()
 ax = hfig2.add_subplot(111)
 ax.hist(holdout_Yt - holdout_Yt.mean(), numBins, color="orange", alpha=0.8)
 ax.set_title("Worst predictor (training mean): holdout errors")
-pyplot.show()
+_save_or_show("worst_predictor_errors")
 
 # %% [markdown]
 # ## 5.1 Business Value Assessment
@@ -1132,7 +1151,7 @@ ax = hfig3.add_subplot(111)
 ax.hist(holdout_Yt - holdout_Yt.mean(), numBins, color="orange", alpha=0.8)
 ax.hist(holdout_Yt - holdout_Yp,        numBins, color="green",  alpha=0.8)
 ax.set_title("Business value: green = our model, orange = predict-the-average")
-pyplot.show()
+_save_or_show("business_value")
 
 # %% [markdown]
 # ## 5.2 Next Steps: Implementation
@@ -1221,3 +1240,12 @@ print(json.dumps(experiment, sort_keys=False, indent=4, default=str))
 # [DEAP](https://github.com/DEAP/deap),
 # [PyO3](https://github.com/PyO3/pyo3) and
 # [maturin](https://github.com/PyO3/maturin).
+
+# %%
+# Clean pool shutdown — avoids the pickle-teardown race in script mode.
+if HEADLESS and "pool" in dir() and pool is not None:
+    try:
+        pool.close()
+        pool.join()
+    except Exception:
+        pass
