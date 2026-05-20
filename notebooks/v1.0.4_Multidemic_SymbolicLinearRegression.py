@@ -13,20 +13,108 @@
 # ---
 
 # %% [markdown]
-# # v1.0.4 Multidemic Symbolic **Linear Regression**
+# # Symbolic Linear Regression with Hyperspherical Fitness Functions
+# ### Companion notebook to the GECCO 2026 poster (Morgan, 2026)
 #
-# Geppy GEP-RNC with multi-objective fitness via the **HFF** Rust library
-# (`hff.calculate_fitness_hf1_enhanced`), evaluated across a train / validation /
-# holdout split. The validation-aware fitness selects for models that
-# generalise rather than just minimise training error.
+# Reproduces the regression result reported in the GECCO 2026 poster and
+# provides a reusable template for symbolic regression on your own tabular
+# data.
 #
-# This notebook is one of two practical takeaways from the GECCO paper:
-# - `v1.0.4_Multidemic_SymbolicLinearRegression.ipynb` — **regression**  ←
-# - `v1.0.4_Multidemic_SymbolicLogisticReg.ipynb`      — binary classification
+# **This notebook demonstrates symbolic linear regression on the UCI
+# Combined Cycle Power Plant dataset.** Headline: holdout R² ≈ 0.93 with a
+# 4-line evolved equation, no parsimony constraint, train/holdout MSE gap
+# under 1 percent.
+
+# %% [markdown]
+# ## The architecture, in one paragraph
 #
-# Both share `hff_geppy_helpers.py` (sibling file) which wraps the geppy island
-# machinery, HFF fitness wrappers, HOF rerankers, and the set-level HIGD
-# diagnostic.
+# Both v1.0.4 notebooks share a single mechanism:
+#
+# > Evolve a **symbolic equation** with geppy GEP-RNC. Wrap it in a
+# > **linear regression** that fits the constants `a, b` by least squares
+# > on every individual (so evolution searches *form*, not numerical
+# > constants). Compute the model's metrics on **train AND validation**,
+# > stack them into a vector, and project that vector through the **HFF**
+# > Rust library to a single scalar fitness. Evolve under a **multidemic
+# > island model** with ring migration. After evolution, dedupe the Hall
+# > of Fame, rerank by HFF angular distance, mark Pareto-optimal models,
+# > and run the set-level **HIGD** diagnostic on holdout.
+#
+# The **regression** notebook applies this directly to a continuous
+# target. The **classification** notebook adds a sigmoid wrapper around
+# the linear scaler to produce probabilities, then tunes a decision
+# threshold by J-statistic on train. Otherwise the machinery is identical.
+#
+# The two innovations the GECCO poster contributes — multi-objective HFF
+# fitness, and validation-in-fitness for generalisation — both ride on
+# top of this single architecture.
+
+# %% [markdown]
+# ## Why HFF?
+#
+# **Pareto dominance degrades as the number of objectives grows.** With
+# many objectives nearly every solution is non-dominated, the front loses
+# discriminative power, and the optimiser stops getting a useful selection
+# signal. NSGA-II/III, MOEA/D and friends all hit this wall.
+#
+# **HFF replaces dominance with a scalar.** Objective vectors are
+# projected onto a unit hypersphere; fitness is the angular distance to a
+# reference pole. This scales naturally with objective count and gives a
+# single number to drive tournament selection.
+#
+# **Useful at low dimensions, too.** With 2–3 objectives, HFF is a
+# principled alternative to weighted sums. With 10+ it's a way to keep
+# evolution working at all.
+#
+# The submitted poster (PDF + LaTeX source) lives in `../papers/`.
+
+# %% [markdown]
+# ## How to read this notebook
+#
+# Read top to bottom. Cells are numbered to match the table of contents.
+#
+# - **Configuration cells** are marked with 🔴 and a `# CONFIGURE HERE`
+#   comment, and live near the top of each section. Edit those; leave the
+#   rest alone for your first run.
+# - **The evolution cell (3.5) is re-runnable.** Hit Shift-Enter on it
+#   again and it continues from the last generation, appending to the
+#   same Hall of Fame and log. Section 3.4 ("Initialise evolution") is the
+#   one to re-run when you want a *fresh* experiment.
+# - **Restart-Kernel-and-Run-All** with the default seed gives the
+#   reported headline result.
+
+# %% [markdown]
+# ## Table of Contents
+#
+# - [0. Tools and Dependencies](#0.-Tools-and-Dependencies)
+#   - 0.1 Imports
+#   - 0.2 Reproducibility & Settings 🔴
+# - [1. Data](#1.-Data)
+#   - 1.1 Load dataset + dictionary 🔴
+#   - 1.2 Train / Validation / Holdout split 🔴
+#   - 1.3 Quick EDA
+# - [2. Design](#2.-Design)
+#   - 2.1 Primitive set + globals 🔴
+#   - 2.2 Fitness, genes, toolbox
+#   - 2.3 Multi-objective fitness via HFF
+#   - 2.4 Genetic operators
+#   - 2.5 Statistics
+#   - 2.6 Multiprocessing pool (re-runnable)
+# - [3. Run!](#3.-Run!)
+#   - 3.1 Tournament / selection / migration
+#   - 3.2 Hall of Fame
+#   - 3.3 Helper functions
+#   - 3.4 Initialise evolution (one-time state)
+#   - 3.5 Run / continue evolution (re-runnable)
+# - [4. Evaluate the Solution](#4.-Evaluate-the-Solution)
+#   - 4.1 Inspect the best model — sympy + graphviz
+#   - 4.2 Measure performance
+#   - 4.3 Visualisations
+# - [5. Deployment](#5.-Deployment)
+# - [6. HFF-specific reporting](#6.-HFF-specific-reporting)
+#   - 6.1 HOF reranking (deduped, Pareto-marked)
+#   - 6.2 Set-level HIGD diagnostic
+#   - 6.3 Save experiment record
 
 # %% [markdown]
 # ## Prerequisites
@@ -68,9 +156,14 @@ import hff_geppy_helpers as hgh
 print(f"hff library OK (test fitness: {hgh.hff_fitness_regression([0.1]*5)})")
 
 # %% [markdown]
-# ### Reproducibility
+# ## 0.2 Reproducibility & Settings
+#
+# 🔴 **CONFIGURE HERE** — the single source of truth for the experiment.
+# Edit seeds, splits, gene complexity, evolution budget, multiprocessing.
+# Everything downstream reads from this `settings` object.
 
 # %%
+# CONFIGURE HERE
 settings = hgh.GeppySettings(
     seed=5,
     # Splits
@@ -96,11 +189,11 @@ settings = hgh.GeppySettings(
     # Fitness shape
     complexity_cap=500.0,
     enable_linear_scaling=True,
-    # >>> THE KEY KNOB for the GECCO paper's A/B story <<<
-    # "truenorth" — picks for absolute minimisation (every objective small).
-    # "balanced"  — picks for direction/balance across objectives (every
-    #               objective the same — the signature of generalisation,
-    #               no overfit, no exploding max error).
+    # HFF projection method. "truenorth" — pole at the origin in an
+    # augmented space, selects for absolute minimisation across every
+    # objective. This is the documented setting for the GECCO paper.
+    # (A "balanced" pole is also implemented in the underlying library
+    # as a research option; not used or discussed in this notebook.)
     north_pole_method="truenorth",
 )
 
@@ -123,8 +216,13 @@ experiment = {
 
 # %% [markdown]
 # ## 1.1 Load data + dictionary
+#
+# 🔴 **CONFIGURE HERE** — point at your dataset CSV + data dictionary. The
+# dictionary tells the notebook which columns are `Input` (terminals for
+# the symbolic search) and which is the `Target` (regression label).
 
 # %%
+# CONFIGURE HERE
 yourDataDir = "data/"
 yourDictionary = pd.read_csv(yourDataDir + "UCI_PowerPlant_dictionary.csv")
 yourData = pd.read_csv(yourDataDir + "UCI_PowerPlant.csv")
@@ -143,9 +241,13 @@ print(f"Target:  {target_col}")
 # %% [markdown]
 # ## 1.2 Train / Validation / Holdout split
 #
-# Three-way random split. Validation drives the multi-objective fitness during
-# evolution (preventing train-only overfitting). Holdout is touched only in
-# section 4 for the final set-level HIGD diagnostic and per-model reranking.
+# 🔴 **CONFIGURE HERE** — `settings.train_frac` / `val_frac` / `holdout_frac`
+# in the settings cell at the top control the proportions.
+#
+# Three-way random split. Validation drives the multi-objective fitness
+# during evolution (preventing train-only overfitting). Holdout is touched
+# only in section 4 for the final set-level HIGD diagnostic and per-model
+# reranking.
 
 # %%
 n = len(yourData)
@@ -171,8 +273,14 @@ plt.show()
 
 # %% [markdown]
 # ## 2.1 Primitive set + globals
+#
+# 🔴 **CONFIGURE HERE** — the operator palette evolution can use. Default
+# is arithmetic + protected division (enough for most regression tasks).
+# Add richer ops only when you have a reason to, since a wider primitive
+# set means a much larger search space.
 
 # %%
+# CONFIGURE HERE
 pset = gep.PrimitiveSet("Main", input_names=finalTerminals)
 
 # Arithmetic
@@ -229,19 +337,23 @@ toolbox.register("population", tools.initRepeat, list, toolbox.individual)
 # [train_MSE, val_MSE, train_MAE, val_MAE, max_err]
 # ```
 #
-# All entries are minimised. The HFF projection is selected by
-# `settings.north_pole_method` — `"truenorth"` selects for absolute
-# minimisation, `"balanced"` selects for *balanced* error across train and
-# validation (which is the signature of a model that generalises).
+# All entries are minimised. HFF projects this five-dimensional vector
+# onto a unit hypersphere and returns angular distance to a reference
+# pole. Lower angular distance is better; tournament selection works on
+# that scalar directly.
 #
-# **No parsimony term.** We deliberately do not constrain gene length or add
-# a complexity objective. The run2 experiments showed that selecting for
-# directionally balanced train + validation performance gives parsimony
-# **for free**: overfit models are exactly the ones that are too complex
-# for the signal, and HFF's imbalance penalty surfaces them. Models end up
-# "as complex as they need to be for correctness — no more". This avoids
-# the artificial coupling a complexity term forces between explainability
-# and accuracy.
+# Including the *validation* metrics inside the fitness vector is what
+# pulls evolution toward models that generalise — a model that's brilliant
+# on train but mediocre on validation has high val_MSE and val_MAE,
+# inflating its angular distance.
+#
+# **No parsimony term.** We deliberately do not constrain gene length or
+# add a complexity objective. The validation-in-fitness pressure gives
+# parsimony **for free**: overfit models are exactly the ones that are
+# too complex for the signal they're modelling, and HFF surfaces them
+# through the train/val gap. Models end up "as complex as they need to be
+# for correctness — no more". This avoids the artificial coupling a
+# complexity term forces between explainability and accuracy.
 
 # %%
 # IMPORTANT: HFF expects to be called on the WHOLE POPULATION at once so the
@@ -980,44 +1092,32 @@ import json
 print(json.dumps(experiment, sort_keys=False, indent=4, default=str))
 
 # %% [markdown]
-# # A/B the projection methods
+# # 7. Credits, citations & licence
 #
-# **What the paper claims.** Classical Pareto-based multi-objective methods
-# (NSGA-II, NSGA-III, MOEA/D, …) work well when the number of objectives is
-# small, but break down as that number grows: with many objectives almost
-# every solution is non-dominated, the Pareto front loses discriminative
-# power, and the optimiser stops getting a useful selection signal. HFF
-# sidesteps this by projecting the objective vector onto a unit hypersphere
-# and reducing it to a **single scalar** — angular distance to a reference
-# pole — that scales naturally with objective count.
+# **License**: MIT. **Author**: Andrew James Morgan.
 #
-# **What we are *not* claiming.** We are not claiming HFF beats
-# single-objective MSE. We're solving a different problem: when you
-# genuinely have multiple objectives, HFF gives you a principled scalar
-# fitness that doesn't suffer the dominance-degeneration that hits Pareto
-# methods at high dimensionality.
+# If you use this notebook in published work, please cite the GECCO 2026
+# poster:
 #
-# **Useful at small dimensions too.** The hyperspherical formulation works
-# at any objective count. With 2–3 objectives it's a clean alternative to
-# weighted sums; with 10+ it's a way to keep evolution working at all.
+# ```bibtex
+# @inproceedings{morgan2026hff,
+#   author    = {Andrew James Morgan},
+#   title     = {Hyperspherical Fitness Functions for Many-Objective Optimization},
+#   booktitle = {Proceedings of the Genetic and Evolutionary Computation
+#                Conference Companion (GECCO Companion '26)},
+#   year      = {2026},
+#   month     = jul,
+#   location  = {San Jose, Costa Rica},
+#   publisher = {ACM},
+#   isbn      = {979-8-4007-2488-6/2026/07},
+# }
+# ```
 #
-# To A/B the two projection methods, change `settings.north_pole_method`
-# in the settings cell at the top:
+# The submitted poster (PDF + LaTeX source) lives in `../papers/`. The
+# README at the repository root has citation entries for the library
+# itself, the notebooks, and the UCI datasets used here.
 #
-# - `"truenorth"` (default for regression) — pole at the origin in an
-#   augmented space. Selects for absolute minimisation of every objective.
-# - `"balanced"` — pole at `(1/√m, …, 1/√m)`. Selects for *directionally
-#   balanced* objectives: train_MSE ≈ val_MSE ≈ max_err, the signature of
-#   a model that generalises rather than overfits one slice.
-#
-# Re-run end to end and compare:
-# - holdout R² (Balanced should be at least as good)
-# - the train_mse vs val_mse gap in section 6.1 (Balanced shrinks it)
-# - the simplified expression (parsimony emerges naturally — see the note
-#   in section 2.3)
-
-# %% [markdown]
-# # 7. Credits & Licence
-#
-# **MIT** | Author: **Andrew Morgan** | Built on top of geppy + DEAP + the
-# HFF Rust library.
+# Built on top of [geppy](https://github.com/ShuhuaGao/geppy),
+# [DEAP](https://github.com/DEAP/deap),
+# [PyO3](https://github.com/PyO3/pyo3) and
+# [maturin](https://github.com/PyO3/maturin).
