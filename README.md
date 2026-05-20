@@ -112,29 +112,74 @@ The same surface is also exposed via a C ABI when built with
 
 ## Demonstration notebooks
 
-The two practical takeaways live in `notebooks/`:
+Three notebooks in `notebooks/`, sharing one architecture:
 
-| Notebook | Task | Default dataset |
-|---|---|---|
-| `v1.0.4_Multidemic_SymbolicLinearRegression.ipynb` | Symbolic regression (continuous target) | UCI Combined Cycle Power Plant |
-| `v1.0.4_Multidemic_SymbolicLogisticReg.ipynb` | Symbolic logistic regression (binary classification) | UCI Heart Disease (Cleveland) |
+> Evolve a **symbolic equation** with geppy GEP-RNC. Wrap it in a **linear
+> regression** that fits constants `a, b` by least squares on every
+> individual (so evolution searches *form*, not numerical constants).
+> Compute the model's metrics on **train AND validation**, project the
+> resulting multi-objective vector through the **HFF** Rust library to a
+> single scalar fitness. Evolve under a multidemic island model. After
+> evolution, simplify with sympy, snap floating-point constants to known
+> physical / mathematical constants, then rewrite into the canonical
+> "Feynman shape" Feynman himself would write.
 
-Both notebooks use the same template:
+### `v1.0.4_Multidemic_SymbolicLinearRegression.ipynb`
 
-1. Load data + dictionary.
-2. Three-way **train / validation / holdout** split.
-3. Configure geppy GEP-RNC genes (head length, number of genes, linker).
-4. Define a multi-objective fitness vector built from train *and* validation
-   metrics, project it through `hff.calculate_fitness_hf1_enhanced`, and
-   evolve under a multidemic island model.
-5. After evolution: sympy simplification + graphviz tree, holdout metrics,
-   error histograms, Pareto-marked Hall-of-Fame report, and the set-level
-   HIGD diagnostic.
+**Symbolic regression on continuous targets.** Default dataset: UCI Combined
+Cycle Power Plant (`AT, V, AP, RH → PE`). The notebook evolves an equation
+that predicts power plant output from environmental conditions, with the
+validation-in-fitness mechanism preventing overfit. Headline: holdout R² ≈
+0.93 with a 4-line evolved equation, no parsimony constraint, train/holdout
+MSE gap under 1%.
 
-The validation-aware fitness selects directly for *generalisation*: a model
-that's good on train but mediocre on validation is penalised as imbalanced
-across objectives, so **parsimony emerges without any explicit complexity
-constraint**.
+Use this template for any messy real-world regression task — power
+forecasting, sensor calibration, dose-response, financial pricing. The
+Feynman-shape rewriter cleans the discovered form into the most readable
+canonical equation it can.
+
+### `v1.0.4_Multidemic_SymbolicLogisticReg.ipynb`
+
+**Symbolic binary classification.** Same architecture, with a sigmoid wrapper
+around the linear scaler to produce probabilities and a J-statistic-tuned
+decision threshold. Default dataset: UCI Heart Disease (Cleveland), 297
+patients. Headline: holdout AUC ≈ 0.91, F1 ≈ 0.86, generalisation gap
+(train AUC − holdout AUC) ≈ −0.01 — the holdout actually beats train,
+which is what zero overfit looks like on a small noisy dataset.
+
+Use this template for explainable binary classification — fraud detection,
+clinical risk scoring, churn, anomaly detection.
+
+### `v1.0.4_Multidemic_SymbolicEquationRecovery.ipynb`
+
+**Equation rediscovery from synthetic data.** Given a known equation
+generates a dataset, can evolution recover the equation? The notebook ships
+with a registry of six demonstration problems (circle area, Newton's
+gravitation, Coulomb's law, simple pendulum, Kepler's third law, ideal gas)
+plus on-demand cached data generation, all 120 equations from the AI-Feynman
+Symbolic Regression Database, and BYO-equation support. The fitness vector
+adds an **extrapolation** objective — train on one range of inputs, score
+on a region the model never saw — so rediscovery means "found the law", not
+"fit the curve".
+
+After evolution, the snap library maps numeric constants to known physical
+/ mathematical constants (`π`, `e`, `G`, `M_sun`, `R`, `k_e`, `g`, …) and
+the **Feynman-shape rewriter** rewrites compact GEP forms into the canonical
+shape — e.g. `5.45e-10·a·√a` → `√((4π²/GM)·a³)`. The structural-equivalence
+check then proves the discovered equation equals the truth.
+
+Use this template for symbolic regression in *science* — discovering laws
+from instruments, mining clean expressions from simulated systems, A/B-ing
+against known-truth benchmarks. Also the right notebook for paper-level
+reproducibility comparisons.
+
+### Shared mechanism
+
+All three notebooks read configuration from a single 🔴 CONFIGURE HERE cell,
+honour Restart-Kernel-Run-All for reproducible defaults, and expose a
+re-runnable evolution cell so you can interactively extend a search by
+another *N* generations. They share `hff_geppy_helpers.py` (snap library,
+Feynman rewriter, HOF rerankers, set-level HIGD diagnostic).
 
 To run them:
 
