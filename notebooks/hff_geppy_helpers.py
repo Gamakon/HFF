@@ -345,6 +345,25 @@ def _eval_individual_on_df(
     return sigmoid_array(scaled) if apply_sigmoid else scaled
 
 
+def _dedupe_hof(df: pd.DataFrame) -> pd.DataFrame:
+    """Drop duplicate HOF entries by raw chromosome string.
+
+    Multidemic island runs proliferate copies of the same best gene —
+    elitism plus periodic migration mean the same chromosome lands in the
+    HOF many times. We dedupe on ``str(individual)`` (the chromosome
+    representation that DEAP/geppy produces), which catches every case
+    DEAP's selBest-into-HOF path can create.
+
+    Keeps the first occurrence — since the input is already sorted by
+    angular distance (best first), the survivor is the best ranking of
+    each unique chromosome.
+    """
+    if df.empty or "expression" not in df.columns:
+        return df
+    keep = ~df["expression"].astype(str).duplicated(keep="first")
+    return df.loc[keep].reset_index(drop=True)
+
+
 def _mark_pareto(df: pd.DataFrame, objective_cols: Sequence[str], minimise: Sequence[bool]) -> pd.DataFrame:
     """Mark each row as Pareto-optimal (non-dominated) on the given objectives.
 
@@ -371,16 +390,166 @@ def _mark_pareto(df: pd.DataFrame, objective_cols: Sequence[str], minimise: Sequ
     return df
 
 
+def _rank_ids_with_ties(values: Sequence[float]) -> list[str]:
+    """Assign rank ids "1", "2", "3", ... with ties annotated as "1.a", "1.b".
+
+    *values* is expected to already be sorted ascending (best first). Equal
+    consecutive values share a rank number and get .a/.b/.c suffixes in
+    input order.
+    """
+    if not values:
+        return []
+    ids: list[str] = []
+    rank = 0
+    last = None
+    bucket: list[int] = []  # indices in *values* sharing the current rank
+
+    def _flush():
+        if len(bucket) == 1:
+            ids.append(str(rank))
+        else:
+            for k, _ in enumerate(bucket):
+                ids.append(f"{rank}.{chr(ord('a') + k)}")
+
+    for i, v in enumerate(values):
+        if last is None or v != last:
+            _flush()
+            bucket = [i]
+            rank += 1
+            last = v
+        else:
+            bucket.append(i)
+    _flush()
+    return ids
+
+
+def plot_pareto_precision_recall(
+    ranked: pd.DataFrame,
+    hof,
+    holdout: pd.DataFrame,
+    target: str,
+    terminals: Sequence[str],
+    toolbox,
+    title: str = "Holdout Pareto: precision vs recall",
+    figsize: tuple = (10, 8),
+    label_top_n: int | None = None,
+    print_table: bool = True,
+):
+    """Plot every unique HOF model on (recall, precision), labelled by HFF rank.
+
+    Each unique chromosome is evaluated on the holdout set at its
+    individually-tuned (J-statistic) threshold, giving an honest holdout
+    precision/recall pair. Points are labelled with their HFF rank id
+    ("1", "2", "3", … with ties resolved as "1.a", "1.b"). Pareto-optimal
+    points (max-precision & max-recall non-dominated) are highlighted.
+
+    Returns the per-row dataframe used for plotting (rank id, expression,
+    holdout precision/recall, threshold, is_pareto on the *holdout* axes).
+    """
+    import matplotlib.pyplot as plt
+    from sklearn.metrics import precision_score, recall_score
+
+    if ranked.empty:
+        print("(no HOF models to plot)")
+        return pd.DataFrame()
+
+    Y_h = holdout[target].values.astype(int)
+
+    points = []
+    for _, row in ranked.iterrows():
+        i = int(row["model"])
+        ind = hof[i]
+        probs = _eval_individual_on_df(ind, holdout, terminals, toolbox, apply_sigmoid=True)
+        if probs is None:
+            continue
+        thr = float(row.get("threshold", 0.5))
+        preds = (probs >= thr).astype(int)
+        prec = float(precision_score(Y_h, preds, zero_division=0))
+        rec = float(recall_score(Y_h, preds, zero_division=0))
+        points.append({
+            "model": i,
+            "expression": row["expression"],
+            "angular_distance": float(row["angular_distance"]),
+            "threshold": thr,
+            "holdout_precision": prec,
+            "holdout_recall": rec,
+        })
+
+    if not points:
+        print("(no plottable HOF models — all failed to evaluate on holdout)")
+        return pd.DataFrame()
+
+    df = pd.DataFrame(points).sort_values("angular_distance").reset_index(drop=True)
+    df["rank_id"] = _rank_ids_with_ties(df["angular_distance"].tolist())
+
+    # Holdout Pareto: maximise precision & recall.
+    _mark_pareto(
+        df,
+        objective_cols=["holdout_precision", "holdout_recall"],
+        minimise=[False, False],
+    )
+
+    # Plot
+    fig, ax = plt.subplots(figsize=figsize)
+    p_x = df.loc[~df["is_pareto"], "holdout_recall"]
+    p_y = df.loc[~df["is_pareto"], "holdout_precision"]
+    ax.scatter(p_x, p_y, s=60, color="lightsteelblue", alpha=0.75, edgecolor="grey", label="dominated")
+    par = df.loc[df["is_pareto"]]
+    ax.scatter(par["holdout_recall"], par["holdout_precision"], s=140, marker="*",
+               color="crimson", edgecolor="black", linewidth=0.6, label="Pareto-optimal", zorder=5)
+
+    # Pareto frontier line: sort the Pareto points by recall, plot a step.
+    par_sorted = par.sort_values("holdout_recall")
+    ax.step(par_sorted["holdout_recall"], par_sorted["holdout_precision"],
+            where="post", color="crimson", linewidth=1.0, alpha=0.5, zorder=4)
+
+    # Label every point with its HFF rank id.
+    n_label = len(df) if label_top_n is None else min(label_top_n, len(df))
+    for _, row in df.head(n_label).iterrows():
+        ax.annotate(
+            row["rank_id"],
+            xy=(row["holdout_recall"], row["holdout_precision"]),
+            xytext=(4, 4), textcoords="offset points",
+            fontsize=9, fontweight="bold" if row["is_pareto"] else "normal",
+        )
+
+    ax.set_xlabel("Holdout recall")
+    ax.set_ylabel("Holdout precision")
+    ax.set_xlim(-0.02, 1.02)
+    ax.set_ylim(-0.02, 1.02)
+    ax.set_title(title)
+    ax.grid(True, alpha=0.25)
+    ax.legend(loc="lower left")
+    plt.tight_layout()
+    plt.show()
+
+    if print_table:
+        print(f"\n{title}")
+        print(f"({len(df)} unique chromosomes; HFF rank id, ★ = Pareto-optimal on (precision, recall))")
+        print("-" * 100)
+        print(f"  {'rank':>6}  {'P':>10}  {'R':>10}  {'thr':>8}   expression")
+        print("-" * 100)
+        for _, r in df.iterrows():
+            marker = "★" if r["is_pareto"] else " "
+            print(f"{marker} {r['rank_id']:>6}  {r['holdout_precision']:>10.4f}  "
+                  f"{r['holdout_recall']:>10.4f}  {r['threshold']:>8.4f}   {r['expression']}")
+        print("-" * 100)
+
+    return df
+
+
 def print_hof_with_pareto(
     df: pd.DataFrame,
     columns: Sequence[str],
     top_n: int = 10,
     title: str = "Top HOF models",
+    raw_hof_size: int | None = None,
 ):
     """Print the top-N HOF rows with a ★ next to Pareto-optimal entries.
 
-    Also reports how many of the top-N are Pareto-optimal, and the total
-    number of Pareto-optimal models across the whole HOF.
+    Also reports how many of the top-N are Pareto-optimal, the total
+    number of Pareto-optimal models across the deduplicated HOF, and
+    (optionally) the dedup ratio if *raw_hof_size* is provided.
     """
     if df.empty:
         print("(no HOF models to report)")
@@ -390,6 +559,8 @@ def print_hof_with_pareto(
     pareto_in_top = int(df.head(n_show)["is_pareto"].sum()) if "is_pareto" in df.columns else 0
 
     print(f"\n{title} (★ = Pareto-optimal)")
+    if raw_hof_size is not None and raw_hof_size != len(df):
+        print(f"(deduped HOF: {len(df)} unique chromosomes from {raw_hof_size} raw HOF entries)")
     header = " " + " ".join(f"{c:>11}" for c in columns)
     print(" " + "-" * (len(header) - 1))
     print(header)
@@ -475,6 +646,9 @@ def rerank_hof_regression(
         row["angular_distance"] = float(angular[slot])
         rows.append(row)
     df = pd.DataFrame(rows).sort_values("angular_distance").reset_index(drop=True)
+    # Multidemic elitism + migration proliferates copies of the same gene —
+    # dedupe before Pareto marking so duplicates don't dominate themselves.
+    df = _dedupe_hof(df)
     # Pareto mark on the same objectives the HFF projection uses (all minimised).
     _mark_pareto(
         df,
@@ -588,6 +762,9 @@ def rerank_hof_classification(
         row["angular_distance"] = float(angular[slot])
         rows.append(row)
     df = pd.DataFrame(rows).sort_values("angular_distance").reset_index(drop=True)
+    # Multidemic elitism + migration proliferates copies of the same gene —
+    # dedupe before Pareto marking so duplicates don't dominate themselves.
+    df = _dedupe_hof(df)
     # Pareto mark on the six classification objectives (all MAXIMISED:
     # AUC/F1/Acc on train and val). HFF projection uses the same vector.
     _mark_pareto(

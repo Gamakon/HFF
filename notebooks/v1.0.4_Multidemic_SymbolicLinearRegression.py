@@ -415,12 +415,35 @@ def per_metric_mins(population):
     return out
 
 # %% [markdown]
-# ## 2.6 Multiprocessing pool
+# ## 2.6 Multiprocessing pool (re-runnable)
+#
+# We expose ``_ensure_pool()`` instead of building the pool eagerly. The
+# extend cell below calls it on entry, so a closed/missing pool is silently
+# revived on a second Shift-Enter — which is what makes incremental
+# evolution work (run the cell, look at the log, run it again to add more
+# generations).
 
 # %%
 procs = settings.procs
-pool = mp.Pool(processes=procs)
-toolbox.register("map", pool.map)
+pool = None  # built lazily by _ensure_pool()
+
+
+def _ensure_pool():
+    """Idempotent multiprocess pool setup. Creates a fresh pool if missing
+    or closed, then re-registers toolbox.map. Safe to call repeatedly."""
+    global pool
+    if pool is not None:
+        try:
+            pool.map(int, [0])     # cheap liveness probe
+            toolbox.register("map", pool.map)
+            return
+        except (ValueError, AssertionError, OSError):
+            pass
+    pool = mp.Pool(processes=procs)
+    toolbox.register("map", pool.map)
+
+
+_ensure_pool()
 
 # %% [markdown]
 # # 3. Run!
@@ -462,15 +485,9 @@ champs = settings.champs
 hof = tools.HallOfFame(champs)
 
 # %% [markdown]
-# ## 3.3 Multidemic evolution — VERBATIM from v1.0.3_Multidemic
-#
-# This is the tested, working island loop. Do not modify.
+# ## 3.3 Helper functions (v1.0.3 island loop primitives)
 
 # %%
-startDT = datetime.datetime.now()
-print(str(startDT))
-
-
 # add some helper functions (sourced from gep.simple to use explicitly in our islands processing
 def gep_apply_modification(population, operator, pb):
     """
@@ -495,30 +512,44 @@ def gep_apply_crossover(population, operator, pb):
     return population
 
 
+# %% [markdown]
+# ## 3.4 Initialise evolution — one-time state setup
+#
+# Building the islands, the logbook, evaluating generation 0. Re-running
+# **this** cell starts a fresh experiment (resets HOF/demes/log/gen). To
+# extend evolution incrementally without losing state, leave this cell
+# alone and re-run the **3.5 Run / continue** cell below.
+
 # %%
 from deap import algorithms
 
 number_islands = settings.num_islands
 migration_type = "ring"
 
-##################### Evolve "multidemic" Solution with ring migrations every FREQ generations
-if number_islands == 0:
-    pop = toolbox.population(n=population_size)
-    pop, log = gep.gep_simple(pop, toolbox, n_generations=n_gen, n_elites=num_elites,
-                              stats=stats, hall_of_fame=hof, verbose=True)
-
-elif number_islands > 0:
-    # ring migration: best emigrate, worst replaced
+# ring migration: best emigrate, worst replaced
+if number_islands > 0:
     toolbox.register("migrate", tools.migRing, k=k_migrants,
                      selection=tools.selBest, replacement=tools.selWorst)
 
+startDT = datetime.datetime.now()
+print(f"Initialising evolution at {startDT}")
+
+if number_islands == 0:
+    # Single-population mode uses geppy's gep_simple in one shot — not
+    # incrementally re-runnable, kept here for parity with v1.0.3.
+    pop = toolbox.population(n=population_size)
+    demes = None
+    log = None
+    gen = None
+else:
     # sub-populations ("islands")
+    _ensure_pool()
     demes = [toolbox.population(n=population_size) for _ in range(number_islands)]
 
     log = tools.Logbook()
     log.header = ("gen", "deme", "evals", "min fitness", *METRIC_NAMES)
 
-    # generation 0
+    # generation 0 — evaluate every individual, build the initial HOF
     for idx, deme in enumerate(demes):
         demewide_ind = [ind for ind in deme]
         # Phase 1 (parallel): raw metrics per individual.
@@ -532,14 +563,40 @@ elif number_islands > 0:
         hof.update(deme)
         print(log.stream)
 
-    # deme-based evolution with periodic migrations
+    # ``gen`` tracks the next generation to evolve. The extend cell below
+    # advances it by ``extra_gen`` each time you re-run it.
     gen = 1
-    # NB: v1.0.3 halted on "min fitness == 0" (MSE solved). HFF angular
-    # distance can legitimately reach 0 mid-run (perfect directional
-    # balance for Balanced; vanishing magnitude for TrueNorth) without
-    # the run being "done" — so we drop the early-exit and let all
-    # n_gen generations complete.
-    while gen <= n_gen:
+
+# %% [markdown]
+# ## 3.5 Run / continue evolution — re-runnable
+#
+# Re-run this cell to extend the search by another ``extra_gen``
+# generations. The HOF, demes, logbook, and the running ``gen`` counter
+# all survive across re-runs, so you can decide whether to keep going
+# after inspecting the latest log.
+#
+# - Want longer search? Bump ``extra_gen`` between runs.
+# - Want a fresh experiment? Re-run cell 3.4 ("Initialise evolution") to
+#   wipe HOF/demes/log/gen.
+# - Single-population mode (``settings.num_islands == 0``) is handled here
+#   as a one-shot call to ``gep_simple`` for parity with v1.0.3.
+
+# %%
+extra_gen = settings.n_gen   # number of additional generations to run THIS time
+
+if number_islands == 0:
+    # Single-pop one-shot — not incrementally re-runnable
+    _ensure_pool()
+    pop, log = gep.gep_simple(pop, toolbox, n_generations=extra_gen, n_elites=num_elites,
+                              stats=stats, hall_of_fame=hof, verbose=True)
+else:
+    _ensure_pool()
+    sub_start = datetime.datetime.now()
+    target_gen = gen + extra_gen - 1   # inclusive
+    print(f"Extending evolution: gen {gen} → {target_gen} "
+          f"(+{extra_gen} generations)")
+
+    while gen <= target_gen:
         for idx, deme in enumerate(demes):
             deme[:] = toolbox.select(deme, len(deme))
             # elites are excluded from mutation/crossover
@@ -566,18 +623,19 @@ elif number_islands > 0:
             hof.update(deme)
             print(log.stream)
 
-        # ring migration on a FREQ pulse
-        if gen > 30 and gen % FREQ == 0 or gen > (n_gen - 10):
+        # ring migration on a FREQ pulse — counts cumulative ``gen`` so the
+        # cadence is preserved across re-runs.
+        if gen > 30 and gen % FREQ == 0 or gen > (target_gen - 10):
             toolbox.migrate(demes)
             print("------------------------migration across islands---------------")
 
         gen += 1
 
-
-# close pool, record end time
-pool.close()
-end_time = datetime.datetime.now()
-print(f"\nWall clock Evolution times were:\nStarted:\t{startDT}\nEnded:   \t{end_time}")
+    end_time = datetime.datetime.now()
+    print(f"\nThis sub-run: {sub_start} → {end_time}")
+    print(f"Now at generation {gen - 1} (HOF size: {len(hof)})")
+    print(f"Re-run this cell to extend by another {extra_gen} generations.")
+    print(f"(Pool stays open; rerun cell 3.4 to start a fresh experiment.)")
 
 # %% [markdown]
 # # 4. Evaluate the Solution
@@ -886,6 +944,9 @@ ranked = hgh.rerank_hof_regression(
 
 # Pareto-marked HOF table — ★ next to non-dominated models on the same
 # 5 objectives the HFF projection uses (train/val MSE, train/val MAE, max_err).
+# Note: the reranker dedupes the HOF on the raw chromosome string before
+# Pareto marking; multidemic elitism + migration otherwise proliferates
+# identical copies of the same winning gene.
 hgh.print_hof_with_pareto(
     ranked,
     columns=["model", "length", "train_mse", "val_mse",
@@ -893,6 +954,7 @@ hgh.print_hof_with_pareto(
     top_n=10,
     title=f"Top 10 HOF models by HFF angular distance "
           f"(north_pole={settings.north_pole_method})",
+    raw_hof_size=len(hof),
 )
 
 # %% [markdown]
