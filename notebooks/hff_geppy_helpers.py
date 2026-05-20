@@ -1294,7 +1294,9 @@ def _strip_abs_positive_domain(expr):
     return expr.replace(sp.Abs, lambda x: x)
 
 
-def feynman_shape_rewrite(expr, library: dict, rel_tol: float = 1e-3, var_ranges: dict | None = None):
+def feynman_shape_rewrite(expr, library: dict, rel_tol: float = 1e-3,
+                          var_ranges: dict | None = None,
+                          problem_vars: list | None = None):
     """Rewrite a compact GEP-discovered expression into a Feynman-canonical
     form, when possible.
 
@@ -1322,28 +1324,50 @@ def feynman_shape_rewrite(expr, library: dict, rel_tol: float = 1e-3, var_ranges
     # or as a standalone Mul. We pattern-match conservatively because
     # over-eager rewrites are worse than no rewrite.
 
-    def _try_sqrt_of_cube(e):
-        """Rule 1: c · x · √x → √(c²·x³). Returns rewritten expr or None."""
+    def _try_sqrt_of_cube(e, problem_vars: set | None = None):
+        """Rule 1: c · x · √x → √(c²·x³). Returns rewritten expr or None.
+
+        We split factors into:
+          - the "coefficient bucket" c: anything whose free symbols are
+            empty OR are all *physical constants* (G, M_sun, …) i.e.
+            members of NAMED_CONSTANT_VALUES;
+          - the "variable bucket": factors involving the problem's
+            actual input variables (or, when problem_vars is None, any
+            Symbol not in NAMED_CONSTANT_VALUES).
+        The variable bucket must look like  x · sqrt(x)  for the rule
+        to apply.
+        """
         if not isinstance(e, sp.Mul):
             return None
         args = list(e.args)
-        # Extract numeric coefficient
-        nums = [a for a in args if a.is_number]
-        rest = [a for a in args if not a.is_number]
-        if not nums or not rest:
+        const_factors = []
+        var_factors = []
+        for a in args:
+            syms = a.free_symbols
+            if not syms:
+                const_factors.append(a)
+            elif problem_vars is not None and syms.isdisjoint(problem_vars):
+                # No actual problem variable in this factor — treat as const.
+                const_factors.append(a)
+            elif problem_vars is None and all(s.name in NAMED_CONSTANT_VALUES for s in syms):
+                const_factors.append(a)
+            else:
+                var_factors.append(a)
+        if not const_factors or not var_factors:
             return None
-        c = sp.Mul(*nums)
+        c_expr = sp.Mul(*const_factors) if len(const_factors) > 1 else const_factors[0]
+        # Get a numeric value for c by substituting known constants.
         try:
-            c_float = float(c)
+            subs = {sp.Symbol(n): v for n, v in NAMED_CONSTANT_VALUES.items()}
+            c_float = float(sp.N(c_expr.subs(subs)))
         except (TypeError, ValueError):
             return None
-        # Look for x and sqrt(x) (or sqrt(Abs(x))) among rest
+        # Look for x and sqrt(x) (or sqrt(Abs(x))) among var_factors
         x_sym, sqrt_term = None, None
-        for r in rest:
+        for r in var_factors:
             if r.is_Symbol:
                 x_sym = r
             elif isinstance(r, sp.Pow) and r.exp == sp.Rational(1, 2):
-                # sqrt(...). Strip Abs() to get the inner sym.
                 inner = r.base
                 if isinstance(inner, sp.Abs):
                     inner = inner.args[0]
@@ -1363,7 +1387,8 @@ def feynman_shape_rewrite(expr, library: dict, rel_tol: float = 1e-3, var_ranges
         inside = sp.Mul(sym, x_sym ** 3, evaluate=False)
         return sp.Pow(inside, sp.Rational(1, 2), evaluate=False)
 
-    rewritten = _try_sqrt_of_cube(expr)
+    problem_syms = set(sp.Symbol(v) for v in problem_vars) if problem_vars else None
+    rewritten = _try_sqrt_of_cube(expr, problem_vars=problem_syms)
     if rewritten is not None:
         return rewritten, "c·x·√x → √(c²·x³)"
 
@@ -1394,6 +1419,14 @@ def equation_recovery_report(
     discovered = sp.sympify(discovered_expr)
     truth = sp.sympify(truth_expr)
     syms = [sp.Symbol(v) for v in variables]
+    # Substitute physical-constant SYMBOLS (G, M_sun, …) with their
+    # numeric values on both sides. The discovered side may carry
+    # symbolic constants via the snap library; the truth typically has
+    # the literal numbers. Without this substitution, the lambdify
+    # later sees M_sun as a free variable and returns nan/inf.
+    _phys_subs = {sp.Symbol(n): v for n, v in NAMED_CONSTANT_VALUES.items()}
+    discovered = discovered.subs(_phys_subs)
+    truth = truth.subs(_phys_subs)
 
     # Structural check — strip Abs() from discovered before comparing
     # because protected_sqrt → sqrt(Abs(x)) and sympy can't prove

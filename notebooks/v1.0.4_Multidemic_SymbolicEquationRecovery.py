@@ -225,6 +225,21 @@ KNOWN_CONSTANTS = dict(eq.KNOWN_CONSTANTS)   # users can extend in a later cell
 #                              Used to demonstrate how badly recovery
 #                              degrades without the validation+extrapolation
 #                              steering that this notebook contributes.
+#
+# IMPORTANT CAVEAT about the ablation on NOISELESS data:
+# The registry problems ship with noise_std=0.0, so train, validation,
+# and extrapolation slices all carry identical information — a model
+# that fits train will fit the others. In that clean regime, the
+# val-aware fitness has nothing extra to "protect against": train alone
+# is sufficient, and the no-val ablation can look surprisingly close
+# to the val-aware case (e.g. keplers3 recovers under both).
+#
+# To see the *actual* contribution of val-in-fitness, add noise: set
+# noise_std=0.05 on the chosen problem (5% Gaussian on target) and
+# rerun the comparison. With noise, a train-only fitness happily
+# memorises noise patterns and falls apart on validation/extrapolation;
+# val-aware HFF penalises that imbalance directly. This is the
+# experiment the paper supplement should run.
 HFF_INCLUDE_VAL = True
 # Honour the --no-val CLI flag for sweep automation
 if "--no-val" in sys.argv:
@@ -807,12 +822,14 @@ snap_report = levels[scored[0]["level"]][1]
 print(f"\nCanonical discovered expression: {snapped}")
 
 # Optional final pass: rewrite into "Feynman shape" — recognise compact
-# GEP-produced forms like  c·x·√x  and rewrite as  √(c²·x³)  with c²
-# snapped against the library. Turns a compact discovered expression
-# into the canonical form a physicist (or Feynman) would have written.
+# GEP-produced forms (e.g. c·x·√x → √(c²·x³)) with c snapped against
+# the library. Passing problem_vars ensures the coefficient extractor
+# distinguishes between actual input variables and symbolic constants
+# carried by the snap library (G, M_sun, etc).
 feynman_rewritten, _feynman_rule = hgh.feynman_shape_rewrite(
     snapped, library=KNOWN_CONSTANTS, rel_tol=SNAP_REL_TOL,
     var_ranges=_problem_var_ranges,
+    problem_vars=problem.variables,
 )
 if _feynman_rule is not None:
     print(f"Feynman-shape rewrite applied ({_feynman_rule}):")
