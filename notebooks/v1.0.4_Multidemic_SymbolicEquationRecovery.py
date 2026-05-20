@@ -217,11 +217,27 @@ np.random.seed(settings.seed)
 SNAP_REL_TOL = 1e-3
 KNOWN_CONSTANTS = dict(eq.KNOWN_CONSTANTS)   # users can extend in a later cell
 
+# 🔴 CONFIGURE HERE — ABLATION TOGGLE.
+# True  (default): fitness = [train_MSE, val_MSE, train_MAE, val_MAE,
+#                              max_err, extrap_MSE] — the paper's
+#                              val-aware multi-objective HFF projection.
+# False (ablation): fitness = [train_MSE, train_MAE] — train-only.
+#                              Used to demonstrate how badly recovery
+#                              degrades without the validation+extrapolation
+#                              steering that this notebook contributes.
+HFF_INCLUDE_VAL = True
+# Honour the --no-val CLI flag for sweep automation
+if "--no-val" in sys.argv:
+    HFF_INCLUDE_VAL = False
+if os.environ.get("HFF_NO_VAL"):
+    HFF_INCLUDE_VAL = False
+
 experiment = {
     "date": datetime.datetime.now().strftime("%Y/%m/%d"),
     "seed": str(settings.seed),
     "task": "equation_recovery",
     "north_pole_method": settings.north_pole_method,
+    "hff_include_val": HFF_INCLUDE_VAL,
 }
 
 # %% [markdown]
@@ -472,7 +488,16 @@ def compute_raw_metrics(individual):
     max_err = float(np.max(np.abs(Y_val - pred_val)))
     mse_extrap = float(np.mean((Y_extrap - pred_extr) ** 2))
 
-    vec = [mse_tr, mse_va, mae_tr, mae_va, max_err, mse_extrap]
+    if HFF_INCLUDE_VAL:
+        # Full 6-objective: train + validation + extrapolation. The paper's
+        # documented configuration.
+        vec = [mse_tr, mse_va, mae_tr, mae_va, max_err, mse_extrap]
+    else:
+        # ABLATION: train-only. No validation or extrapolation signal in the
+        # fitness — pure curve-fitting. Used to demonstrate how badly the
+        # search degrades without the val+extrap steering that the paper
+        # contributes.
+        vec = [mse_tr, mae_tr]
     if not all(np.isfinite(vec)):
         return None
     return {
@@ -752,7 +777,22 @@ print(f"  {composed}\n")
 # Run the snap at three tolerance levels — strict / default / aggressive —
 # and score each on holdout MSE. Different tolerances produce different
 # symbolic forms; we present all three plus the winner.
-levels = hgh.snap_levels(composed, library=KNOWN_CONSTANTS)
+# Union of train + extrap ranges — the full input domain the snap and
+# recovery report should reason about.
+def _union_ranges(a, b):
+    out = {}
+    for k in set(a) | set(b):
+        a_lo, a_hi = a.get(k, (float("inf"), float("-inf")))
+        b_lo, b_hi = b.get(k, (float("inf"), float("-inf")))
+        out[k] = (min(a_lo, b_lo), max(a_hi, b_hi))
+    return out
+
+# Pass the problem's actual train+extrap ranges so the snap's additive-
+# residual prune evaluates magnitude in the right domain. Without this it
+# probes at [0.5, 5] and keeps tiny constants that should be zero for
+# problems with extreme input scales (e.g. Kepler's a ~ 1e10).
+_problem_var_ranges = _union_ranges(problem.train_ranges, problem.extrap_ranges)
+levels = hgh.snap_levels(composed, library=KNOWN_CONSTANTS, var_ranges=_problem_var_ranges)
 print("Per-level snap results (before MSE scoring):")
 for lvl, (expr_l, _rep) in levels.items():
     print(f"  {lvl:<11} →  {expr_l}")
@@ -773,16 +813,6 @@ print(f"\nCanonical discovered expression: {snapped}")
 truth_expr = sp.sympify(problem.truth_expr, locals={
     name: val for name, val in KNOWN_CONSTANTS.items()
 })
-
-# Combine train + extrap ranges, taking the UNION (min of mins, max of maxes)
-# so the recovery check evaluates on the full input domain we've seen.
-def _union_ranges(a, b):
-    out = {}
-    for k in set(a) | set(b):
-        a_lo, a_hi = a.get(k, (float("inf"), float("-inf")))
-        b_lo, b_hi = b.get(k, (float("inf"), float("-inf")))
-        out[k] = (min(a_lo, b_lo), max(a_hi, b_hi))
-    return out
 
 recovery = hgh.equation_recovery_report(
     discovered_expr=snapped,
@@ -882,6 +912,7 @@ for _, row in ranked.iterrows():
         snapped_i, _ = hgh.snap_constants(
             composed_i, library=KNOWN_CONSTANTS, rel_tol=SNAP_REL_TOL,
             nsimplify_mode="shallow", verbose=False,
+            var_ranges=_problem_var_ranges,
         )
         rec = hgh.equation_recovery_report(
             snapped_i, truth_expr,

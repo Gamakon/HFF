@@ -951,7 +951,8 @@ def _label_to_sympy(label: str, c_sym):
     return sign * sp.Rational(q).limit_denominator(20) * c
 
 
-def _prune_tiny_additive(expr, rel_tol: float = 1e-3, seed: int = 0):
+def _prune_tiny_additive(expr, rel_tol: float = 1e-3, seed: int = 0,
+                          var_ranges: dict | None = None):
     """Drop additive terms whose typical magnitude is negligible compared
     to the dominant variable-bearing term.
 
@@ -960,8 +961,12 @@ def _prune_tiny_additive(expr, rel_tol: float = 1e-3, seed: int = 0):
          cancellations like ``−2·E + √3·π ≈ 0.005`` are recognised as a
          single combined constant.
       2. Evaluate each variable-bearing Add term at random probe points
-         in the unit domain and use the largest median magnitude as
-         reference scale.
+         in the **problem's actual input domain** and use the largest
+         median magnitude as the reference scale. ``var_ranges`` is a
+         ``{var_name: (lo, hi)}`` dict; pass the registry problem's
+         train_ranges or extrap_ranges. Without it, falls back to a
+         unit-domain probe which is wrong for problems with extreme
+         input scales (e.g. Kepler's a ~ 1e10).
 
     The combined numeric constant survives if its absolute value exceeds
     ``rel_tol × reference_magnitude``; otherwise it is dropped.
@@ -978,7 +983,12 @@ def _prune_tiny_additive(expr, rel_tol: float = 1e-3, seed: int = 0):
     free_syms = sorted(expr.free_symbols, key=lambda s: s.name)
     rng = np.random.default_rng(seed)
     n_probe = 64
-    sample = {s: rng.uniform(0.5, 5.0, size=n_probe) for s in free_syms}
+    sample = {}
+    for s in free_syms:
+        lo, hi = (0.5, 5.0)
+        if var_ranges is not None and s.name in var_ranges:
+            lo, hi = var_ranges[s.name]
+        sample[s] = rng.uniform(lo, hi, size=n_probe)
 
     var_mags = []
     for t in var_terms:
@@ -1030,6 +1040,7 @@ def snap_constants(
     rel_tol: float = 1e-3,
     nsimplify_mode: str = "shallow",
     verbose: bool = True,
+    var_ranges: dict | None = None,
 ):
     """Snap numeric atoms in a sympy expression to known library constants.
 
@@ -1126,7 +1137,7 @@ def snap_constants(
     # Only top-level Add terms are considered; constants buried inside
     # products are left alone because there they multiply, not add, and
     # small multipliers can be meaningful (G = 6.7e-11 etc).
-    expr = _prune_tiny_additive(expr, rel_tol=rel_tol)
+    expr = _prune_tiny_additive(expr, rel_tol=rel_tol, var_ranges=var_ranges)
 
     if verbose:
         print(f"Constant snap report (rel_tol = {rel_tol:.0e}, mode = {nsimplify_mode})")
@@ -1151,6 +1162,7 @@ def snap_levels(
     expr,
     library: dict,
     levels: dict | None = None,
+    var_ranges: dict | None = None,
 ):
     """Snap *expr* at three tolerance levels and return all three.
 
@@ -1173,6 +1185,7 @@ def snap_levels(
         snapped, rep = snap_constants(
             expr, library=library, rel_tol=tol,
             nsimplify_mode="shallow", verbose=False,
+            var_ranges=var_ranges,
         )
         out[name] = (snapped, rep)
     return out

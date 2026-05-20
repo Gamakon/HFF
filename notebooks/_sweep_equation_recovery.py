@@ -60,15 +60,20 @@ def _select_problems(args) -> list[str]:
     return picked
 
 
-def run_one(problem_id: str) -> dict:
+def run_one(problem_id: str, no_val: bool = False) -> dict:
     """Launch the notebook .py as a subprocess for *problem_id*. Returns
     a dict with recovery results (or {'error': ...})."""
     t0 = time.perf_counter()
     env = os.environ.copy()
     env["HFF_HEADLESS"] = "1"          # belt-and-braces; isatty() should also be false
     env["HFF_PROBLEM"] = problem_id    # in case argv parsing has issues
+    if no_val:
+        env["HFF_NO_VAL"] = "1"
+    argv = [sys.executable, "-u", NB_PATH, f"--problem={problem_id}"]
+    if no_val:
+        argv.append("--no-val")
     proc = subprocess.run(
-        [sys.executable, "-u", NB_PATH, f"--problem={problem_id}"],
+        argv,
         cwd=os.path.dirname(os.path.abspath(__file__)) or ".",
         capture_output=True,
         text=True,
@@ -117,6 +122,8 @@ def main():
                      help="regex; sweep registry keys matching this pattern")
     parser.add_argument("--limit", type=int, default=None,
                         help="cap the sweep to first N problems (useful for testing)")
+    parser.add_argument("--no-val", action="store_true",
+                        help="ABLATION: drop validation + extrapolation from fitness")
     args = parser.parse_args()
 
     problems = _select_problems(args)
@@ -132,7 +139,7 @@ def main():
     rows = []
     for pid in problems:
         print(f"=== {pid} ===", flush=True)
-        result = run_one(pid)
+        result = run_one(pid, no_val=args.no_val)
         if "error" in result:
             print(f"  ERROR: {result['error']}  ({result['elapsed_s']:.1f}s)")
             if result.get("stderr_tail"):
