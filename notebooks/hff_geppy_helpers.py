@@ -190,6 +190,10 @@ def custom_symbolic_function_map():
         "sig": sp.Function("sig"),
         "dsig": sp.Function("dsig"),
         "sigmoid_array": sp.Function("sigmoid"),
+        # RegressWrapper from v1.0.4c — keep as opaque sp.Function so
+        # gep.simplify renders it as "RegressWrapper(expr, n)" in the
+        # final formula rather than crashing on the integer arg.
+        "regress_wrapper": sp.Function("RegressWrapper"),
         "iid": iid,
         "avgval": avgval,
         "addval": addval,

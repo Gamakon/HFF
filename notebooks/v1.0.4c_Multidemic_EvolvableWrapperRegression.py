@@ -13,33 +13,26 @@
 # ---
 
 # %% [markdown]
-# # Symbolic Regression with EVOLVABLE Regression Wrapper (prototype — SHELVED)
+# # Symbolic Regression with EVOLVABLE Regression Wrapper (prototype)
 # ### Companion notebook to the GECCO 2026 poster (Morgan, 2026)
 #
-# **STATUS: incomplete prototype.** ``gep.Chromosome`` only accepts a
-# single homogeneous ``gene_gen`` callable producing ``n_genes`` of the
-# same kind. It does not natively support a chromosome built from a
-# heterogeneous list of pre-constructed genes (one for the wrapper, the
-# rest for the expression). Three paths considered:
+# **STATUS: working prototype.** Approach taken (after the
+# heterogeneous-chromosome path proved impractical because ``gep.Chromosome``
+# requires a single ``gene_gen`` and standard mutation operators assume
+# one pset):
 #
-#   1. Subclass ``gep.Chromosome`` to accept a list of genes — clean,
-#      but mutation/crossover operators assume gene homogeneity.
-#   2. Single mixed pset; constrain mutation to keep wrapper functions
-#      in the first gene's head — requires custom genetic operators.
-#   3. Encode wrapper choice as a *terminal* in the expression pset's
-#      first gene; dispatch by inspecting the first head symbol's name.
-#      Cleanest MVP, no geppy-internals work.
+#   - Single homogeneous chromosome, single primitive set.
+#   - Add ``RegressWrapper(expr, type_n)`` (arity 2) to the pset.
+#     ``type_n`` is an integer the gene's RNCs (or any sub-tree) feeds
+#     in; ``int(round(type_n)) % N`` picks one of N wrapper transforms
+#     (``identity``, ``log_abs``, ``exp``, ``sqrt_abs``, ``square``).
+#   - Evolution decides when and where to insert the wrapper in the
+#     expression tree, and which integer to give it.
+#   - LSM (``a·gene + b``) wraps the whole thing as before.
 #
-# This notebook implements approach (1) on a sketch level. It fails at
-# runtime because ``creator.Individual([wrapper_gene, expr_gene_1, …],
-# linker=avgval)`` violates the ``Chromosome(gene_gen, n_genes, linker)``
-# signature. Approach (3) is the recommended path forward and would
-# require ~50 lines of refactoring.
-#
-# The wrapper machinery (``apply_wrapper_fit_and_predict``,
-# ``_decode_wrapper_name``, ``WRAPPER_NAMES``) is correct and reusable —
-# it's only the chromosome-construction step that needs replacing with
-# approach (3).
+# The wrapper is just a normal pset function — no special mutation,
+# no heterogeneous chromosome, no custom linker. It composes naturally
+# with everything else in the symbol table.
 #
 # **Prototype extension** of the symbolic linear regression notebook.
 # Instead of always wrapping the discovered gene in a fixed
@@ -340,6 +333,38 @@ pset.add_function(operator.sub, 2)
 pset.add_function(operator.mul, 2)
 pset.add_function(hgh.protected_div_zero, 2)
 
+# === Evolvable regression wrapper (in-pset version) ===
+# RegressWrapper(expr, type_n) applies one of N regression transforms
+# to `expr`, picked by `int(round(type_n)) % N`. type_n is typically an
+# RNC integer the gene evolves alongside everything else. Single
+# homogeneous chromosome, no special mutation operators needed.
+WRAPPER_NAMES = ["identity", "log_abs", "exp", "sqrt_abs", "square"]
+
+
+def regress_wrapper(expr, type_n):
+    """Pick a wrapper by integer index (circular). type_n comes from the
+    gene's evolved RNCs (or any sub-tree); modulo N maps any value to a
+    valid wrapper. Used inside the Karva expression — the chosen
+    transform happens during compile_/eval, so LSM still wraps the
+    whole thing afterwards."""
+    try:
+        rid = int(round(float(type_n))) % len(WRAPPER_NAMES)
+    except (TypeError, ValueError):
+        rid = 0
+    name = WRAPPER_NAMES[rid]
+    try:
+        if name == "identity":  return expr
+        if name == "log_abs":   return math.log(abs(expr) + 1e-12)
+        if name == "exp":       return math.exp(max(-50.0, min(50.0, expr)))
+        if name == "sqrt_abs":  return math.sqrt(abs(expr))
+        if name == "square":    return expr * expr
+    except (ValueError, OverflowError):
+        return 0.0
+    return expr
+
+
+pset.add_function(regress_wrapper, 2)
+
 # Optional richer ops — uncomment to enlarge the search space:
 # pset.add_function(hgh.safe_max, 2)
 # pset.add_function(hgh.safe_min, 2)
@@ -357,141 +382,13 @@ for term in finalTerminals:
 Y = train[target_col].values
 
 # %% [markdown]
-# ## 2.1b Wrapper primitive set (prototype: evolvable regression wrapper)
-#
-# We define a SECOND primitive set whose functions are the candidate
-# regression wrappers. Evolution picks one per individual via a
-# head-1 Karva gene; that gene's tail carries the wrapper's evolvable
-# parameters (arity declared per-function).
-#
-# Wrappers available in this prototype:
-#
-#   identity(x)         arity 1 — no transform (today's linear path)
-#   log_target(x)       arity 1 — y' = log(|gene|);  pred = exp(a·gene+b)
-#   exp_wrap(x)         arity 1 — pred = a·exp(gene)+b
-#   sqrt_wrap(x)        arity 1 — pred = a·sqrt(|gene|)+b
-#   square_wrap(x)      arity 1 — pred = a·gene²+b
-#
-# The "shape" of each is just a label here; the actual fit-and-predict
-# happens inside compute_raw_metrics. The wrapper gene is decoded by
-# looking at its head[0] symbol name.
-#
-# This is the lean MVP. Param-bearing wrappers (sigmoid_with_slope,
-# boxcox_with_lambda, polynomial_degree_n) are deferred — they need
-# arity > 1 in the wrapper pset and the corresponding fit logic.
-
-# %%
-WRAPPER_NAMES = ["identity", "log_target", "exp_wrap", "sqrt_wrap", "square_wrap"]
-
-
-def _wrap_identity(x):    return x          # used only to populate the wrapper pset
-def _wrap_log_target(x):  return x
-def _wrap_exp_wrap(x):    return x
-def _wrap_sqrt_wrap(x):   return x
-def _wrap_square_wrap(x): return x
-
-wrapper_pset = gep.PrimitiveSet("Wrapper", input_names=["x"])
-wrapper_pset.add_function(_wrap_identity,    1)
-wrapper_pset.add_function(_wrap_log_target,  1)
-wrapper_pset.add_function(_wrap_exp_wrap,    1)
-wrapper_pset.add_function(_wrap_sqrt_wrap,   1)
-wrapper_pset.add_function(_wrap_square_wrap, 1)
-# Terminal "x" is the placeholder for the expression-gene output that
-# the wrapper consumes at evaluation time.
-print(f"Wrapper choices: {WRAPPER_NAMES}")
-
-
-def _decode_wrapper_name(individual):
-    """Return the wrapper name carried by the first gene's head[0].
-
-    Falls back to 'identity' if anything is wrong (e.g. failed parse).
-    """
-    try:
-        head_sym = individual[0][0]   # first gene, head position 0
-        name = getattr(head_sym, "name", str(head_sym))
-        # The pset names functions like "_wrap_log_target"; strip our
-        # private prefix to recover the wrapper key.
-        if name.startswith("_wrap_"):
-            return name[len("_wrap_"):]
-        return name
-    except Exception:
-        return "identity"
-
-
-def apply_wrapper_fit_and_predict(name: str, gene_train, Y_train, gene_other):
-    """Fit the chosen wrapper on (gene_train, Y_train), return (a, b,
-    pred_train, pred_other) where pred_* applies the same wrapper to
-    each of gene_other (a list of arrays).
-
-    All wrappers use the same a·u + b structure but on different
-    transforms of (gene, Y). Returns None on numerical failure.
-    """
-    import numpy as np
-
-    eps = 1e-12
-
-    if name == "identity":
-        # Existing linear path: a·gene + b ≈ Y
-        scale = hgh.apply_linear_scaling(gene_train, Y_train)
-        if scale is None:
-            return None
-        a, b = scale
-        preds = [a * g + b for g in [gene_train, *gene_other]]
-        return a, b, preds[0], preds[1:]
-
-    if name == "log_target":
-        # Y must be positive. y' = log(Y); fit a·gene + b ≈ y'. Then
-        # pred = exp(a·gene + b).
-        if np.any(Y_train <= 0):
-            return None
-        y_log = np.log(np.clip(Y_train, eps, None))
-        scale = hgh.apply_linear_scaling(gene_train, y_log)
-        if scale is None:
-            return None
-        a, b = scale
-        preds = [np.exp(np.clip(a * g + b, -50, 50)) for g in [gene_train, *gene_other]]
-        return a, b, preds[0], preds[1:]
-
-    if name == "exp_wrap":
-        # Fit a·exp(gene) + b ≈ Y on  u = exp(gene)
-        u = np.exp(np.clip(gene_train, -50, 50))
-        scale = hgh.apply_linear_scaling(u, Y_train)
-        if scale is None:
-            return None
-        a, b = scale
-        preds = [a * np.exp(np.clip(g, -50, 50)) + b for g in [gene_train, *gene_other]]
-        return a, b, preds[0], preds[1:]
-
-    if name == "sqrt_wrap":
-        u = np.sqrt(np.abs(gene_train))
-        scale = hgh.apply_linear_scaling(u, Y_train)
-        if scale is None:
-            return None
-        a, b = scale
-        preds = [a * np.sqrt(np.abs(g)) + b for g in [gene_train, *gene_other]]
-        return a, b, preds[0], preds[1:]
-
-    if name == "square_wrap":
-        u = gene_train ** 2
-        scale = hgh.apply_linear_scaling(u, Y_train)
-        if scale is None:
-            return None
-        a, b = scale
-        preds = [a * (g ** 2) + b for g in [gene_train, *gene_other]]
-        return a, b, preds[0], preds[1:]
-
-    # Unknown wrapper — fail closed.
-    return None
-
-
-# %% [markdown]
 # ## 2.2 Fitness, genes, toolbox
 #
-# Chromosome layout: ``[wrapper_gene, expr_gene_1, expr_gene_2, …]``.
-# The wrapper gene is a head-length-1 gene over ``wrapper_pset``; the
-# rest are the standard expression genes from section 2.1. Toolbox
-# wires them as a single ``Chromosome`` with a custom linker that
-# routes the expression genes' avg through the wrapper at compile time.
+# Homogeneous chromosome — same primitive set in every gene. The
+# wrapper is just a function ``RegressWrapper(expr, type_n)`` already
+# added to ``pset`` in section 2.1. Evolution decides when/where to
+# place it and which RNC integer to feed in. No special chromosome
+# layout, no custom mutation operators.
 
 # %%
 creator.create("FitnessMin", base.Fitness, weights=(-1,))
@@ -499,35 +396,19 @@ creator.create("Individual", gep.Chromosome, fitness=creator.FitnessMin)
 
 toolbox = gep.Toolbox()
 toolbox.register("rnc_gen", random.randint, a=settings.rnc_lo, b=settings.rnc_hi)
-
-# Expression genes — unchanged from v1.0.4
 toolbox.register(
-    "expr_gene_gen", gep.GeneDc,
+    "gene_gen", gep.GeneDc,
     pset=pset, head_length=settings.head_length,
     rnc_gen=toolbox.rnc_gen, rnc_array_length=settings.rnc_array_length,
 )
-# Wrapper gene — head_length=1, no RNCs for now (params via arity is
-# deferred to v2 of this prototype). The single head position carries
-# the wrapper choice.
-toolbox.register(
-    "wrapper_gene_gen", gep.Gene,
-    pset=wrapper_pset, head_length=1,
-)
-
-
-def _make_wrapped_individual():
-    """Build an Individual with [wrapper_gene] + N expr_genes."""
-    genes = [toolbox.wrapper_gene_gen()] + [
-        toolbox.expr_gene_gen() for _ in range(settings.n_genes)
-    ]
-    return creator.Individual(genes, linker=hgh.avgval)
-
-
-toolbox.register("individual", _make_wrapped_individual)
+if settings.n_genes > 1:
+    toolbox.register("individual", creator.Individual,
+                     gene_gen=toolbox.gene_gen, n_genes=settings.n_genes, linker=hgh.avgval)
+else:
+    toolbox.register("individual", creator.Individual,
+                     gene_gen=toolbox.gene_gen, n_genes=settings.n_genes)
+toolbox.register("compile", gep.compile_, pset=pset)
 toolbox.register("population", tools.initRepeat, list, toolbox.individual)
-# Compile is used for the EXPRESSION genes only (genes[1:]); the wrapper
-# is applied as a Python-side function inside compute_raw_metrics.
-toolbox.register("compile_expr", gep.compile_, pset=pset)
 
 # %% [markdown]
 # ## 2.3 Multi-objective fitness via HFF
@@ -581,65 +462,34 @@ FAILED_METRIC_VALUE = 1.0e9
 FAILED_FITNESS = 1.0e9
 
 
-def _compile_expr_only(individual, df, terminals):
-    """Compile the EXPRESSION genes only (individual[1:]) and evaluate
-    them on the given DataFrame's rows. Returns the avgval-linked
-    output array, or None on failure."""
-    import numpy as np
-    expr_genes = list(individual[1:])
-    if not expr_genes:
-        return None
-    # Compile each expression gene independently against the expr pset.
-    funcs = []
-    for g in expr_genes:
-        try:
-            funcs.append(gep.compile_(g, pset))
-        except Exception:
-            return None
-    arrays = [df[t].values for t in terminals]
-    try:
-        # avgval-link across all expression genes per row.
-        per_gene = [np.array(list(map(f, *arrays)), dtype=np.float64) for f in funcs]
-        out = np.mean(per_gene, axis=0)
-    except Exception:
-        return None
-    if not np.all(np.isfinite(out)):
-        return None
-    return out
-
-
 def compute_raw_metrics(individual):
     """Phase 1: per-individual. Returns a bundle dict or None.
 
-    EXTENSION OVER v1.0.4: chromosome layout is
-    [wrapper_gene, expr_gene_1, expr_gene_2, …]. We decode the wrapper
-    choice from the first gene, then fit the chosen wrapper around the
-    expression-gene avgval output.
+    The RegressWrapper(expr, type_n) primitive in the pset means
+    evolution can already embed a transform inside the gene; the
+    outer LSM wrapping is unchanged from v1.0.4.
 
     IMPORTANT: this runs inside the multiprocess worker — any mutations
-    to `individual` are LOST when the worker returns. We return
-    everything the parent needs (a, b, wrapper, metrics, vec) and
-    `assign_fitness_batch` re-stamps them onto the original individual.
+    to `individual` are LOST when the worker returns.
     """
-    wrapper_name = _decode_wrapper_name(individual)
-
-    gene_train = _compile_expr_only(individual, train, finalTerminals)
-    gene_val = _compile_expr_only(individual, validation, finalTerminals)
-    if gene_train is None or gene_val is None:
+    raw_train = hgh.compile_and_predict(individual, train, finalTerminals, toolbox)
+    raw_val = hgh.compile_and_predict(individual, validation, finalTerminals, toolbox)
+    if raw_train is None or raw_val is None:
         return None
 
-    Y_val = validation[target_col].values
-
     if settings.enable_linear_scaling:
-        result = apply_wrapper_fit_and_predict(wrapper_name, gene_train, Y, [gene_val])
-        if result is None:
+        scale = hgh.apply_linear_scaling(raw_train, Y)
+        if scale is None:
             return None
-        a, b, pred_train, pred_others = result
-        pred_val = pred_others[0]
+        a, b = scale
+        pred_train = a * raw_train + b
+        pred_val = a * raw_val + b
     else:
         a, b = 1.0, 0.0
-        pred_train = gene_train
-        pred_val = gene_val
+        pred_train = raw_train
+        pred_val = raw_val
+
+    Y_val = validation[target_col].values
 
     mse_tr = float(np.mean((Y - pred_train) ** 2))
     mse_va = float(np.mean((Y_val - pred_val) ** 2))
@@ -653,7 +503,6 @@ def compute_raw_metrics(individual):
     return {
         "a": float(a),
         "b": float(b),
-        "wrapper": wrapper_name,
         "metrics": dict(zip(METRIC_NAMES, vec)),
         "vec": vec,
     }
@@ -702,7 +551,6 @@ def assign_fitness_batch(population, raw_results):
         ind.metrics = r["metrics"]
         ind.a = r["a"]
         ind.b = r["b"]
-        ind.wrapper = r.get("wrapper", "identity")
 
 
 toolbox.register("evaluate", evaluate_individual)
@@ -1009,46 +857,26 @@ type(hof[0])
 # print the best symbolic regression we found:
 best_ind = hof[0]
 
-# Refit deterministically — the multiprocess pool can lose attributes
-# across the pickle hop. We rebuild gene_train via the wrapper-aware
-# path and re-fit the wrapper.
-_wrapper_name = _decode_wrapper_name(best_ind)
-_gene_train_best = _compile_expr_only(best_ind, train, finalTerminals)
-if _gene_train_best is not None:
-    _refit = apply_wrapper_fit_and_predict(_wrapper_name, _gene_train_best, Y, [])
-    if _refit is not None:
-        best_ind.a, best_ind.b, *_ = _refit
-        best_ind.wrapper = _wrapper_name
+best_ind.a, best_ind.b = scale_winner(hof[0]) if "scale_winner" in dir() else (best_ind.a, best_ind.b)
 
-print(f"Best individual's evolved wrapper: {getattr(best_ind, 'wrapper', _wrapper_name)}")
+# Re-fit a, b deterministically across the pool boundary, then sympify.
+_raw_for_scale = hgh.compile_and_predict(best_ind, train, finalTerminals, toolbox)
+_scale = hgh.apply_linear_scaling(_raw_for_scale, Y)
+if _scale is not None:
+    best_ind.a, best_ind.b = _scale
 
-# Sympify only the expression genes; the wrapper is applied symbolically
-# below as a named sp.Function so it renders e.g. "log_target(expr)"
-# in the final formula.
+# Sympify — adding regress_wrapper to the function map so the sympy
+# round-trip can resolve it. We map it to a sympy Function so the
+# wrapper choice is *visible* in the printed equation
+# (e.g. "regress_wrapper(expr, 2)" — a square_wrap), rather than
+# eagerly evaluated.
 CUSTOM_SYMBOLIC_FUNCTION_MAP = hgh.custom_symbolic_function_map()
 import sympy as _sp_tmp
-# Build the symbolic form of avgval(expr_1, …, expr_N) using only the
-# expression genes — pass them as a synthetic chromosome to gep.simplify.
-_expr_chromo_for_simplify = creator.Individual(list(best_ind[1:]), linker=hgh.avgval)
-symplified_expr_only = gep.simplify(_expr_chromo_for_simplify,
-                                    symbolic_function_map=CUSTOM_SYMBOLIC_FUNCTION_MAP)
+CUSTOM_SYMBOLIC_FUNCTION_MAP["regress_wrapper"] = _sp_tmp.Function("RegressWrapper")
+symplified_best = gep.simplify(best_ind, symbolic_function_map=CUSTOM_SYMBOLIC_FUNCTION_MAP)
 
-# Wrap the simplified expression symbolically. We use sympy.Function
-# objects for the non-identity wrappers so they survive the print.
-_w = getattr(best_ind, "wrapper", "identity")
-if _w == "identity":
-    symplified_best = best_ind.a * symplified_expr_only + best_ind.b
-elif _w == "log_target":
-    # pred = exp(a·expr + b)
-    symplified_best = _sp_tmp.exp(best_ind.a * symplified_expr_only + best_ind.b)
-elif _w == "exp_wrap":
-    symplified_best = best_ind.a * _sp_tmp.exp(symplified_expr_only) + best_ind.b
-elif _w == "sqrt_wrap":
-    symplified_best = best_ind.a * _sp_tmp.sqrt(_sp_tmp.Abs(symplified_expr_only)) + best_ind.b
-elif _w == "square_wrap":
-    symplified_best = best_ind.a * symplified_expr_only ** 2 + best_ind.b
-else:
-    symplified_best = best_ind.a * symplified_expr_only + best_ind.b
+if settings.enable_linear_scaling:
+    symplified_best = best_ind.a * symplified_best + best_ind.b
 
 # Optional Feynman-shape rewrite — recognise compact GEP forms like
 # c·x·√x and rewrite as √(c²·x³) with c² snapped against the library.
@@ -1120,32 +948,21 @@ Image(filename="data/numerical_expression_tree.png")
 # %%
 # Applies the discovered function (with linear scaling option) to any DataFrame.
 def CalculateGeppyModelOutput(testdata, finalTerminals, best_ind, enable_ls=True):
-    """Apply the wrapper-augmented best individual to a DataFrame.
-
-    Layout: [wrapper_gene, expr_gene_1, …]. We evaluate the expr genes
-    via _compile_expr_only (avg-linked) then apply the wrapper using
-    apply_wrapper_fit_and_predict (but we re-fit on TRAIN, not testdata,
-    so the same coefficients apply across test/holdout — matching what
-    the training-time fit did)."""
-    import numpy as np
-    wrapper_name = getattr(best_ind, "wrapper", _decode_wrapper_name(best_ind))
-    gene_test = _compile_expr_only(best_ind, testdata, finalTerminals)
-    if gene_test is None:
-        return np.full(len(testdata), float("nan"))
-
-    if not enable_ls:
-        return gene_test
-
-    # Re-fit on train to recover (a, b) deterministically, then predict
-    # on testdata via the chosen wrapper.
-    gene_train_local = _compile_expr_only(best_ind, train, finalTerminals)
-    if gene_train_local is None:
-        return np.full(len(testdata), float("nan"))
-    result = apply_wrapper_fit_and_predict(wrapper_name, gene_train_local, Y, [gene_test])
-    if result is None:
-        return np.full(len(testdata), float("nan"))
-    _a, _b, _pred_train, _pred_others = result
-    return _pred_others[0]
+    """Apply the best individual to a DataFrame and return predictions."""
+    finalfunc = toolbox.compile(best_ind)
+    paramlist = []
+    for term in finalTerminals:
+        locals()["_holdout" + str(term)] = testdata[term].values
+        paramlist = paramlist + ["_holdout" + str(term)]
+    ourparam_string = ", ".join(paramlist)
+    ourfuncstring = "np.array(list(map(finalfunc, " + ourparam_string + ")))"
+    rawoutput = eval(ourfuncstring)
+    def lscaler(x, a=best_ind.a, b=best_ind.b):
+        return a * x + b
+    correctionstring = "np.array(list(map(lscaler, rawoutput)))"
+    if enable_ls:
+        return eval(correctionstring)
+    return rawoutput
 
 
 # %% [markdown]
@@ -1339,46 +1156,18 @@ pyplot.show()
 # the table surfaces the train/val/MAE/max-err trade-offs of every champion.
 
 # %%
-# NOTE: hgh.rerank_hof_regression assumes the v1.0.4 chromosome layout
-# (all genes are expression genes) and would mis-evaluate the wrapper
-# gene as part of the expression. For this prototype we provide a
-# minimal local reranker that uses _compile_expr_only + the wrapper
-# per individual. Skips Pareto + advanced sorting; just the headline
-# table sorted by per-individual val_mse.
-import pandas as _pd_local
-_rerank_rows = []
-for i, ind in enumerate(hof):
-    wrapper_name_i = _decode_wrapper_name(ind)
-    gene_train_i = _compile_expr_only(ind, train, finalTerminals)
-    gene_val_i = _compile_expr_only(ind, validation, finalTerminals)
-    if gene_train_i is None or gene_val_i is None:
-        continue
-    res = apply_wrapper_fit_and_predict(wrapper_name_i, gene_train_i, Y, [gene_val_i])
-    if res is None:
-        continue
-    a_i, b_i, pt_i, po_i = res
-    pv_i = po_i[0]
-    Y_val_local = validation[target_col].values
-    _rerank_rows.append({
-        "model": i, "length": hgh.chromosome_length(ind),
-        "wrapper": wrapper_name_i,
-        "train_mse": float(np.mean((Y - pt_i) ** 2)),
-        "val_mse": float(np.mean((Y_val_local - pv_i) ** 2)),
-        "train_mae": float(np.mean(np.abs(Y - pt_i))),
-        "val_mae": float(np.mean(np.abs(Y_val_local - pv_i))),
-        "max_err": float(np.max(np.abs(Y_val_local - pv_i))),
-        "a": a_i, "b": b_i,
-    })
-ranked = _pd_local.DataFrame(_rerank_rows).sort_values("val_mse").reset_index(drop=True)
-print(f"\nTop-10 HOF rerank (sorted by val_MSE) — wrappers in column 3:")
-print(ranked.head(10).to_string(index=False))
-# Build a tiny wrapper-frequency tally too — shows which wrapper evolution preferred.
-print(f"\nWrapper frequency in HOF: {ranked['wrapper'].value_counts().to_dict()}")
-
-# (Pareto-marked print_hof_with_pareto is skipped in this prototype —
-# the helper expects an angular_distance column we'd have to recompute
-# from the wrapper-aware metrics. The val-sorted table above is
-# sufficient for the prototype's exploration.)
+ranked = hgh.rerank_hof_regression(
+    hof, train, validation, target_col, finalTerminals, toolbox, settings
+)
+hgh.print_hof_with_pareto(
+    ranked,
+    columns=["model", "length", "train_mse", "val_mse",
+             "train_mae", "val_mae", "max_err", "angular_distance"],
+    top_n=10,
+    title=f"Top 10 HOF models by HFF angular distance "
+          f"(north_pole={settings.north_pole_method})",
+    raw_hof_size=len(hof),
+)
 
 # %% [markdown]
 # ## 6.2 Set-level HIGD diagnostic
@@ -1389,11 +1178,11 @@ print(f"\nWrapper frequency in HOF: {ranked['wrapper'].value_counts().to_dict()}
 # (no directional bias).
 
 # %%
-# HIGD diagnostic skipped in this prototype — helper expects the
-# v1.0.4 chromosome layout. Once the wrapper-aware predict path is
-# moved into hff_geppy_helpers (v1.0.5), this can come back.
-print("(HIGD diagnostic skipped in the wrapper-prototype notebook.)")
-experiment["holdout_higd"] = None
+higd_score = hgh.holdout_higd_diagnostic(
+    hof, holdout, target_col, finalTerminals, toolbox, settings, task="regression"
+)
+print(f"HIGD (holdout, n_ref={settings.higd_reference_points}, dims={len(holdout)}): {higd_score:.6f}")
+experiment["holdout_higd"] = float(higd_score) if not math.isnan(higd_score) else None
 
 # %% [markdown]
 # ## 6.3 Save experiment record
