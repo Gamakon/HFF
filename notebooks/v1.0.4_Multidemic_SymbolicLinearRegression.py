@@ -786,6 +786,20 @@ symplified_best = gep.simplify(best_ind, symbolic_function_map=CUSTOM_SYMBOLIC_F
 if settings.enable_linear_scaling:
     symplified_best = best_ind.a * symplified_best + best_ind.b
 
+# Optional Feynman-shape rewrite — recognise compact GEP forms like
+# c·x·√x and rewrite as √(c²·x³) with c² snapped against the library.
+# Uses equation_problems.KNOWN_CONSTANTS so physical constants like π
+# survive snapping; falls back to the raw sympy form if no rule fires.
+import sympy as _sp
+import equation_problems as _eq
+_symplified_raw = symplified_best
+_feynman, _rule = hgh.feynman_shape_rewrite(symplified_best, library=_eq.KNOWN_CONSTANTS)
+if _rule is not None:
+    print(f"Raw simplified form:        {_symplified_raw}")
+    print(f"Feynman-shape rewrite ({_rule}):")
+    print(f"  →  {_feynman}")
+    symplified_best = _feynman
+
 # %% [markdown]
 # ### 4.1.2 Formal presentation
 

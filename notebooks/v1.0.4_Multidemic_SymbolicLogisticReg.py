@@ -862,6 +862,19 @@ if _scale is not None:
 CUSTOM_SYMBOLIC_FUNCTION_MAP = hgh.custom_symbolic_function_map()
 symplified_best = gep.simplify(best_ind, symbolic_function_map=CUSTOM_SYMBOLIC_FUNCTION_MAP)
 
+# Optional Feynman-shape rewrite — recognise compact GEP forms (e.g.
+# c·x·√x → √(c²·x³)) and snap the resulting coefficient against the
+# constants library so the form Feynman would write survives.
+import sympy as _sp
+import equation_problems as _eq
+_symplified_raw = symplified_best
+_feynman, _rule = hgh.feynman_shape_rewrite(symplified_best, library=_eq.KNOWN_CONSTANTS)
+if _rule is not None:
+    print(f"Raw simplified form:        {_symplified_raw}")
+    print(f"Feynman-shape rewrite ({_rule}):")
+    print(f"  →  {_feynman}")
+    symplified_best = _feynman
+
 # %% [markdown]
 # ### 4.1.2 Formal presentation
 #

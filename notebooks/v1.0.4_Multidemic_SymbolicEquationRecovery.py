@@ -806,6 +806,19 @@ snapped = scored[0]["expr"]
 snap_report = levels[scored[0]["level"]][1]
 print(f"\nCanonical discovered expression: {snapped}")
 
+# Optional final pass: rewrite into "Feynman shape" — recognise compact
+# GEP-produced forms like  c·x·√x  and rewrite as  √(c²·x³)  with c²
+# snapped against the library. Turns a compact discovered expression
+# into the canonical form a physicist (or Feynman) would have written.
+feynman_rewritten, _feynman_rule = hgh.feynman_shape_rewrite(
+    snapped, library=KNOWN_CONSTANTS, rel_tol=SNAP_REL_TOL,
+    var_ranges=_problem_var_ranges,
+)
+if _feynman_rule is not None:
+    print(f"Feynman-shape rewrite applied ({_feynman_rule}):")
+    print(f"  →  {feynman_rewritten}")
+    snapped = feynman_rewritten
+
 # %% [markdown]
 # ## 4.2 Equation-recovery scoring (structural + numerical)
 

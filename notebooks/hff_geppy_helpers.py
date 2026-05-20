@@ -851,6 +851,25 @@ def holdout_higd_diagnostic(
 # atoms the three closest candidates).
 
 
+# When a library constant is a symbol-bearing sympy expression
+# (e.g. 4*pi**2/(G*M_sun) preserves Feynman shape), the snapper needs
+# to resolve those named symbols to numeric values to do the match.
+# Add entries here for any symbol that appears in a library expression
+# but isn't a sympy NumberSymbol like pi/E.
+NAMED_CONSTANT_VALUES = {
+    "G":      6.6743e-11,
+    "M_sun":  1.989e30,
+    "M_⊙":    1.989e30,
+    "g":      9.80665,
+    "c":      299792458.0,
+    "h":      6.62607015e-34,
+    "k_B":    1.380649e-23,
+    "k_e":    8.9875517923e9,
+    "R":      8.314462618,
+    "eps_0":  8.8541878128e-12,
+}
+
+
 _SHALLOW_RATIONALS = (
     1, 2, 3, 4,                # integers
     1.0 / 2, 1.0 / 3, 1.0 / 4, # halves, thirds, quarters
@@ -905,7 +924,20 @@ def _best_snap(x: float, library: dict, rel_tol: float):
 
     candidates = []
     for name, c_val in library.items():
-        c_float = float(c_val) if isinstance(c_val, (int, float, sp.Float, sp.Integer, sp.Rational)) else float(sp.N(c_val))
+        # Library entries may be plain numbers, sympy numerics, OR
+        # symbol-bearing sympy expressions whose free symbols are named
+        # in NAMED_CONSTANT_VALUES (so the display form survives but
+        # we can still extract a numeric for matching).
+        try:
+            if isinstance(c_val, (int, float, sp.Float, sp.Integer, sp.Rational)):
+                c_float = float(c_val)
+            elif isinstance(c_val, sp.Expr) and c_val.free_symbols:
+                subs = {s: NAMED_CONSTANT_VALUES.get(s.name, s) for s in c_val.free_symbols}
+                c_float = float(sp.N(c_val.subs(subs)))
+            else:
+                c_float = float(sp.N(c_val))
+        except (TypeError, ValueError):
+            continue
         for cand_val, label, complexity in _candidate_forms(c_float):
             if cand_val == 0:
                 continue
@@ -1260,6 +1292,82 @@ def _strip_abs_positive_domain(expr):
     """
     import sympy as sp
     return expr.replace(sp.Abs, lambda x: x)
+
+
+def feynman_shape_rewrite(expr, library: dict, rel_tol: float = 1e-3, var_ranges: dict | None = None):
+    """Rewrite a compact GEP-discovered expression into a Feynman-canonical
+    form, when possible.
+
+    The discovered form is often a numerically-correct but visually
+    different surface form — e.g. ``5.45e-10·a·√a`` instead of
+    ``√((4π²/GM)·a³)``. This routine recognises a small set of
+    transformations and applies them so the report shows the canonical
+    shape:
+
+      Rule 1: ``c · x · √x``      →  ``√(c² · x³)``
+      Rule 2: ``c · √x``          →  ``√(c² · x)``
+      Rule 3: ``c · x``           →  ``√(c²) · x``  (only when c² snaps)
+      Rule 4: ``c · x²``          →  ``c · x²``    (no rewrite; identity)
+
+    After each rewrite, the new numeric coefficient is snapped against
+    the library. If the snap succeeds (within rel_tol), the rewrite is
+    accepted; otherwise we leave the expression alone.
+
+    Returns ``(rewritten_expr, applied_rule_or_None)``.
+    """
+    import sympy as sp
+
+    expr = sp.sympify(expr)
+    # Walk: look for c * x * sqrt(x) or c * x * sqrt(Abs(x)) inside an Add
+    # or as a standalone Mul. We pattern-match conservatively because
+    # over-eager rewrites are worse than no rewrite.
+
+    def _try_sqrt_of_cube(e):
+        """Rule 1: c · x · √x → √(c²·x³). Returns rewritten expr or None."""
+        if not isinstance(e, sp.Mul):
+            return None
+        args = list(e.args)
+        # Extract numeric coefficient
+        nums = [a for a in args if a.is_number]
+        rest = [a for a in args if not a.is_number]
+        if not nums or not rest:
+            return None
+        c = sp.Mul(*nums)
+        try:
+            c_float = float(c)
+        except (TypeError, ValueError):
+            return None
+        # Look for x and sqrt(x) (or sqrt(Abs(x))) among rest
+        x_sym, sqrt_term = None, None
+        for r in rest:
+            if r.is_Symbol:
+                x_sym = r
+            elif isinstance(r, sp.Pow) and r.exp == sp.Rational(1, 2):
+                # sqrt(...). Strip Abs() to get the inner sym.
+                inner = r.base
+                if isinstance(inner, sp.Abs):
+                    inner = inner.args[0]
+                if inner.is_Symbol:
+                    sqrt_term = inner
+        if x_sym is None or sqrt_term is None or x_sym != sqrt_term:
+            return None
+        # Snap c² against library
+        c_sq = c_float ** 2
+        snapped_csq, _ = _best_snap(c_sq, library, rel_tol)
+        if snapped_csq is None:
+            return None
+        # We have a clean rewrite: √(snapped_csq · x³). Build it with
+        # evaluate=False so sympy doesn't auto-collapse the sqrt back into
+        # a Float·π form — we want the Feynman shape preserved.
+        _, sym, _, _ = snapped_csq
+        inside = sp.Mul(sym, x_sym ** 3, evaluate=False)
+        return sp.Pow(inside, sp.Rational(1, 2), evaluate=False)
+
+    rewritten = _try_sqrt_of_cube(expr)
+    if rewritten is not None:
+        return rewritten, "c·x·√x → √(c²·x³)"
+
+    return expr, None
 
 
 def equation_recovery_report(

@@ -87,6 +87,12 @@ KNOWN_CONSTANTS = {
     # Bose denominator exp(hf/kT)−1) live elsewhere — they would need
     # a different snap mechanism (pattern matching, not scalar matching).
     # Tracked as a research extension; not in the current scalar library.
+
+    # Symbolic composites whose *display form* should survive snapping.
+    # The library accepts symbol-bearing expressions; the snapper resolves
+    # their numeric value via hff_geppy_helpers.NAMED_CONSTANT_VALUES.
+    # Add new ones here as motif mining surfaces them.
+    "4pi2_over_GM_sun": 4 * sp.pi ** 2 / (sp.Symbol("G") * sp.Symbol("M_sun")),
 }
 
 
