@@ -493,18 +493,29 @@ def protected_sqrt(x):
 
 
 def protected_log(x):
-    """log(|x|), bottomed-out at log(eps) so the gene survives x→0."""
+    """log(|x|). At x≈0 returns inf; bad individuals get dropped by
+    ``np.isfinite(vec)``. No floor — clipping diverges from sp.log(Abs(x))
+    which sympify uses."""
     if not math.isfinite(x):
-        return 0.0
+        return float("inf")
     ax = abs(x)
-    return math.log(ax) if ax > 1e-30 else math.log(1e-30)
+    if ax == 0.0:
+        return float("inf")
+    return math.log(ax)
 
 
 def protected_exp(x):
-    """exp(x) clipped to keep the search finite under noisy intermediates."""
+    """exp(x) for the search. NaN/Inf inputs and overflow produce inf; the
+    individual then gets dropped by the fitness's ``np.isfinite(vec)`` check.
+    Do NOT clip — clipping creates a runtime function that sp.exp can't
+    mirror, so the sympified discovered expression diverges from what was
+    scored during evolution (gravity early-stop overfit was the canary)."""
     if not math.isfinite(x):
-        return 0.0
-    return math.exp(max(-50.0, min(50.0, x)))
+        return float("inf")
+    try:
+        return math.exp(x)
+    except OverflowError:
+        return float("inf")
 
 
 pset.add_function(protected_sqrt, 1)
