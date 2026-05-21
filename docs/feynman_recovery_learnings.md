@@ -144,8 +144,12 @@ Each experiment block:
   - Intake (pop=100): `tournsize=8` — wider net, ~8% selection pressure.
   - Champion (pop=25): `tournsize=3` — same as before, ~12% pressure on the elite pool.
 - **Hypothesis**: a 3-tournament on 100-pop intake gave only ~3% pressure (effectively random), masking the fitness signal that should drive intake convergence enough to feed quality into pump-promote-2. Larger tournament restores intake selection without crushing diversity.
-- **Test**: I_15_3x (canary), then 13-sample.
-- **Result**: **PENDING**.
+- **Test**: I_15_3x.
+- **Result**: **val_R² = 0.976** (E12b/c/E13: 0.944). Holdout R² = 0.973, extrap R² = 0.907.
+  - Discovered: `3·π^¼·√(|x + exp(exp(-u/2)·√|x|) + x/t|) − 10.77`
+  - Still not truth (`(x−ut)/√(1−u²/c²)`), but each diversity addition climbed val_R² by ~0.03.
+- **Net trajectory on I_15_3x val_R²**: head=24 baseline 0.85 → head=48 + diversity (E12) 0.944 → +dedup-5 + tournsize 8/3 (E15) 0.976.
+- **Next**: run 13-sample at E15 settings to see whether the I_15_3x gains translate.
 
 ---
 
