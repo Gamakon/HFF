@@ -15,6 +15,7 @@ crate-type = ["cdylib", "rlib"]
 default = ["python"]
 python = ["pyo3", "numpy"]
 c-api = []
+gpu = ["wgpu", "pollster", "bytemuck"]
 
 [dependencies]
 ndarray = "0.15"
@@ -24,3 +25,6 @@ rand_distr = "0.4"
 statrs = "0.16"
 pyo3 = { version = "0.20", features = ["extension-module"], optional = true }
 numpy = { version = "0.20", optional = true }
+wgpu = { version = "0.20", optional = true }
+pollster = { version = "0.3", optional = true }
+bytemuck = { version = "1.14", features = ["derive"], optional = true }

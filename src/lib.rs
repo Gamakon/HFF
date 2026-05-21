@@ -24,6 +24,10 @@ pub mod higd;
 #[cfg(feature = "c-api")]
 pub mod c_api;
 
+/// GPU-accelerated batch HFF via wgpu compute shader.
+#[cfg(feature = "gpu")]
+pub mod gpu;
+
 #[cfg(feature = "python")]
 use pyo3::prelude::*;
 #[cfg(feature = "python")]
@@ -322,6 +326,45 @@ fn calculate_angular_igd(
     ))
 }
 
+// =============================================================================
+// GPU entry point (PyO3, feature = "gpu")
+// =============================================================================
+// Same API shape as `calculate_hyperspherical_fitness_hf1_enhanced` but runs
+// on a wgpu compute pipeline. north_pole_method="truenorth" only for now.
+// A single GPU context is lazy-initialized on first call.
+
+#[cfg(all(feature = "python", feature = "gpu"))]
+use std::sync::OnceLock;
+
+#[cfg(all(feature = "python", feature = "gpu"))]
+static HFF_GPU_CTX: OnceLock<Result<gpu::HffGpuContext, String>> = OnceLock::new();
+
+#[cfg(all(feature = "python", feature = "gpu"))]
+#[pyfunction]
+#[pyo3(signature = (objectives, north_pole_method="truenorth", normalize=true))]
+fn calculate_hyperspherical_fitness_hf1_enhanced_gpu(
+    py: Python,
+    objectives: PyReadonlyArray2<f64>,
+    north_pole_method: &str,
+    normalize: bool,
+) -> PyResult<Py<PyArray1<f64>>> {
+    if north_pole_method != "truenorth" {
+        return Err(PyValueError::new_err(
+            "GPU path supports only north_pole_method='truenorth' for now",
+        ));
+    }
+    let objectives = objectives.as_array().to_owned();
+    let ctx = HFF_GPU_CTX.get_or_init(gpu::HffGpuContext::new);
+    let ctx = match ctx {
+        Ok(c) => c,
+        Err(e) => return Err(PyValueError::new_err(format!("GPU init failed: {e}"))),
+    };
+    let out = ctx
+        .calculate_hf1_truenorth_batch(&objectives, normalize)
+        .map_err(|e| PyValueError::new_err(format!("GPU compute failed: {e}")))?;
+    Ok(Array1::from(out).into_pyarray(py).to_owned())
+}
+
 #[cfg(feature = "python")]
 #[pymodule]
 fn hff_core(_py: Python, m: &PyModule) -> PyResult<()> {
@@ -332,6 +375,9 @@ fn hff_core(_py: Python, m: &PyModule) -> PyResult<()> {
     // HIGD (Hyperspherical Inverted Generational Distance) - paper's reference quality indicator
     m.add_function(wrap_pyfunction!(calculate_higd, m)?)?;
     m.add_function(wrap_pyfunction!(calculate_angular_igd, m)?)?;
+
+    #[cfg(feature = "gpu")]
+    m.add_function(wrap_pyfunction!(calculate_hyperspherical_fitness_hf1_enhanced_gpu, m)?)?;
 
     Ok(())
 }
