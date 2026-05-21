@@ -266,13 +266,13 @@ MIGRATION_TOPOLOGY = "pump"
 # to re-prove themselves alone. The original stays archived in champion.
 # Cross-class broadcast (settings.migration_freq) stays at the slower
 # cadence so each intake has time to evolve between gauntlet shocks.
-MIGRATION_FREQ_INTRA = 15
+MIGRATION_FREQ_INTRA = 10
 # Post-hoc duplicate killer cadence. Every DEDUP_FREQ gens, every deme
 # (intake + champion) is scanned for duplicate chromosomes (by str()).
 # Each duplicate after the first occurrence is replaced with a fresh
 # random chromosome. Cheap pressure against clone bloat without
 # disturbing the evolutionary signal.
-DEDUP_FREQ = 5
+DEDUP_FREQ = 0
 # Wrapper-cull schedule. At end of gen WRAPPER_CULL_GEN, rank wrapper
 # classes by min one_minus_r2_va across their (intake, champion) pair.
 # Halt the bottom WRAPPER_CULL_N classes (their islands are frozen for
@@ -288,11 +288,11 @@ WRAPPER_CULL_GROWTH = 100
 # was the fragmentation path which we deleted. Without fragmentation,
 # the intra cycle just thrashes (champion's best replaces intake's
 # worst with no edit), which can crowd out exploratory chromosomes.
-DISABLE_PUMP_INTRA = False
+DISABLE_PUMP_INTRA = True
 # Disable cross-class broadcast: every 5 wrapper classes runs as a fully
 # isolated intake↔champion pair, sharing nothing with other classes.
 # Only the intra-pump (above) couples intake/champion within a class.
-DISABLE_PUMP_CROSS = True
+DISABLE_PUMP_CROSS = False
 
 # 🔴 CONFIGURE HERE — ISLAND → WRAPPER + ROLE MAPPING.
 # Used only when WRAPPER_SCOPE == "per_island".
@@ -428,7 +428,7 @@ _USE_MULVAL_LINKER = False
 # products, defeats mixed forms; net regression on sample).
 _LINKER_OVERRIDE = os.environ.get("HFF_LINKER", "").strip().lower()
 if PROBLEM_ID.startswith(("I_", "II_", "III_", "test_")):
-    settings.head_length = 48
+    settings.head_length = 16
     if _LINKER_OVERRIDE == "mulval":
         _USE_MULVAL_LINKER = True
         print(f"[feynman override] head_length=48, n_genes={settings.n_genes}, linker=mulval")
@@ -917,10 +917,10 @@ population_size = settings.population_size
 #  - intake islands act as the explore stage, wider net catches diversity
 #  - champion islands act as the elite distiller, kept small + tight
 # Single-int population_size still applies for non-pump topologies.
-POP_INTAKE = 100
+POP_INTAKE = 25       # E19 revert: symmetric pop=25 to test baseline 8/13 claim
 POP_CHAMPION = 25
-TOURN_INTAKE = 8     # wider net per tournament (100-pool, ~8% pressure)
-TOURN_CHAMPION = 3   # tighter pressure on the small elite pool (12%)
+TOURN_INTAKE = 3      # E19 revert: symmetric tournsize=3
+TOURN_CHAMPION = 3
 def _island_pop_size(island_idx):
     if MIGRATION_TOPOLOGY != "pump":
         return population_size

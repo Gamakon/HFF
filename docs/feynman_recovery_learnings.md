@@ -180,7 +180,12 @@ Each experiment block:
 
 ### E18 — Drop the cull entirely; keep all E15 diversity gains
 - **Change vs E17**: `WRAPPER_CULL_GEN=10_000` (effectively disabled).
-- **Hypothesis**: E15 settings without the cull are the strongest configuration so far. E16/17 both regressed vs E15. Validating that.
+- **Test**: 13-sample.
+- **Result so far** (12/13 done): **4 TRUE / 8 FALSE so far** — same recovery set as E17. The E15 diversity additions don't translate into extra exact recoveries despite lifting val_R² on hard problems. The gains are on val_R² near-truth but never cross the recovery threshold.
+
+### E19 — Revert head to 16 + symmetric pop/tournsize, cross-broadcast back on
+- **Change vs E18**: head_length 48 → 16, POP_INTAKE 100 → 25, TOURN_INTAKE 8 → 3, DEDUP_FREQ 5 → 0, pump-intra disabled, cross-broadcast re-enabled (with the modern keep-20%+champions+random rebuild rule).
+- **Hypothesis**: the original "baseline 8/13" claim (E1) was a different seed setup; today's diversity ladder (E12-E18) hasn't beaten the original baseline. Check whether reverting head + pop gets us back to 6+ recoveries on the 13-sample.
 - **Test**: 13-sample.
 - **Result**: **PENDING**.
 
