@@ -155,13 +155,18 @@ Each experiment block:
 
 ### E16 — Wrapper cull at gen 104 (halt bottom 2, grow top 2 intakes)
 - **Change vs E15**: at the end of gen `WRAPPER_CULL_GEN=104`, rank wrapper classes by min `one_minus_r2_va` across their (intake, champion) pair.
-  - Bottom 2 wrapper classes: HALT — their 4 islands freeze (no select/mutate/cross/eval/dedup/migration). Existing chromosomes stay searchable post-hoc via HOF.
-  - Top 2 wrapper classes: each intake grows by `WRAPPER_CULL_GROWTH=100` (100 → 200). Champions stay at 25. The next pump-intra reset (≤15 gens later) fills the new slots via the keep-top-20%+random rule.
+  - Bottom 2 wrapper classes: HALT — their 4 islands freeze.
+  - Top 2 wrapper classes: each intake grows 100 → 200.
   - Middle wrapper class (1 of 5): unchanged.
-- **Hypothesis**: by gen 100 the wrapper-class ranking is largely informative — the I_15_3x diagnostic showed log_abs led from gen 29 onward and never lost the lead. Halting clear losers reallocates compute to wrappers that have already shown signal.
-- **Risk**: a wrapper that recovers truth via a slow-burning structural path (sqrt_abs on I_15_3x) gets culled before it converges. We're betting that the gen-104 ranking is correlated with eventual success.
-- **Test**: I_15_3x (canary), then 13-sample.
-- **Result**: **PENDING**.
+- **Test**: I_15_3x.
+- **Result**: **Identical hof[0]** as E15: val_R²=0.976, same `3·π^¼·√(...)` formula. Holdout R²=0.973, extrap R²=0.907.
+- **CRITICAL FINDING — ranking-metric mismatch**:
+  - At gen 104, the cull (by `one_minus_r2_va`) ranked sqrt_abs LAST → halted.
+  - The post-run HOF (by truenorth multi-objective angular distance) picked **sqrt_abs as hof[0]**.
+  - i.e. the cull halted the wrapper that the HOF eventually deemed best.
+  - Why: sqrt_abs's val_R² was worst (0.985), but its overall multi-objective profile (train+val+max_err+extrap+holdout balance) was best.
+- **Implication**: ranking by val_R² alone undervalues wrappers that balance objectives. Either (a) rank by truenorth angular distance to align with HOF's pick, or (b) don't cull — the diversity of wrappers turns out to matter even when one wrapper "loses" on the val metric.
+- **Next**: try ranking by truenorth fitness instead, or drop the cull entirely.
 
 ---
 
