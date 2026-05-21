@@ -806,18 +806,23 @@ stats.register("min fitness", np.min)
 
 
 def per_metric_mins(population):
-    out = {}
+    """Per-deme reporting: SAME individual's metrics (deme's best by fitness).
+    Was previously min-per-metric across the deme, which is misleading because
+    metrics from DIFFERENT individuals get joined into one row — early-stop
+    fired on individual A's val_R²≈1 while HOF[0] was individual B with
+    val_R²≈0.5 (gravity overfit diagnostic)."""
+    out = {name: float("inf") for name in METRIC_NAMES}
+    valid = [ind for ind in population
+             if getattr(ind, "fitness", None) is not None
+             and ind.fitness.valid
+             and getattr(ind, "metrics", None)]
+    if not valid:
+        return out
+    best = min(valid, key=lambda i: i.fitness.values[0])
     for name in METRIC_NAMES:
-        vals = []
-        for ind in population:
-            m = getattr(ind, "metrics", None)
-            if m is None:
-                continue
-            v = m.get(name)
-            if v is None or not math.isfinite(v):
-                continue
-            vals.append(v)
-        out[name] = float(min(vals)) if vals else float("inf")
+        v = best.metrics.get(name)
+        if v is not None and math.isfinite(v):
+            out[name] = float(v)
     return out
 
 # %% [markdown]
