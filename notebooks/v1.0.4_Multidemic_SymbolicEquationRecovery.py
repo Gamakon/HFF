@@ -131,6 +131,7 @@ import sys
 sys.path.insert(0, ".")  # local helpers + problem registry
 
 import datetime
+import time
 import math
 import operator
 import os
@@ -1529,9 +1530,22 @@ hgh.print_hof_with_pareto(
 # the underlying equation? This is the headline number for the paper.
 
 # %%
+# Cap the per-HOF recovery sweep so the sweep-driver doesn't time out on
+# expensive lambdify/simplify of pathological HOF entries. The headline
+# n_exact is still informative because the truly best models sit at the
+# top by angular distance.
+HOF_RECOVERY_SWEEP_MAX = 12
+HOF_RECOVERY_WALLCLOCK_S = 120  # abort the loop after this many seconds
+_recovery_start = time.perf_counter()
+
 n_total = len(ranked)
 recoveries = []
 for _, row in ranked.iterrows():
+    if len(recoveries) >= HOF_RECOVERY_SWEEP_MAX:
+        break
+    if time.perf_counter() - _recovery_start > HOF_RECOVERY_WALLCLOCK_S:
+        print(f"  (recovery sweep wall-time cap hit at {len(recoveries)}/{n_total})")
+        break
     i = int(row["model"])
     ind = hof[i]
     wid_i = int(getattr(ind, "wrapper_id", 0)) % N_WRAPPERS
@@ -1574,9 +1588,10 @@ for _, row in ranked.iterrows():
 
 n_exact = sum(1 for r in recoveries if r["exact"])
 n_numerical = sum(1 for r in recoveries if r["numerical"])
-print(f"\nRecovery sweep across {n_total} unique HOF chromosomes:")
-print(f"  Structural / exact     : {n_exact}/{n_total}  ({100*n_exact/n_total:.1f}%)")
-print(f"  Numerical (≤1e-6 err)  : {n_numerical}/{n_total}  ({100*n_numerical/n_total:.1f}%)")
+n_sampled = len(recoveries)
+print(f"\nRecovery sweep across {n_sampled}/{n_total} unique HOF chromosomes (capped):")
+print(f"  Structural / exact     : {n_exact}/{n_sampled}  ({100*n_exact/max(1,n_sampled):.1f}%)")
+print(f"  Numerical (≤1e-6 err)  : {n_numerical}/{n_sampled}  ({100*n_numerical/max(1,n_sampled):.1f}%)")
 
 experiment["hof_size"] = n_total
 experiment["hof_exact_recoveries"] = n_exact
