@@ -79,19 +79,26 @@ Each experiment block:
 
 ### E6 — `n_genes=3, linker=avgval, head_length=24` (only depth change)
 - **Change vs E0**: head_length 16 → 24 for Feynman.
-- **Test**: 13-problem sample (same as E3). Killed at 9/13.
-- **Result so far**: **6/9 exact on the easy subset (I_12_1, I_12_5, I_14_3, I_14_4, I_25_13, I_29_4)**. STILL lost I_12_2, I_12_4 vs the E1 baseline (avgval head=16 got them).
-- **Interesting**: I_15_3x got CLOSER structurally: `-1.06·u + 1.05·x + 1.06·cos(t) - 1.0` (vs E3's pure log). Bigger head exposes more candidate structures even if it doesn't cross the recovery line.
-- **Net**: head=24 alone is NOT a clean win — costs us I_12_2 and I_12_4. Whatever 3-gene avgval at head=16 did to recover those, head=24 perturbs.
-- **Next**: try `addval` linker (E7); try head=100 with no parsimony (E8).
+- **Test**: 13-problem sample (same as E3).
+- **Result**: **6/13 exact (46%)** — same exact set as E3 (the 6 simple multiplicatives). I_12_2 and I_12_4 still failed (recovered at head=16 baseline).
+- **Interesting structural finds** (close but didn't snap to exact):
+  - I_15_3x: `-1.06·u + 1.05·x + 1.06·cos(t) - 1.0` — close to Lorentz numerator
+  - I_11_19 (`x1·y1+x2·y2+x3·y3`): `2.88·x1 + 2.88·y2 + 2.88·y3 + 0.54` — close to sum-of-three pattern (the *product* y_i not captured)
+  - I_13_4 (`½m(v²+u²+w²)`): `90.5·log(|m+u+w|/3) − 16π` (log-wrapped sum)
+- **Net**: head=24 alone is NOT a clean win — costs us I_12_2/I_12_4. But the discovered expressions are noticeably richer than head=16 — search reaches more structures.
+- **Next**: try `addval` linker (E7) to see if sum-of-genes finds the additive truths like I_11_19, I_13_4.
 
 ---
 
 ### E7 — `n_genes=3, linker=addval, head_length=24`
-- **Hypothesis**: many Feynman truths are *additive sums* (`x1·y1+x2·y2+x3·y3`, `½m(v²+u²+w²)`). With addval linker, the chromosome computes `g1+g2+g3` — each gene could be one term. Easier search than embedding the sum in a single gene's head.
-- **Trade-off**: pure products (`G·m1·m2/r²`) become harder under addval — must be expressed by ONE gene with the other two = 0.
-- **Test**: 13-problem sample.
-- **Result**: **PENDING**.
+- **Hypothesis**: many Feynman truths are additive sums; under addval each gene = one term.
+- **Result**: **4/13 exact (31%) — REGRESSION** vs E6 (6/13).
+  - Recovered: I_12_1, I_12_5, I_14_3, I_25_13 (only the trivial `a·b` ones, because LSM rescaled `addval(a·b, 0, 0)`).
+  - **Lost vs E6**: I_14_4 (`k_spring·x²/2`) → `1282·√(k·x²+1.6e6) - 1.6e6`. I_29_4 (`ω/c`) → log-arctan kludge.
+- **Crucial empirical finding**: on I_11_19 (additive truth `x1·y1+x2·y2+x3·y3`), addval discovered `2.88·x1 + 2.88·y2 + 2.88·y3 + 0.54` — **identical, character-for-character, to E6's avgval discovery**. Because `addval = n_genes × avgval`, and LSM `a` absorbs that scalar exactly. The two linkers are *mathematically equivalent under linear scaling*.
+- **Implication**: `avgval` vs `addval` is a no-op when `enable_linear_scaling=True`. Switching linkers between these two cannot change recovery rate.
+- **Open question**: does `mulval` differ structurally? E5 said yes — products combined cleanly under mulval but mixed-form failed. So the actually-distinct choices are {additive-equivalent (avgval, addval), multiplicative (mulval)}.
+- **Next**: drop the linker-evolution idea. The real lever is the SHAPE the gene can express, not how genes combine. Try head=48 (a) does it help find the right *internal* structure for I_11_19's product terms? (b) does it cost runtime too much.
 
 ---
 
