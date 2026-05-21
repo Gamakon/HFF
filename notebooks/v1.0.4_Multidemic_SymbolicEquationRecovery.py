@@ -388,6 +388,17 @@ if _cli_problem:
 elif os.environ.get("HFF_PROBLEM"):
     PROBLEM_ID = os.environ["HFF_PROBLEM"]
 
+# Feynman-specific overrides. The 6 built-ins are simple (a·b, a/b, a²)
+# and recover well at head_length=16, n_genes=3 with avgval linker.
+# Feynman equations are typically deeper (relativistic, Pythagorean,
+# multi-term) and multiplicative — avgval(g1,g2,g3) dilutes products,
+# and n_genes=3 wastes head capacity on inert genes that average to noise.
+# Drop to n_genes=1 with a bigger head so the truth tree has room.
+_USE_MULVAL_LINKER = False
+if PROBLEM_ID.startswith(("I_", "II_", "III_", "test_")):
+    settings.head_length = 24
+    print(f"[feynman override] head_length=24 (keep n_genes={settings.n_genes}, avgval linker)")
+
 if PROBLEM_ID == "_custom":
     # CONFIGURE HERE — your own equation:
     problem = eq.make_custom_problem(
@@ -584,9 +595,10 @@ toolbox.register(
     pset=pset, head_length=settings.head_length,
     rnc_gen=toolbox.rnc_gen, rnc_array_length=settings.rnc_array_length,
 )
+_LINKER = hgh.mulval if _USE_MULVAL_LINKER else hgh.avgval
 if settings.n_genes > 1:
     toolbox.register("_chromosome_factory", creator.Individual,
-                     gene_gen=toolbox.gene_gen, n_genes=settings.n_genes, linker=hgh.avgval)
+                     gene_gen=toolbox.gene_gen, n_genes=settings.n_genes, linker=_LINKER)
 else:
     toolbox.register("_chromosome_factory", creator.Individual,
                      gene_gen=toolbox.gene_gen, n_genes=settings.n_genes)
