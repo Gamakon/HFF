@@ -225,6 +225,33 @@ The wrapper choice per-chromosome is the dominant variable: a chromosome that's 
 
 ---
 
+### GPU backend (groundwork, not yet wired into the notebook)
+- Added `feature = "gpu"` to the Rust crate (wgpu 0.20 + pollster + bytemuck).
+- `src/gpu.rs` implements `HffGpuContext::calculate_hf1_truenorth_batch()` with a single WGSL compute shader (workgroup_size=64, one thread per population row). CPU does min-max normalisation; GPU does truenorth angular distance in f32.
+- PyO3 entry: `hff_core.calculate_hyperspherical_fitness_hf1_enhanced_gpu(F, normalize, north_pole_method)`. `truenorth` only for now.
+- Patterns cribbed from qdrant `lib/segment/src/fingerprint/hffvenn/gpu_kernel.rs` (boilerplate) and `GPU_FUNCTIONS_INVENTORY_DEC25.md` §8.5 (single-query topk shape).
+- **Parity**: GPU matches CPU within 2.5e-7 max abs diff (f32 vs f64).
+- **Perf**: CPU wins for n < ~50K. At n=100K GPU=1.5×, at n=500K GPU=2.2× faster. Notebook calls at n=150–500 don't yet benefit. The work pays off when the rule library expands enough that batch HFF calls handle ~10K+ candidates.
+
+---
+
+### HFF as a debugging tool (observation)
+The framework's "what HFF scored is what we report" invariant turns out
+to be a powerful diagnostic. If a rule produces a structurally-correct
+formula on paper but its candidate vec is non-zero, HFF refuses to
+declare a winner — surfacing one of:
+1. The rule's numerical implementation is wrong (E26: I generated
+   relativistic mass `m·γ` when the truth was relativistic momentum `m·v·γ`).
+2. The data doesn't match `truth_expr` (registry bug).
+3. Numerical issues (clipping, sign error, NaN propagation).
+
+Because the 6-objective vec covers train + val + extrap + max_err, the
+only way to score truenorth=0 is to actually be truth across all
+three samples. So failure-to-recover with a "right-looking" rule is a
+diagnostic signal worth following back to the rule code, not noise.
+
+---
+
 ## Heuristics emerging
 
 1. **Multiplicative `a·b·c` or `a/b` truths recover** in <30s at the existing baseline.
