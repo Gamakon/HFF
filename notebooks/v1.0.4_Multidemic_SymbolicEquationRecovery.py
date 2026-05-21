@@ -1776,12 +1776,16 @@ if _won_via_rule:
 else:
     _best_wid = _best_wrapper_raw % N_WRAPPERS
     _best_wrapper_name = WRAPPER_NAMES[_best_wid]
-_raw_for_scale = hgh.compile_and_predict(best_ind, train, finalTerminals, toolbox)
-_wrapped_for_scale = apply_wrapper(_raw_for_scale, _best_wid) if _raw_for_scale is not None else None
-if _wrapped_for_scale is not None:
-    _scale = hgh.apply_linear_scaling(_wrapped_for_scale, Y)
-    if _scale is not None:
-        best_ind.a, best_ind.b = _scale
+if _won_via_rule:
+    # E22: keep the rule's LSM (a, b) — DON'T refit against the chromosome.
+    print(f"  rule LSM kept: a={best_ind.a:.6g}, b={best_ind.b:.6g}")
+else:
+    _raw_for_scale = hgh.compile_and_predict(best_ind, train, finalTerminals, toolbox)
+    _wrapped_for_scale = apply_wrapper(_raw_for_scale, _best_wid) if _raw_for_scale is not None else None
+    if _wrapped_for_scale is not None:
+        _scale = hgh.apply_linear_scaling(_wrapped_for_scale, Y)
+        if _scale is not None:
+            best_ind.a, best_ind.b = _scale
 
 print(f"Chromosome wrapper: id={_best_wid}  →  {_best_wrapper_name}")
 experiment["wrapper_id"] = _best_wid
