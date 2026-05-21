@@ -170,6 +170,17 @@ Each experiment block:
 
 ---
 
+### E17 — Wrapper cull at gen 104, ranked by best HOF index per wrapper
+- **Change vs E16**: at the cull, the ranking metric switches from "best intake/champion `one_minus_r2_va`" to "best HOF index each wrapper appears at".
+  - Scan HOF in fitness order. First index a wrapper shows up is its score.
+  - Wrappers absent from HOF entirely get score = len(hof) (worst).
+  - Halt the bottom 2 wrappers (highest first-HOF-index); grow the top 2 intakes by +100.
+- **Why**: HOF uses truenorth multi-objective fitness — the same scoring that picks the final discovered expression. Aligning cull and HOF prevents E16's pathology (cull halted sqrt_abs, then HOF picked sqrt_abs as hof[0]).
+- **Test**: I_15_3x (canary), then 13-sample.
+- **Result**: **PENDING**.
+
+---
+
 ## Heuristics emerging
 
 1. **Multiplicative `a·b·c` or `a/b` truths recover** in <30s at the existing baseline.

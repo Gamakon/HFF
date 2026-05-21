@@ -1102,33 +1102,39 @@ HALTED_DEMES = set()             # island indices that no longer evolve
 INTAKE_SIZE_OVERRIDE = {}        # island_idx -> new target pop size
 
 def _do_wrapper_cull(demes):
-    """Rank wrapper classes at WRAPPER_CULL_GEN. Halt the bottom N classes
-    (both intake + champion islands frozen). Grow the top N intakes by
-    WRAPPER_CULL_GROWTH — the next pump-intra reset fills the new slots
-    with random chromosomes via the keep-top-20%+random rule."""
+    """Rank wrapper classes at WRAPPER_CULL_GEN by each wrapper's
+    best-HOF-rank: scan the HOF in fitness order, the first index at
+    which each wrapper appears is its score. Wrappers absent from the
+    HOF entirely get rank = len(hof) (worst). Halt the bottom N, grow
+    the top N intakes by WRAPPER_CULL_GROWTH.
+
+    Why this metric: HOF uses the multi-objective truenorth fitness, the
+    same scoring that picks the final discovered expression. Using HOF
+    rank aligns the cull with what actually wins. (E16 culled by val_R²
+    and halted sqrt_abs — which the HOF then picked as hof[0]. Bug.)"""
     if not WRAPPER_ISLAND_PAIRS:
         return
-    # Best (lowest) one_minus_r2_va across (intake, champion) per wrapper.
-    class_best = {}
-    for intake_idx, champ_idx in WRAPPER_ISLAND_PAIRS:
-        w = ISLAND_WRAPPERS[intake_idx]
-        best = float("inf")
-        for idx in (intake_idx, champ_idx):
-            for ind in demes[idx]:
-                m = getattr(ind, "metrics", None)
-                if not m:
-                    continue
-                v = m.get("one_minus_r2_va", float("inf"))
-                if math.isfinite(v) and v < best:
-                    best = v
-        class_best[w] = best
+    # Build best-HOF-rank per wrapper class.
+    best_rank = {}  # wrapper -> first HOF index it appears at
+    for hof_idx, ind in enumerate(hof):
+        w = int(getattr(ind, "wrapper_id", 0)) % N_WRAPPERS
+        if w not in best_rank:
+            best_rank[w] = hof_idx
+    # Wrappers absent from HOF entirely → assign worst possible rank.
+    worst_rank = len(hof)
+    class_rank = {}
+    for w in range(N_WRAPPERS):
+        # Only consider wrappers that actually have islands.
+        has_islands = any(ISLAND_WRAPPERS[i] == w for i, _ in WRAPPER_ISLAND_PAIRS)
+        if has_islands:
+            class_rank[w] = best_rank.get(w, worst_rank)
 
-    if not class_best:
+    if not class_rank:
         return
-    ranked = sorted(class_best.items(), key=lambda kv: kv[1])  # best first
+    # Sort ascending by best HOF rank (lower = better).
+    ranked = sorted(class_rank.items(), key=lambda kv: kv[1])
     n_classes = len(ranked)
     if n_classes <= 2 * WRAPPER_CULL_N:
-        # Not enough classes to safely cull (would leave nothing in the middle).
         return
     winners = [w for w, _ in ranked[:WRAPPER_CULL_N]]
     losers = [w for w, _ in ranked[-WRAPPER_CULL_N:]]
@@ -1150,10 +1156,11 @@ def _do_wrapper_cull(demes):
             INTAKE_SIZE_OVERRIDE[intake_idx] = new_target
             grown_now.append((intake_idx, cur, new_target))
 
-    print(f"\n>>> WRAPPER CULL @ gen {WRAPPER_CULL_GEN}")
-    for w, v in ranked:
+    print(f"\n>>> WRAPPER CULL @ gen {WRAPPER_CULL_GEN} (rank by best HOF index)")
+    for w, r in ranked:
         tag = "WIN" if w in winners else ("CULL" if w in losers else "keep")
-        print(f"    {WRAPPER_NAMES[w]:<10s} 1-R²_va={v:.4e}  [{tag}]")
+        present = "present" if r < worst_rank else "absent"
+        print(f"    {WRAPPER_NAMES[w]:<10s} best_hof_idx={r:<4d} ({present})  [{tag}]")
     print(f"    halted islands: {sorted(halted_now)}")
     print(f"    grown intakes: {grown_now}")
 
