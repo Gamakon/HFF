@@ -124,6 +124,20 @@ Each experiment block:
 
 ---
 
+### E13 — fully isolated wrapper pairs: pump-intra ON (freq=15), pump-cross OFF
+- **Change vs E12**:
+  - `DISABLE_PUMP_CROSS = True` — no migration between wrapper classes whatsoever.
+  - `DISABLE_PUMP_INTRA = False`, `MIGRATION_FREQ_INTRA = 15`.
+  - Pump-intra redesigned (one-way + reset):
+    1. PROMOTE 2: top-2 intake → champion's 2 worst slots.
+    2. NO demote — champion is a write-only elite archive.
+    3. INTAKE RESET: dedup, keep top 20%, fill 80% random.
+- **Hypothesis**: cross-class migration has been the main diversity-killer. By making each wrapper-class an isolated intake→champion pipeline with aggressive intake reset, every class gets to converge on its own neighbourhood without contamination. Champion holds the best of each class; HOF post-hoc picks across all 5 classes.
+- **Test**: I_15_3x (canary), then 13-sample.
+- **Result**: **PENDING**.
+
+---
+
 ## Heuristics emerging
 
 1. **Multiplicative `a·b·c` or `a/b` truths recover** in <30s at the existing baseline.

@@ -200,7 +200,7 @@ settings = hgh.GeppySettings(
     tournament_size=3,
     num_elites=2,
     num_islands=10,        # 5 wrappers × 2 island roles (intake + champion) for "pump"
-    migration_freq=25,     # cross-class broadcast cadence
+    migration_freq=30,     # cross-class broadcast cadence
     k_migrants=3,
     # HOF
     champs=30,
@@ -266,13 +266,17 @@ MIGRATION_TOPOLOGY = "pump"
 # to re-prove themselves alone. The original stays archived in champion.
 # Cross-class broadcast (settings.migration_freq) stays at the slower
 # cadence so each intake has time to evolve between gauntlet shocks.
-MIGRATION_FREQ_INTRA = 10
+MIGRATION_FREQ_INTRA = 15
 # Disable the intra-class pump (promote champion + demote winner back).
 # The demote step is currently a plain full-clone — original "denoise"
 # was the fragmentation path which we deleted. Without fragmentation,
 # the intra cycle just thrashes (champion's best replaces intake's
 # worst with no edit), which can crowd out exploratory chromosomes.
-DISABLE_PUMP_INTRA = True
+DISABLE_PUMP_INTRA = False
+# Disable cross-class broadcast: every 5 wrapper classes runs as a fully
+# isolated intake↔champion pair, sharing nothing with other classes.
+# Only the intra-pump (above) couples intake/champion within a class.
+DISABLE_PUMP_CROSS = True
 
 # 🔴 CONFIGURE HERE — ISLAND → WRAPPER + ROLE MAPPING.
 # Used only when WRAPPER_SCOPE == "per_island".
@@ -1011,54 +1015,57 @@ def _migrate_pump_intra(demes, gen=None):
     """Intra-class pump step — runs every MIGRATION_FREQ_INTRA generations.
 
     For each (intake_idx, champ_idx) pair:
-      1. PROMOTE: top third of intake → cloned into champion, replacing
-         champion's worst third.
-      2. DENOISE-WINNER: the SINGLE best champion (post-promotion) gets
-         disassembled into n_genes single-gene chromosomes, each landing
-         in the same-class intake (replacing intake's worst n_genes).
-         The original best champion stays archived intact.
-
-    No cross-class flow here. This is the tight in-class distillation
-    loop — fast cadence, low disruption per island.
+      1. PROMOTE 2: top-2 by fitness from intake → cloned into champion's
+         2 worst slots. Champion archives the best of intake.
+      2. NO DEMOTE: nothing flows back to intake. Champion is a one-way
+         elite sink.
+      3. INTAKE RESET: dedup intake, keep top 20% by fitness, fill the
+         remaining 80% with fresh random chromosomes. This is the
+         diversity-injection step — keeps intake exploring instead of
+         converging on its own best.
     """
     if not WRAPPER_ISLAND_PAIRS:
         return
 
-    # Step 1: PROMOTE 1 — best of each intake into its champion island,
-    # replacing champion's single worst. Champion accumulates one winner
-    # per pump cycle.
     for intake_idx, champ_idx in WRAPPER_ISLAND_PAIRS:
         intake = demes[intake_idx]
         champ = demes[champ_idx]
         if not intake or not champ:
             continue
-        promotee = toolbox.clone(tools.selBest(intake, 1)[0])
-        worst_slot = max(
-            range(len(champ)),
-            key=lambda k_i: champ[k_i].fitness.values[0]
-            if champ[k_i].fitness.valid else float("inf"),
-        )
-        champ[worst_slot] = promotee   # promotee already has valid fitness
 
-    # Step 2: DEMOTE 1 — full clone of each champion's best lands in its
-    # intake's worst slot. Champion's original stays archived intact.
-    # (Component fragmentation removed — never beat parent in practice.)
-    for intake_idx, champ_idx in WRAPPER_ISLAND_PAIRS:
-        champ = demes[champ_idx]
-        intake = demes[intake_idx]
-        if not champ or not intake:
-            continue
-        valid_champs = [ind for ind in champ if ind.fitness.valid]
-        if not valid_champs:
-            continue
-        best = tools.selBest(valid_champs, 1)[0]
-        winner_clone = toolbox.clone(best)
-        worst_slot = max(
-            range(len(intake)),
-            key=lambda k_i: intake[k_i].fitness.values[0]
-            if intake[k_i].fitness.valid else float("inf"),
-        )
-        intake[worst_slot] = winner_clone
+        # Step 1: PROMOTE 2 — top-2 of intake → champion's 2 worst slots.
+        valid_intake = [ind for ind in intake if ind.fitness.valid]
+        if valid_intake:
+            n_prom = min(2, len(valid_intake))
+            promotees = [toolbox.clone(ind) for ind in tools.selBest(valid_intake, n_prom)]
+            worst_idx = sorted(
+                range(len(champ)),
+                key=lambda k_i: champ[k_i].fitness.values[0]
+                if champ[k_i].fitness.valid else float("inf"),
+                reverse=True,
+            )[:n_prom]
+            for slot, ind in zip(worst_idx, promotees):
+                champ[slot] = ind
+
+        # Step 2: NO demote — champion is a write-only archive of intake's bests.
+
+        # Step 3: INTAKE RESET — dedup, keep top 20%, fill remainder random.
+        target_size = len(intake)
+        seen = set()
+        dedup = []
+        for ind in intake:
+            key = str(ind)
+            if key in seen:
+                continue
+            seen.add(key)
+            dedup.append(ind)
+        dedup.sort(key=lambda i: i.fitness.values[0]
+                   if (i.fitness is not None and i.fitness.valid) else float("inf"))
+        n_keep = max(1, int(round(target_size * 0.20)))
+        keepers = dedup[:n_keep]
+        n_fresh = target_size - len(keepers)
+        fresh = [toolbox.individual() for _ in range(n_fresh)]
+        intake[:] = keepers + fresh
 
 
 def _migrate_pump_cross(demes):
@@ -1318,8 +1325,8 @@ else:
             if (not DISABLE_PUMP_INTRA) and gen > 0 and gen % MIGRATION_FREQ_INTRA == 0:
                 _migrate_pump_intra(demes, gen=gen)
                 _fired_anything = True
-                _fired_label = "intra (promote + denoise-winner)"
-            if gen > 30 and (gen % FREQ == 0 or gen > (target_gen - 10)):
+                _fired_label = "intra (promote-2 + intake-reset)"
+            if (not DISABLE_PUMP_CROSS) and gen > 30 and (gen % FREQ == 0 or gen > (target_gen - 10)):
                 _migrate_pump_cross(demes)
                 _fired_anything = True
                 _fired_label = (f"{_fired_label} + cross"
