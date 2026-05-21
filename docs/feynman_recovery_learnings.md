@@ -197,6 +197,23 @@ The wrapper choice per-chromosome is the dominant variable: a chromosome that's 
 
 **Candidate E20 (held — not started)**: evaluate every chromosome under ALL 5 wrappers; pick the wrapper that minimises truenorth distance per-individual. Removes wrapper-class commitment entirely.
 
+### E20 — Per-eval wrapper search, 3 wrappers, single intake↔champion pair
+- **Change vs E19**: complete topology rewrite.
+  - 1 intake (pop=100) + 1 champion (pop=50). No wrapper-class fanout.
+  - Wrappers reduced to 3: identity, log_abs, sqrt_abs (dropped exp, square).
+  - Each chromosome eval'd under all 3 wrappers; truenorth fitness computed across the FULL pool of (n_individuals × 3) candidate vecs in one batched HFF normalize. Per individual, the wrapper with lowest angular distance wins; its (a, b, wrapper_id, vec) is stamped on the chromosome.
+  - procs=14 (was 8).
+  - head_length=48 for Feynman.
+  - Pump-intra freq=15 (promote-2 + intake reset). Cross-broadcast OFF (only 1 wrapper class).
+- **Hypothesis**: per-island wrappers force a chromosome to die before it can be tried under its right wrapper. Per-eval search lets a structurally-good gene survive whichever wrapper renders it well.
+- **Test**: I_15_3x smoke + 13-sample.
+- **I_15_3x smoke**: val_R²=**0.985** (new best; E15: 0.976, E12: 0.944, baseline 0.85). Holdout R²=0.981, extrap R²=0.946. Discovered uses identity wrapper, closer to truth sign-pattern but still missing the Lorentz denominator.
+- **13-sample**: **6/13 exact (46%) — NEW BEST.**
+  - Recovered: I_12_1, I_12_5, I_14_3, I_14_4, I_25_13, I_29_4.
+  - Crucially recovered I_14_4 + I_14_3 + I_25_13 + I_29_4 simultaneously (no config since E0 hit all 4).
+  - Still failing: I_12_2, I_12_4, I_15_3x, I_13_4, I_8_14, I_18_4, I_11_19.
+- **Net**: per-eval wrapper search is a clean win on the easy-set. Hard-set (relativistic, vector-sum, mixed-form) still unrecovered but val_R² climbing.
+
 ---
 
 ## Heuristics emerging
