@@ -234,6 +234,48 @@ def compute_max_chromosome_nodes(pset, head_length: int, n_genes: int) -> int:
 
 
 # -----------------------------------------------------------------------------
+# Generation reporting (per-deme row formatter)
+# -----------------------------------------------------------------------------
+
+def format_log_row(record, metric_names: Sequence[str], col_width: int = 14,
+                   precision: int = 9) -> str:
+    """Format one logbook record as a single-line per-deme row with enough
+    decimals to distinguish near-tied fitnesses.
+
+    deap's default ``Logbook.stream`` truncates each float to ~6 significant
+    figures with a narrow column width, which hides the tail when several
+    chromosomes converge to nearly identical metrics. This helper reads the
+    record's typed fields directly so we keep full float precision.
+
+    `record` is a single ``Logbook`` row dict (e.g. ``log[-1]``). Returns a
+    formatted string; the caller chooses when to print the header (see
+    ``format_log_header``)."""
+    fixed = ("gen", "deme", "evals", "min fitness")
+    parts = [
+        f"{record.get('gen', ''):>4}",
+        f"{record.get('deme', ''):>4}",
+        f"{record.get('evals', ''):>6}",
+        f"{record.get('min fitness', float('nan')):>{col_width}.{precision}g}",
+    ]
+    for name in metric_names:
+        v = record.get(name, float("nan"))
+        parts.append(f"{v:>{col_width}.{precision}g}")
+    return "  ".join(parts)
+
+
+def format_log_header(metric_names: Sequence[str], col_width: int = 14) -> str:
+    """Single-line header matching ``format_log_row``. Print once before the
+    first row, then format_log_row(log[-1], ...) for every subsequent record."""
+    cols = (
+        f"{'gen':>4}",
+        f"{'deme':>4}",
+        f"{'evals':>6}",
+        f"{'min fitness':>{col_width}}",
+    ) + tuple(f"{name:>{col_width}}" for name in metric_names)
+    return "  ".join(cols)
+
+
+# -----------------------------------------------------------------------------
 # Prediction / linear scaling
 # -----------------------------------------------------------------------------
 
@@ -343,10 +385,22 @@ def _eval_individual_on_df(
     terminals: Sequence[str],
     toolbox,
     apply_sigmoid: bool,
+    wrapper_fn=None,
 ) -> np.ndarray | None:
+    """Evaluate the individual on `df`. If `wrapper_fn` is provided, it is
+    applied to the raw gene output BEFORE the linear scaling — this mirrors
+    the chromosome-level wrapper used by the v1.0.4c notebook. The other
+    v1.0.4 notebooks pass no wrapper and behave exactly as before."""
     raw = compile_and_predict(individual, df, terminals, toolbox)
     if raw is None:
         return None
+    if wrapper_fn is not None:
+        try:
+            raw = wrapper_fn(raw)
+        except (ValueError, OverflowError, FloatingPointError):
+            return None
+        if not np.all(np.isfinite(raw)):
+            return None
     a = getattr(individual, "a", 1.0)
     b = getattr(individual, "b", 0.0)
     scaled = a * raw + b

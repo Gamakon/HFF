@@ -72,16 +72,70 @@ def run_one(problem_id: str, no_val: bool = False) -> dict:
     argv = [sys.executable, "-u", NB_PATH, f"--problem={problem_id}"]
     if no_val:
         argv.append("--no-val")
-    proc = subprocess.run(
-        argv,
-        cwd=os.path.dirname(os.path.abspath(__file__)) or ".",
-        capture_output=True,
-        text=True,
-        timeout=1800,
-        env=env,
-    )
-    elapsed = time.perf_counter() - t0
+    # IMPORTANT: never use capture_output=True here. The notebook produces
+    # a lot of stdout and the pipe buffer fills before subprocess.run can
+    # read it (especially with multiprocess workers also writing), which
+    # deadlocks at exit. Route stdout/stderr to temp files instead.
+    import tempfile
+    timeout_s = int(os.environ.get("HFF_SWEEP_TIMEOUT", "1800"))
+    out_fd, out_path = tempfile.mkstemp(suffix=f".{problem_id}.out")
+    err_fd, err_path = tempfile.mkstemp(suffix=f".{problem_id}.err")
+    os.close(out_fd); os.close(err_fd)
 
+    timed_out = False
+    other_exc = None
+    returncode = None
+    try:
+        with open(out_path, "wb") as f_out, open(err_path, "wb") as f_err:
+            proc_obj = subprocess.run(
+                argv,
+                cwd=os.path.dirname(os.path.abspath(__file__)) or ".",
+                stdout=f_out, stderr=f_err,
+                timeout=timeout_s, env=env,
+            )
+        returncode = proc_obj.returncode
+    except subprocess.TimeoutExpired:
+        timed_out = True
+    except Exception as e:
+        other_exc = e
+
+    elapsed = time.perf_counter() - t0
+    try:
+        with open(out_path, "r", errors="replace") as f:
+            stdout = f.read()
+        with open(err_path, "r", errors="replace") as f:
+            stderr = f.read()
+    finally:
+        for p in (out_path, err_path):
+            try:
+                os.unlink(p)
+            except OSError:
+                pass
+
+    if timed_out:
+        return {
+            "problem": problem_id,
+            "error": f"TIMEOUT after {timeout_s}s",
+            "stderr_tail": "\n".join(stderr.strip().splitlines()[-15:]),
+            "stdout_tail": "\n".join(stdout.strip().splitlines()[-15:]),
+            "elapsed_s": elapsed,
+        }
+    if other_exc is not None:
+        return {
+            "problem": problem_id,
+            "error": f"{type(other_exc).__name__}: {other_exc}",
+            "stderr_tail": "\n".join(stderr.strip().splitlines()[-15:]),
+            "stdout_tail": "\n".join(stdout.strip().splitlines()[-15:]),
+            "elapsed_s": elapsed,
+        }
+
+    # Adapter so the JSON-extraction code below sees the same shape as
+    # the old capture_output=True path.
+    class _Proc: pass
+    proc = _Proc()
+    proc.returncode = returncode
+    proc.stdout = stdout
+    proc.stderr = stderr
     # The notebook ends with a json.dumps(experiment) — extract it from
     # the tail of stdout.
     stdout = proc.stdout

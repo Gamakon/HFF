@@ -148,12 +148,22 @@ import multiprocess as mp
 
 from deap import creator, base, tools
 
-# Headless detection — when running as a script (sweep driver, CI, any
-# non-Jupyter context) there's no display, so we switch matplotlib to
-# Agg BEFORE importing pyplot. ``plt.show()`` then becomes a save-to-
-# disk + close via _save_or_show below. In Jupyter the kernel has
-# MPLBACKEND set, so this branch leaves things alone.
-HEADLESS = (not sys.stdout.isatty()) or bool(os.environ.get("HFF_HEADLESS"))
+# Figure handling — detect Jupyter vs CLI. In a notebook we want figures
+# rendered inline AND saved to disk (handy for demos: you see the plot,
+# and the PNG is ready for slides without re-running). In a CLI / sweep
+# context there's no display; switch matplotlib to Agg before pyplot is
+# imported so save-only works without a backend.
+#
+# Detection: ``get_ipython`` exists inside an IPython/Jupyter kernel. The
+# legacy ``HFF_HEADLESS=1`` env var still forces save-only mode (used by
+# the sweep driver and CI).
+try:
+    get_ipython  # type: ignore[name-defined]
+    IN_JUPYTER = True
+except NameError:
+    IN_JUPYTER = False
+FORCE_HEADLESS = bool(os.environ.get("HFF_HEADLESS"))
+HEADLESS = FORCE_HEADLESS or not IN_JUPYTER
 if HEADLESS:
     import matplotlib
     matplotlib.use("Agg")
@@ -166,15 +176,17 @@ import hff_geppy_helpers as hgh
 
 
 def _save_or_show(name: str, fig_dir: str = "data/figures/regression"):
-    """Save the current figure when headless; show() interactively otherwise."""
-    if HEADLESS:
-        os.makedirs(fig_dir, exist_ok=True)
-        path = os.path.join(fig_dir, f"{name}.png")
-        plt.savefig(path, dpi=110, bbox_inches="tight")
-        plt.close()
-        print(f"  saved figure → {path}")
-    else:
+    """ALWAYS save the figure to disk, then either show inline (Jupyter)
+    or close (CLI). Disk path is printed either way so you know where the
+    PNG landed for slide-embedding."""
+    os.makedirs(fig_dir, exist_ok=True)
+    path = os.path.join(fig_dir, f"{name}.png")
+    plt.savefig(path, dpi=110, bbox_inches="tight")
+    print(f"  saved figure → {path}")
+    if IN_JUPYTER and not FORCE_HEADLESS:
         plt.show()
+    else:
+        plt.close()
 
 print(f"hff library OK (test fitness: {hgh.hff_fitness_regression([0.1]*5)})")
 
@@ -357,7 +369,7 @@ toolbox.register("population", tools.initRepeat, list, toolbox.individual)
 # Fitness vector projected to a unit hypersphere:
 #
 # ```
-# [train_MSE, val_MSE, train_MAE, val_MAE, max_err]
+# [train_MSE, val_MSE, max_err, 1 - train_R², 1 - val_R²]
 # ```
 #
 # All entries are minimised. HFF projects this five-dimensional vector
@@ -367,7 +379,7 @@ toolbox.register("population", tools.initRepeat, list, toolbox.individual)
 #
 # Including the *validation* metrics inside the fitness vector is what
 # pulls evolution toward models that generalise — a model that's brilliant
-# on train but mediocre on validation has high val_MSE and val_MAE,
+# on train but mediocre on validation has high val_MSE and (1 - val_R²),
 # inflating its angular distance.
 #
 # **No parsimony term.** We deliberately do not constrain gene length or
@@ -392,7 +404,7 @@ toolbox.register("population", tools.initRepeat, list, toolbox.individual)
 #                                         hff.calculate_fitness_hf1_enhanced ONCE,
 #                                         and writes back ind.fitness.values.
 
-METRIC_NAMES = ["mse_tr", "mse_va", "mae_tr", "mae_va", "max_err"]
+METRIC_NAMES = ["mse_tr", "mse_va", "max_err", "one_minus_r2_tr", "one_minus_r2_va"]
 N_OBJECTIVES = len(METRIC_NAMES)
 
 # Sentinel for failed evaluations: a really bad-but-finite value stamped onto
@@ -432,11 +444,15 @@ def compute_raw_metrics(individual):
 
     mse_tr = float(np.mean((Y - pred_train) ** 2))
     mse_va = float(np.mean((Y_val - pred_val) ** 2))
-    mae_tr = float(np.mean(np.abs(Y - pred_train)))
-    mae_va = float(np.mean(np.abs(Y_val - pred_val)))
     max_err = float(np.max(np.abs(Y_val - pred_val)))
+    # R² folded into the fitness as (1 - R²) so every objective is
+    # "lower is better". Guard against zero-variance targets.
+    var_tr = float(np.var(Y))
+    var_va = float(np.var(Y_val))
+    one_minus_r2_tr = mse_tr / var_tr if var_tr > 0 else float("inf")
+    one_minus_r2_va = mse_va / var_va if var_va > 0 else float("inf")
 
-    vec = [mse_tr, mse_va, mae_tr, mae_va, max_err]
+    vec = [mse_tr, mse_va, max_err, one_minus_r2_tr, one_minus_r2_va]
     if not all(np.isfinite(vec)):
         return None
     return {
@@ -696,7 +712,9 @@ else:
         log.record(gen=0, deme=idx, evals=len(deme),
                    **stats.compile(deme), **per_metric_mins(deme))
         hof.update(deme)
-        print(log.stream)
+        if idx == 0:
+            print(hgh.format_log_header(METRIC_NAMES))
+        print(hgh.format_log_row(log[-1], METRIC_NAMES))
 
     # ``gen`` tracks the next generation to evolve. The extend cell below
     # advances it by ``extra_gen`` each time you re-run it.
@@ -718,6 +736,14 @@ else:
 
 # %%
 extra_gen = settings.n_gen   # number of additional generations to run THIS time
+
+# 🔴 CONFIGURE HERE — early stop when val_R² hits "exact match" precision.
+# Aligned with v1.0.4c / equation recovery: ABSOLUTE measure, not the
+# relative-to-population angular distance. For real-world regression with
+# noise (PowerPlant et al.) this simply won't fire; for clean targets it
+# triggers as soon as the validation set is fitted to float precision.
+EARLY_STOP_VAL_R2 = 1.0 - 1e-9
+_early_stop_triggered = False
 
 if number_islands == 0:
     # Single-pop one-shot — not incrementally re-runnable
@@ -756,7 +782,22 @@ else:
             log.record(gen=gen, deme=idx, evals=len(deme),
                        **stats.compile(deme), **per_metric_mins(deme))
             hof.update(deme)
-            print(log.stream)
+            print(hgh.format_log_row(log[-1], METRIC_NAMES))
+
+        # Early-stop: any deme produced a val_R² ≥ threshold (i.e. truth
+        # recovered, modulo float precision). Absolute, not relative.
+        _gen_rows = [r for r in log if r["gen"] == gen]
+        _best_val_r2 = max(
+            (1.0 - r["one_minus_r2_va"] for r in _gen_rows
+             if math.isfinite(r.get("one_minus_r2_va", float("inf")))),
+            default=float("-inf"),
+        )
+        if _best_val_r2 >= EARLY_STOP_VAL_R2:
+            print(f"\n*** Early stop at generation {gen}: "
+                  f"best val_R² = {_best_val_r2:.10f} ≥ {EARLY_STOP_VAL_R2:.10f}")
+            _early_stop_triggered = True
+            gen += 1
+            break
 
         # ring migration on a FREQ pulse — counts cumulative ``gen`` so the
         # cadence is preserved across re-runs.
@@ -1094,22 +1135,98 @@ _save_or_show("business_value")
 # the table surfaces the train/val/MAE/max-err trade-offs of every champion.
 
 # %%
-ranked = hgh.rerank_hof_regression(
-    hof, train, validation, target_col, finalTerminals, toolbox, settings
-)
+# Inline rerank — surfaces the SAME five HFF objectives used during evolution
+# (train/val MSE, max_err, train/val R²). The shared helper still does
+# MSE+MAE; this version keeps the table in lockstep with the new fitness
+# vector. Aligned with v1.0.4c / equation recovery reranker.
+from sklearn.metrics import mean_squared_error as _mse_fn, r2_score as _r2_fn
 
-# Pareto-marked HOF table — ★ next to non-dominated models on the same
-# 5 objectives the HFF projection uses (train/val MSE, train/val MAE, max_err).
-# Note: the reranker dedupes the HOF on the raw chromosome string before
-# Pareto marking; multidemic elitism + migration otherwise proliferates
-# identical copies of the same winning gene.
+_Y_tr = train[target_col].values
+_Y_va = validation[target_col].values
+_Y_ho = holdout[target_col].values
+_bundles = []
+for _i, _ind in enumerate(hof):
+    _pt = hgh._eval_individual_on_df(_ind, train, finalTerminals, toolbox, apply_sigmoid=False)
+    _pv = hgh._eval_individual_on_df(_ind, validation, finalTerminals, toolbox, apply_sigmoid=False)
+    _ph = hgh._eval_individual_on_df(_ind, holdout, finalTerminals, toolbox, apply_sigmoid=False)
+    if _pt is None or _pv is None or _ph is None:
+        continue
+    _r2_tr = float(_r2_fn(_Y_tr, _pt))
+    _r2_va = float(_r2_fn(_Y_va, _pv))
+    _r2_ho = float(_r2_fn(_Y_ho, _ph))
+    _mse_ho = float(_mse_fn(_Y_ho, _ph))
+    _F = [float(_mse_fn(_Y_tr, _pt)), float(_mse_fn(_Y_va, _pv)),
+          float(np.max(np.abs(_Y_va - _pv))),
+          1.0 - _r2_tr, 1.0 - _r2_va]
+    if not all(math.isfinite(_v) for _v in _F):
+        continue
+    if not (math.isfinite(_r2_ho) and math.isfinite(_mse_ho)):
+        continue
+    _bundles.append((_i, {
+        "model": _i,
+        "expression": str(_ind),
+        "length": hgh.chromosome_length(_ind),
+        "train_mse": _F[0], "val_mse": _F[1], "max_err": _F[2],
+        "train_r2": _r2_tr, "val_r2": _r2_va,
+        "holdout_mse": _mse_ho, "holdout_r2": _r2_ho,
+        "a": getattr(_ind, "a", 1.0), "b": getattr(_ind, "b", 0.0),
+    }, _F))
+
+if _bundles:
+    _Fm = np.array([f for _, _, f in _bundles], dtype=np.float64)
+    _ang = hff.calculate_fitness_hf1_enhanced(
+        _Fm, normalize=True, north_pole_method=settings.north_pole_method
+    )
+    _rows = []
+    for _slot, (_, _row, _) in enumerate(_bundles):
+        _row["angular_distance"] = float(_ang[_slot])
+        _rows.append(_row)
+    ranked = pd.DataFrame(_rows).sort_values("angular_distance").reset_index(drop=True)
+    ranked = hgh._dedupe_hof(ranked)
+    hgh._mark_pareto(
+        ranked,
+        objective_cols=["train_mse", "val_mse", "max_err", "train_r2", "val_r2"],
+        minimise=[True, True, True, False, False],
+    )
+else:
+    ranked = pd.DataFrame()
+
 hgh.print_hof_with_pareto(
     ranked,
     columns=["model", "length", "train_mse", "val_mse",
-             "train_mae", "val_mae", "max_err", "angular_distance"],
+             "max_err", "train_r2", "val_r2", "angular_distance"],
     top_n=10,
     title=f"Top 10 HOF models by HFF angular distance "
           f"(north_pole={settings.north_pole_method})",
+    raw_hof_size=len(hof),
+)
+
+# %% [markdown]
+# ### 6.1b Production-ranked HOF — sorted by holdout R²
+#
+# The table above ranks by HFF angular distance, computed on data evolution
+# saw (train + val). For deployment we care about generalisation to data the
+# model has NEVER seen. Same chromosomes, same metrics — but re-sorted on
+# `holdout_r2` (higher is better). The Pareto ★ markers are inherited from
+# the train/val/max_err HFF objectives, so a ★ here means "non-dominated on
+# what evolution optimised AND best on what production cares about".
+#
+# Watch for divergence between the two rankings: large reordering between
+# 6.1 and 6.1b is the symptom of train/val overfitting that the holdout
+# would surface but evolution never saw.
+
+# %%
+if not ranked.empty:
+    production = ranked.sort_values("holdout_r2", ascending=False).reset_index(drop=True)
+else:
+    production = ranked
+hgh.print_hof_with_pareto(
+    production,
+    columns=["model", "length", "train_mse", "val_mse",
+             "holdout_mse", "train_r2", "val_r2", "holdout_r2",
+             "angular_distance"],
+    top_n=10,
+    title="Top 10 HOF models by HOLDOUT R² (production view)",
     raw_hof_size=len(hof),
 )
 

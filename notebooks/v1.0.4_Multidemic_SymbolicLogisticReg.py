@@ -150,10 +150,16 @@ import multiprocess as mp
 
 from deap import creator, base, tools
 
-# Headless detection — when running as a script there's no display, so
-# switch matplotlib to Agg BEFORE importing pyplot. Plot helper saves
-# figures under data/figures/classification/.
-HEADLESS = (not sys.stdout.isatty()) or bool(os.environ.get("HFF_HEADLESS"))
+# Figure handling — detect Jupyter vs CLI. In a notebook, figures are
+# both saved to disk AND rendered inline (good for demos). In CLI / sweep
+# mode (HFF_HEADLESS=1 or non-IPython) figures save to disk only.
+try:
+    get_ipython  # type: ignore[name-defined]
+    IN_JUPYTER = True
+except NameError:
+    IN_JUPYTER = False
+FORCE_HEADLESS = bool(os.environ.get("HFF_HEADLESS"))
+HEADLESS = FORCE_HEADLESS or not IN_JUPYTER
 if HEADLESS:
     import matplotlib
     matplotlib.use("Agg")
@@ -163,15 +169,16 @@ import seaborn as sns
 
 
 def _save_or_show(name: str, fig_dir: str = "data/figures/classification"):
-    """Save the current figure when headless; show() interactively otherwise."""
-    if HEADLESS:
-        os.makedirs(fig_dir, exist_ok=True)
-        path = os.path.join(fig_dir, f"{name}.png")
-        plt.savefig(path, dpi=110, bbox_inches="tight")
-        plt.close()
-        print(f"  saved figure → {path}")
-    else:
+    """ALWAYS save the figure to disk, then either show inline (Jupyter)
+    or close (CLI). The PNG path is printed either way."""
+    os.makedirs(fig_dir, exist_ok=True)
+    path = os.path.join(fig_dir, f"{name}.png")
+    plt.savefig(path, dpi=110, bbox_inches="tight")
+    print(f"  saved figure → {path}")
+    if IN_JUPYTER and not FORCE_HEADLESS:
         plt.show()
+    else:
+        plt.close()
 
 from sklearn.metrics import (
     accuracy_score, f1_score, roc_auc_score, roc_curve, auc,
@@ -1281,9 +1288,91 @@ else:
 # trade-off explicitly.
 
 # %%
-ranked = hgh.rerank_hof_classification(
-    hof, train, validation, target_col, finalTerminals, toolbox, settings
+# Inline rerank — adds holdout AUC/F1/Acc per chromosome so the production
+# view below can sort on holdout AUC. Same six-objective HFF projection as
+# the shared helper (train+val AUC/F1/Acc), with each chromosome's
+# threshold re-derived from its train-set ROC J-statistic and then applied
+# to BOTH validation and holdout for consistency.
+from sklearn.metrics import (
+    roc_auc_score as _auc_fn, f1_score as _f1_fn, accuracy_score as _acc_fn,
+    roc_curve as _roc_curve,
 )
+
+_Y_tr = train[target_col].values.astype(int)
+_Y_va = validation[target_col].values.astype(int)
+_Y_ho = holdout[target_col].values.astype(int)
+_bundles = []
+for _i, _ind in enumerate(hof):
+    _pt = hgh._eval_individual_on_df(_ind, train, finalTerminals, toolbox, apply_sigmoid=True)
+    _pv = hgh._eval_individual_on_df(_ind, validation, finalTerminals, toolbox, apply_sigmoid=True)
+    _ph = hgh._eval_individual_on_df(_ind, holdout, finalTerminals, toolbox, apply_sigmoid=True)
+    if _pt is None or _pv is None or _ph is None:
+        continue
+    try:
+        _train_auc = float(_auc_fn(_Y_tr, _pt))
+        _val_auc = float(_auc_fn(_Y_va, _pv))
+        _holdout_auc = float(_auc_fn(_Y_ho, _ph))
+    except ValueError:
+        continue
+
+    # Threshold = train-set ROC J-statistic optimum (same rule as the helper).
+    _fpr, _tpr, _thresh = _roc_curve(_Y_tr, _pt)
+    _idx = int(np.argmax(_tpr - _fpr))
+    _t = float(_thresh[_idx])
+
+    _pred_tr = (_pt >= _t).astype(int)
+    _pred_va = (_pv >= _t).astype(int)
+    _pred_ho = (_ph >= _t).astype(int)
+
+    _train_f1 = float(_f1_fn(_Y_tr, _pred_tr, zero_division=0))
+    _val_f1 = float(_f1_fn(_Y_va, _pred_va, zero_division=0))
+    _holdout_f1 = float(_f1_fn(_Y_ho, _pred_ho, zero_division=0))
+    _train_acc = float(_acc_fn(_Y_tr, _pred_tr))
+    _val_acc = float(_acc_fn(_Y_va, _pred_va))
+    _holdout_acc = float(_acc_fn(_Y_ho, _pred_ho))
+
+    # HFF projection vector — six MAXIMISED objectives (train+val AUC/F1/Acc)
+    # flipped to "lower is better" for TrueNorth; passed through unchanged
+    # for the balanced pole.
+    if settings.north_pole_method == "balanced":
+        _F = [_train_auc, _val_auc, _train_f1, _val_f1, _train_acc, _val_acc]
+    else:
+        _F = [1.0 - _train_auc, 1.0 - _val_auc,
+              1.0 - _train_f1, 1.0 - _val_f1,
+              1.0 - _train_acc, 1.0 - _val_acc]
+    if not all(math.isfinite(_v) for _v in _F):
+        continue
+    _bundles.append((_i, {
+        "model": _i,
+        "expression": str(_ind),
+        "length": hgh.chromosome_length(_ind),
+        "threshold": _t,
+        "train_auc": _train_auc, "val_auc": _val_auc, "holdout_auc": _holdout_auc,
+        "train_f1": _train_f1, "val_f1": _val_f1, "holdout_f1": _holdout_f1,
+        "train_acc": _train_acc, "val_acc": _val_acc, "holdout_acc": _holdout_acc,
+        "a": getattr(_ind, "a", 1.0), "b": getattr(_ind, "b", 0.0),
+    }, _F))
+
+if _bundles:
+    _Fm = np.array([f for _, _, f in _bundles], dtype=np.float64)
+    # Classification metrics already live in [0,1]; skip column normalisation
+    # so the column-best individual doesn't collapse to angular distance 0.
+    _ang = hff.calculate_fitness_hf1_enhanced(
+        _Fm, normalize=False, north_pole_method=settings.north_pole_method
+    )
+    _rows = []
+    for _slot, (_, _row, _) in enumerate(_bundles):
+        _row["angular_distance"] = float(_ang[_slot])
+        _rows.append(_row)
+    ranked = pd.DataFrame(_rows).sort_values("angular_distance").reset_index(drop=True)
+    ranked = hgh._dedupe_hof(ranked)
+    hgh._mark_pareto(
+        ranked,
+        objective_cols=["train_auc", "val_auc", "train_f1", "val_f1", "train_acc", "val_acc"],
+        minimise=[False, False, False, False, False, False],
+    )
+else:
+    ranked = pd.DataFrame()
 
 # Pareto-marked HOF table — ★ next to non-dominated models on the six
 # classification objectives (AUC, F1, Accuracy across train + val). HFF
@@ -1297,6 +1386,32 @@ hgh.print_hof_with_pareto(
     top_n=10,
     title=f"Top 10 HOF models by HFF angular distance "
           f"(north_pole={settings.north_pole_method})",
+    raw_hof_size=len(hof),
+)
+
+# %% [markdown]
+# ### 6.1b Production-ranked HOF — sorted by holdout AUC
+#
+# Same chromosomes, re-sorted on **holdout AUC** (higher = better
+# generalisation to unseen data). Pareto ★ markers carry over from the
+# train+val evolution objectives, so a ★ here means "non-dominated on what
+# evolution optimised AND best on what production cares about". Large
+# reorderings between this view and the HFF-angular view above flag
+# train/val overfit that the holdout exposes.
+
+# %%
+if not ranked.empty:
+    production = ranked.sort_values("holdout_auc", ascending=False).reset_index(drop=True)
+else:
+    production = ranked
+hgh.print_hof_with_pareto(
+    production,
+    columns=["model", "length", "train_auc", "val_auc", "holdout_auc",
+             "train_f1", "val_f1", "holdout_f1",
+             "train_acc", "val_acc", "holdout_acc",
+             "threshold", "angular_distance"],
+    top_n=10,
+    title="Top 10 HOF models by HOLDOUT AUC (production view)",
     raw_hof_size=len(hof),
 )
 

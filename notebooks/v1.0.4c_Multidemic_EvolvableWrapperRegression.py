@@ -16,31 +16,30 @@
 # # Symbolic Regression with EVOLVABLE Regression Wrapper (prototype)
 # ### Companion notebook to the GECCO 2026 poster (Morgan, 2026)
 #
-# **STATUS: working prototype.** Approach taken (after the
-# heterogeneous-chromosome path proved impractical because ``gep.Chromosome``
-# requires a single ``gene_gen`` and standard mutation operators assume
-# one pset):
+# **STATUS: working prototype.** The wrapper is a **chromosome-level
+# attribute**, not a gene-level function:
 #
-#   - Single homogeneous chromosome, single primitive set.
-#   - Add ``RegressWrapper(expr, type_n)`` (arity 2) to the pset.
-#     ``type_n`` is an integer the gene's RNCs (or any sub-tree) feeds
-#     in; ``int(round(type_n)) % N`` picks one of N wrapper transforms
+#   - Single homogeneous chromosome, single primitive set (arithmetic +
+#     protected division, same as v1.0.4).
+#   - Each chromosome carries one extra integer, ``ind.wrapper_id``,
+#     selecting one of N wrapper transforms
 #     (``identity``, ``log_abs``, ``exp``, ``sqrt_abs``, ``square``).
-#   - Evolution decides when and where to insert the wrapper in the
-#     expression tree, and which integer to give it.
-#   - LSM (``a·gene + b``) wraps the whole thing as before.
+#   - At evaluation: ``y_pred = a · WRAPPER[wrapper_id]( linker(genes) ) + b``.
+#     The wrapper is applied **once at the chromosome root**, between the
+#     linker and the linear scaling — never inside a gene.
+#   - Evolution searches the wrapper-id via dedicated operators
+#     (``mut_wrapper``, ``cx_wrapper``), independent of the gene contents.
 #
-# The wrapper is just a normal pset function — no special mutation,
-# no heterogeneous chromosome, no custom linker. It composes naturally
-# with everything else in the symbol table.
+# Why this scoping: putting the wrapper *in the pset* let evolution paste
+# it anywhere inside any gene, often multiple times. The intent of an
+# "evolvable wrapper" is a single transform at the root, just like LSM —
+# one wrapper per individual, visible at the top of the printed equation.
 #
 # **Prototype extension** of the symbolic linear regression notebook.
 # Instead of always wrapping the discovered gene in a fixed
 # ``a · gene + b`` linear regression, evolution **also picks the
-# wrapper** — identity, log-target, sigmoid, sqrt, power, etc. — by
-# evolving a second gene whose Karva head selects which wrapper to use
-# and whose tail carries that wrapper's evolvable parameters (declared
-# per-function via arity in the symbol table).
+# wrapper** — identity, log, exp, sqrt-abs, square — via a single
+# integer ``ind.wrapper_id`` carried on each chromosome.
 #
 # **Why**: the linear wrapper finds many laws cleanly, but for laws
 # like Boltzmann's ``n_0·exp(-mgx/kT)`` evolution has to discover the
@@ -49,19 +48,9 @@
 # log-target wrapper available, the same problem becomes
 # *linear in log-space* and evolution recovers it in fewer generations.
 #
-# This notebook prototypes that architecture. Built on top of the
-# v1.0.4 symbolic regression template but with a chromosome layout
-# of [wrapper_gene, expr_gene_1, expr_gene_2, …] where:
-#
-#   - wrapper_gene: head=1 over a function set {identity, log_target,
-#       exp_target, sigmoid, sqrt, square, power_lambda, …};
-#       tail carries per-wrapper evolvable parameters.
-#   - expr_genes:   the normal symbolic regression genes, linked by
-#                   avgval as before.
-#
-# At evaluation time:  y_pred = wrapper(expr_output, *params)
-# At reporting time:   the simplified expression includes the wrapper,
-#                      e.g. "exp(-(mgx)/(kT))" instead of a
+# At evaluation time:  ``y_pred = a · WRAPPER[wrapper_id](linker(genes)) + b``
+# At reporting time:   the simplified expression has the wrapper as its
+#                      outermost layer, e.g. ``exp( … )`` rather than a
 #                      polynomial overlay.
 #
 # **This notebook demonstrates the wrapper-evolution prototype on the
@@ -192,8 +181,15 @@ import multiprocess as mp
 
 from deap import creator, base, tools
 
-# Headless detection — same pattern as the other v1.0.4 notebooks.
-HEADLESS = (not sys.stdout.isatty()) or bool(os.environ.get("HFF_HEADLESS"))
+# Figure handling — save AND show in Jupyter, save-only in CLI mode.
+# Same pattern as the other v1.0.4 notebooks.
+try:
+    get_ipython  # type: ignore[name-defined]
+    IN_JUPYTER = True
+except NameError:
+    IN_JUPYTER = False
+FORCE_HEADLESS = bool(os.environ.get("HFF_HEADLESS"))
+HEADLESS = FORCE_HEADLESS or not IN_JUPYTER
 if HEADLESS:
     import matplotlib
     matplotlib.use("Agg")
@@ -206,15 +202,16 @@ import hff_geppy_helpers as hgh
 
 
 def _save_or_show(name: str, fig_dir: str = "data/figures/wrapper_regression"):
-    """Save the current figure when headless; show() interactively otherwise."""
-    if HEADLESS:
-        os.makedirs(fig_dir, exist_ok=True)
-        path = os.path.join(fig_dir, f"{name}.png")
-        plt.savefig(path, dpi=110, bbox_inches="tight")
-        plt.close()
-        print(f"  saved figure → {path}")
-    else:
+    """ALWAYS save the figure to disk, then either show inline (Jupyter)
+    or close (CLI). The PNG path is printed either way."""
+    os.makedirs(fig_dir, exist_ok=True)
+    path = os.path.join(fig_dir, f"{name}.png")
+    plt.savefig(path, dpi=110, bbox_inches="tight")
+    print(f"  saved figure → {path}")
+    if IN_JUPYTER and not FORCE_HEADLESS:
         plt.show()
+    else:
+        plt.close()
 
 print(f"hff library OK (test fitness: {hgh.hff_fitness_regression([0.1]*5)})")
 
@@ -352,37 +349,29 @@ pset.add_function(operator.sub, 2)
 pset.add_function(operator.mul, 2)
 pset.add_function(hgh.protected_div_zero, 2)
 
-# === Evolvable regression wrapper (in-pset version) ===
-# RegressWrapper(expr, type_n) applies one of N regression transforms
-# to `expr`, picked by `int(round(type_n)) % N`. type_n is typically an
-# RNC integer the gene evolves alongside everything else. Single
-# homogeneous chromosome, no special mutation operators needed.
+# === Chromosome-level regression wrapper (NOT in pset) ===
+# The wrapper choice is an attribute of the whole chromosome — a single
+# integer per individual — applied ONCE at the root after the linker has
+# combined the genes:
+#
+#     y_pred = a · WRAPPER[ind.wrapper_id]( linker(genes) ) + b
+#
+# Evolution searches the wrapper-id independently of the gene contents
+# (see the mut_wrapper / cx_wrapper operators in 2.4). This is the right
+# scoping: a single wrapper applied once at the chromosome root, not a
+# function evolution can paste anywhere inside any gene.
 WRAPPER_NAMES = ["identity", "log_abs", "exp", "sqrt_abs", "square"]
+N_WRAPPERS = len(WRAPPER_NAMES)
 
 
-def regress_wrapper(expr, type_n):
-    """Pick a wrapper by integer index (circular). type_n comes from the
-    gene's evolved RNCs (or any sub-tree); modulo N maps any value to a
-    valid wrapper. Used inside the Karva expression — the chosen
-    transform happens during compile_/eval, so LSM still wraps the
-    whole thing afterwards."""
-    try:
-        rid = int(round(float(type_n))) % len(WRAPPER_NAMES)
-    except (TypeError, ValueError):
-        rid = 0
-    name = WRAPPER_NAMES[rid]
-    try:
-        if name == "identity":  return expr
-        if name == "log_abs":   return math.log(abs(expr) + 1e-12)
-        if name == "exp":       return math.exp(max(-50.0, min(50.0, expr)))
-        if name == "sqrt_abs":  return math.sqrt(abs(expr))
-        if name == "square":    return expr * expr
-    except (ValueError, OverflowError):
-        return 0.0
-    return expr
+def _w_identity(x):  return x
+def _w_log_abs(x):   return np.log(np.abs(x) + 1e-12)
+def _w_exp(x):       return np.exp(np.clip(x, -50.0, 50.0))
+def _w_sqrt_abs(x):  return np.sqrt(np.abs(x))
+def _w_square(x):    return x * x
 
 
-pset.add_function(regress_wrapper, 2)
+WRAPPER_FUNCS = [_w_identity, _w_log_abs, _w_exp, _w_sqrt_abs, _w_square]
 
 # Optional richer ops — uncomment to enlarge the search space:
 # pset.add_function(hgh.safe_max, 2)
@@ -404,10 +393,10 @@ Y = train[target_col].values
 # ## 2.2 Fitness, genes, toolbox
 #
 # Homogeneous chromosome — same primitive set in every gene. The
-# wrapper is just a function ``RegressWrapper(expr, type_n)`` already
-# added to ``pset`` in section 2.1. Evolution decides when/where to
-# place it and which RNC integer to feed in. No special chromosome
-# layout, no custom mutation operators.
+# wrapper is **not** in the pset; it's a chromosome-level integer
+# ``ind.wrapper_id`` set when the individual is built and mutated by
+# the dedicated operators in 2.4. The factory below wraps the standard
+# geppy Individual to stamp the initial wrapper choice.
 
 # %%
 creator.create("FitnessMin", base.Fitness, weights=(-1,))
@@ -421,11 +410,24 @@ toolbox.register(
     rnc_gen=toolbox.rnc_gen, rnc_array_length=settings.rnc_array_length,
 )
 if settings.n_genes > 1:
-    toolbox.register("individual", creator.Individual,
+    toolbox.register("_chromosome_factory", creator.Individual,
                      gene_gen=toolbox.gene_gen, n_genes=settings.n_genes, linker=hgh.avgval)
 else:
-    toolbox.register("individual", creator.Individual,
+    toolbox.register("_chromosome_factory", creator.Individual,
                      gene_gen=toolbox.gene_gen, n_genes=settings.n_genes)
+
+
+def make_individual():
+    """Build a chromosome and stamp it with a randomly chosen wrapper_id.
+    The wrapper_id is the *only* chromosome-level attribute — it survives
+    deap's clone (which copies __dict__) and is the single integer evolution
+    searches alongside the gene contents."""
+    ind = toolbox._chromosome_factory()
+    ind.wrapper_id = random.randrange(N_WRAPPERS)
+    return ind
+
+
+toolbox.register("individual", make_individual)
 toolbox.register("compile", gep.compile_, pset=pset)
 toolbox.register("population", tools.initRepeat, list, toolbox.individual)
 
@@ -435,7 +437,7 @@ toolbox.register("population", tools.initRepeat, list, toolbox.individual)
 # Fitness vector projected to a unit hypersphere:
 #
 # ```
-# [train_MSE, val_MSE, train_MAE, val_MAE, max_err]
+# [train_MSE, val_MSE, max_err, 1 - train_R², 1 - val_R²]
 # ```
 #
 # All entries are minimised. HFF projects this five-dimensional vector
@@ -470,7 +472,7 @@ toolbox.register("population", tools.initRepeat, list, toolbox.individual)
 #                                         hff.calculate_fitness_hf1_enhanced ONCE,
 #                                         and writes back ind.fitness.values.
 
-METRIC_NAMES = ["mse_tr", "mse_va", "mae_tr", "mae_va", "max_err"]
+METRIC_NAMES = ["mse_tr", "mse_va", "max_err", "one_minus_r2_tr", "one_minus_r2_va"]
 N_OBJECTIVES = len(METRIC_NAMES)
 
 # Sentinel for failed evaluations: a really bad-but-finite value stamped onto
@@ -484,44 +486,63 @@ FAILED_FITNESS = 1.0e9
 def compute_raw_metrics(individual):
     """Phase 1: per-individual. Returns a bundle dict or None.
 
-    The RegressWrapper(expr, type_n) primitive in the pset means
-    evolution can already embed a transform inside the gene; the
-    outer LSM wrapping is unchanged from v1.0.4.
+    Pipeline: gene_output = linker(genes)  →  wrapped = WRAPPER[wrapper_id](gene_output)
+              →  prediction = a · wrapped + b   (LSM)
+
+    The wrapper is applied ONCE at the chromosome root, between the linker
+    and LSM. ind.wrapper_id is the single integer that selects the
+    transform (set when the individual was built, mutated by mut_wrapper).
 
     IMPORTANT: this runs inside the multiprocess worker — any mutations
-    to `individual` are LOST when the worker returns.
+    to `individual` are LOST when the worker returns. We return wrapper_id
+    in the bundle so the parent can stamp it back onto its copy.
     """
     raw_train = hgh.compile_and_predict(individual, train, finalTerminals, toolbox)
     raw_val = hgh.compile_and_predict(individual, validation, finalTerminals, toolbox)
     if raw_train is None or raw_val is None:
         return None
 
+    wrapper_id = int(getattr(individual, "wrapper_id", 0)) % N_WRAPPERS
+    wrapper_fn = WRAPPER_FUNCS[wrapper_id]
+    try:
+        wrapped_train = wrapper_fn(raw_train)
+        wrapped_val = wrapper_fn(raw_val)
+    except (ValueError, OverflowError, FloatingPointError):
+        return None
+    if not (np.all(np.isfinite(wrapped_train)) and np.all(np.isfinite(wrapped_val))):
+        return None
+
     if settings.enable_linear_scaling:
-        scale = hgh.apply_linear_scaling(raw_train, Y)
+        scale = hgh.apply_linear_scaling(wrapped_train, Y)
         if scale is None:
             return None
         a, b = scale
-        pred_train = a * raw_train + b
-        pred_val = a * raw_val + b
+        pred_train = a * wrapped_train + b
+        pred_val = a * wrapped_val + b
     else:
         a, b = 1.0, 0.0
-        pred_train = raw_train
-        pred_val = raw_val
+        pred_train = wrapped_train
+        pred_val = wrapped_val
 
     Y_val = validation[target_col].values
 
     mse_tr = float(np.mean((Y - pred_train) ** 2))
     mse_va = float(np.mean((Y_val - pred_val) ** 2))
-    mae_tr = float(np.mean(np.abs(Y - pred_train)))
-    mae_va = float(np.mean(np.abs(Y_val - pred_val)))
     max_err = float(np.max(np.abs(Y_val - pred_val)))
+    # R² as (1 - R²) so it joins the other "lower is better" axes cleanly.
+    # Guard against zero-variance targets (degenerate; would div-by-0).
+    var_tr = float(np.var(Y))
+    var_va = float(np.var(Y_val))
+    one_minus_r2_tr = mse_tr / var_tr if var_tr > 0 else float("inf")
+    one_minus_r2_va = mse_va / var_va if var_va > 0 else float("inf")
 
-    vec = [mse_tr, mse_va, mae_tr, mae_va, max_err]
+    vec = [mse_tr, mse_va, max_err, one_minus_r2_tr, one_minus_r2_va]
     if not all(np.isfinite(vec)):
         return None
     return {
         "a": float(a),
         "b": float(b),
+        "wrapper_id": wrapper_id,
         "metrics": dict(zip(METRIC_NAMES, vec)),
         "vec": vec,
     }
@@ -570,6 +591,9 @@ def assign_fitness_batch(population, raw_results):
         ind.metrics = r["metrics"]
         ind.a = r["a"]
         ind.b = r["b"]
+        # The worker copy of `ind` had the wrapper_id we used; the parent
+        # copy may or may not — stamp it back to be safe (cheap, idempotent).
+        ind.wrapper_id = int(r["wrapper_id"])
 
 
 toolbox.register("evaluate", evaluate_individual)
@@ -594,6 +618,39 @@ toolbox.register("mut_invert_dc", gep.invert_dc, pb=0.1)
 toolbox.register("mut_transpose_dc", gep.transpose_dc, pb=0.1)
 toolbox.register("mut_rnc_array_dc", gep.mutate_rnc_array_dc, rnc_gen=toolbox.rnc_gen, ind_pb="0.5p")
 toolbox.pbs["mut_rnc_array_dc"] = 1
+
+
+# === Chromosome-level wrapper operators ===
+# These operate on ind.wrapper_id (a single int), not on gene contents.
+# The existing 'mut*' / 'cx*' loop in section 3.5 picks them up via the
+# toolbox.pbs registration below.
+
+def mut_wrapper(individual):
+    """Flip the chromosome's wrapper choice to a different value at random.
+    Returns the modified individual in a 1-tuple, matching DEAP mutation
+    operator convention. The fitness invalidation is handled by the
+    gep_apply_modification loop."""
+    current = int(getattr(individual, "wrapper_id", 0)) % N_WRAPPERS
+    if N_WRAPPERS > 1:
+        choices = [i for i in range(N_WRAPPERS) if i != current]
+        individual.wrapper_id = random.choice(choices)
+    return (individual,)
+
+
+def cx_wrapper(ind1, ind2):
+    """Swap the wrapper_id between two parents. Returns the pair.
+    Simple uniform swap — no per-bit gymnastics needed for a single int."""
+    ind1.wrapper_id, ind2.wrapper_id = (
+        int(getattr(ind2, "wrapper_id", 0)) % N_WRAPPERS,
+        int(getattr(ind1, "wrapper_id", 0)) % N_WRAPPERS,
+    )
+    return ind1, ind2
+
+
+toolbox.register("mut_wrapper", mut_wrapper)
+toolbox.pbs["mut_wrapper"] = 0.1   # 10% of individuals retry a new wrapper each gen
+toolbox.register("cx_wrapper", cx_wrapper)
+toolbox.pbs["cx_wrapper"] = 0.1    # 10% of mating pairs swap wrappers
 
 # %% [markdown]
 # ## 2.5 Statistics
@@ -776,7 +833,9 @@ else:
         log.record(gen=0, deme=idx, evals=len(deme),
                    **stats.compile(deme), **per_metric_mins(deme))
         hof.update(deme)
-        print(log.stream)
+        if idx == 0:
+            print(hgh.format_log_header(METRIC_NAMES))
+        print(hgh.format_log_row(log[-1], METRIC_NAMES))
 
     # ``gen`` tracks the next generation to evolve. The extend cell below
     # advances it by ``extra_gen`` each time you re-run it.
@@ -798,6 +857,22 @@ else:
 
 # %%
 extra_gen = settings.n_gen   # number of additional generations to run THIS time
+
+# 🔴 CONFIGURE HERE — early-stop threshold on validation R².
+# We stop when the best individual's val_R² >= EARLY_STOP_VAL_R2 in any
+# deme this generation. Unlike HFF angular distance (which is relative
+# to the current population spread and collapses to ~0 once the
+# population converges, regardless of absolute quality), val_R² is an
+# ABSOLUTE measure: 1.0 means the model is the truth (modulo float
+# precision). For equation recovery this is "we found it"; for noisy
+# real-world data it simply won't fire.
+#
+# Tolerance: 1 - 1e-9 lets float-precision rounding through while
+# refusing to stop on any model that's even slightly approximate.
+# val_R² is already in the fitness vector as (1 - val_R²) = one_minus_r2_va,
+# so the per-deme min of that metric in the logbook IS the trigger signal.
+EARLY_STOP_VAL_R2 = 1.0 - 1e-9
+_early_stop_triggered = False
 
 if number_islands == 0:
     # Single-pop one-shot — not incrementally re-runnable
@@ -836,7 +911,25 @@ else:
             log.record(gen=gen, deme=idx, evals=len(deme),
                        **stats.compile(deme), **per_metric_mins(deme))
             hof.update(deme)
-            print(log.stream)
+            print(hgh.format_log_row(log[-1], METRIC_NAMES))
+
+        # Early-stopping check: any deme this generation produced an
+        # individual with val_R² ≥ threshold → we found the truth (or near
+        # enough that more generations can't usefully improve it). Uses
+        # fitness data already computed: per_metric_mins logs the min of
+        # one_minus_r2_va, so 1 - that = best val_R² in the deme.
+        _gen_rows = [r for r in log if r["gen"] == gen]
+        _best_val_r2 = max(
+            (1.0 - r["one_minus_r2_va"] for r in _gen_rows
+             if math.isfinite(r.get("one_minus_r2_va", float("inf")))),
+            default=float("-inf"),
+        )
+        if _best_val_r2 >= EARLY_STOP_VAL_R2:
+            print(f"\n*** Early stop at generation {gen}: "
+                  f"best val_R² = {_best_val_r2:.10f} ≥ {EARLY_STOP_VAL_R2:.10f}")
+            _early_stop_triggered = True
+            gen += 1
+            break
 
         # ring migration on a FREQ pulse — counts cumulative ``gen`` so the
         # cadence is preserved across re-runs.
@@ -879,20 +972,38 @@ best_ind = hof[0]
 best_ind.a, best_ind.b = scale_winner(hof[0]) if "scale_winner" in dir() else (best_ind.a, best_ind.b)
 
 # Re-fit a, b deterministically across the pool boundary, then sympify.
+# IMPORTANT: LSM fits to the WRAPPED output (raw → wrapper → fit), matching
+# both compute_raw_metrics during evolution and CalculateGeppyModelOutput
+# at deployment. Fitting to the raw gene output would give different a, b
+# than the deployment path applies, producing nonsense holdout predictions.
 _raw_for_scale = hgh.compile_and_predict(best_ind, train, finalTerminals, toolbox)
-_scale = hgh.apply_linear_scaling(_raw_for_scale, Y)
+_wid = int(getattr(best_ind, "wrapper_id", 0)) % N_WRAPPERS
+_wrapped_for_scale = WRAPPER_FUNCS[_wid](_raw_for_scale)
+_scale = hgh.apply_linear_scaling(_wrapped_for_scale, Y)
 if _scale is not None:
     best_ind.a, best_ind.b = _scale
 
-# Sympify — adding regress_wrapper to the function map so the sympy
-# round-trip can resolve it. We map it to a sympy Function so the
-# wrapper choice is *visible* in the printed equation
-# (e.g. "regress_wrapper(expr, 2)" — a square_wrap), rather than
-# eagerly evaluated.
+# Sympify the gene tree first. The chromosome wrapper isn't a node inside
+# the tree — it lives on `best_ind.wrapper_id` — so it's applied AFTER
+# simplification, once, at the root.
 CUSTOM_SYMBOLIC_FUNCTION_MAP = hgh.custom_symbolic_function_map()
-import sympy as _sp_tmp
-CUSTOM_SYMBOLIC_FUNCTION_MAP["regress_wrapper"] = _sp_tmp.Function("RegressWrapper")
 symplified_best = gep.simplify(best_ind, symbolic_function_map=CUSTOM_SYMBOLIC_FUNCTION_MAP)
+
+# Apply the chromosome's wrapper exactly once at the root. Sympy gets
+# the *real* function (log/exp/sqrt) where it has one, and a named
+# placeholder for "square" so the equation reads cleanly.
+import sympy as _sp
+_WRAPPER_SYMPY = {
+    "identity": lambda e: e,
+    "log_abs":  lambda e: _sp.log(_sp.Abs(e)),
+    "exp":      lambda e: _sp.exp(e),
+    "sqrt_abs": lambda e: _sp.sqrt(_sp.Abs(e)),
+    "square":   lambda e: e ** 2,
+}
+_wrapper_id = int(getattr(best_ind, "wrapper_id", 0)) % N_WRAPPERS
+_wrapper_name = WRAPPER_NAMES[_wrapper_id]
+print(f"Chromosome wrapper: id={_wrapper_id}  →  {_wrapper_name}")
+symplified_best = _WRAPPER_SYMPY[_wrapper_name](symplified_best)
 
 if settings.enable_linear_scaling:
     symplified_best = best_ind.a * symplified_best + best_ind.b
@@ -967,7 +1078,10 @@ Image(filename="data/numerical_expression_tree.png")
 # %%
 # Applies the discovered function (with linear scaling option) to any DataFrame.
 def CalculateGeppyModelOutput(testdata, finalTerminals, best_ind, enable_ls=True):
-    """Apply the best individual to a DataFrame and return predictions."""
+    """Apply the best individual to a DataFrame and return predictions.
+
+    Pipeline mirrors training: linker(genes) → WRAPPER[wrapper_id] → LSM.
+    """
     finalfunc = toolbox.compile(best_ind)
     paramlist = []
     for term in finalTerminals:
@@ -976,12 +1090,12 @@ def CalculateGeppyModelOutput(testdata, finalTerminals, best_ind, enable_ls=True
     ourparam_string = ", ".join(paramlist)
     ourfuncstring = "np.array(list(map(finalfunc, " + ourparam_string + ")))"
     rawoutput = eval(ourfuncstring)
-    def lscaler(x, a=best_ind.a, b=best_ind.b):
-        return a * x + b
-    correctionstring = "np.array(list(map(lscaler, rawoutput)))"
+    # Apply the chromosome wrapper once at the root, exactly as training did.
+    wrapper_fn = WRAPPER_FUNCS[int(getattr(best_ind, "wrapper_id", 0)) % N_WRAPPERS]
+    wrapped = wrapper_fn(rawoutput)
     if enable_ls:
-        return eval(correctionstring)
-    return rawoutput
+        return best_ind.a * wrapped + best_ind.b
+    return wrapped
 
 
 # %% [markdown]
@@ -1175,16 +1289,100 @@ _save_or_show("business_value")
 # the table surfaces the train/val/MAE/max-err trade-offs of every champion.
 
 # %%
-ranked = hgh.rerank_hof_regression(
-    hof, train, validation, target_col, finalTerminals, toolbox, settings
-)
+# Wrapper-aware HOF rerank: same projection as hgh.rerank_hof_regression,
+# but each individual's evaluation passes its own chromosome wrapper so
+# metrics match what training actually optimised.
+from sklearn.metrics import mean_squared_error as _mse, mean_absolute_error as _mae
+
+from sklearn.metrics import r2_score as _r2_fn
+
+_Y_tr = train[target_col].values
+_Y_va = validation[target_col].values
+_Y_ho = holdout[target_col].values
+_bundles = []
+for _i, _ind in enumerate(hof):
+    _wid = int(getattr(_ind, "wrapper_id", 0)) % N_WRAPPERS
+    _wrap = WRAPPER_FUNCS[_wid]
+    _pt = hgh._eval_individual_on_df(_ind, train, finalTerminals, toolbox,
+                                     apply_sigmoid=False, wrapper_fn=_wrap)
+    _pv = hgh._eval_individual_on_df(_ind, validation, finalTerminals, toolbox,
+                                     apply_sigmoid=False, wrapper_fn=_wrap)
+    _ph = hgh._eval_individual_on_df(_ind, holdout, finalTerminals, toolbox,
+                                     apply_sigmoid=False, wrapper_fn=_wrap)
+    if _pt is None or _pv is None or _ph is None:
+        continue
+    _r2_tr = float(_r2_fn(_Y_tr, _pt))
+    _r2_va = float(_r2_fn(_Y_va, _pv))
+    _r2_ho = float(_r2_fn(_Y_ho, _ph))
+    _mse_ho = float(_mse(_Y_ho, _ph))
+    _F = [float(_mse(_Y_tr, _pt)), float(_mse(_Y_va, _pv)),
+          float(np.max(np.abs(_Y_va - _pv))),
+          1.0 - _r2_tr, 1.0 - _r2_va]
+    if not all(math.isfinite(_v) for _v in _F):
+        continue
+    if not (math.isfinite(_r2_ho) and math.isfinite(_mse_ho)):
+        continue
+    _bundles.append((_i, {
+        "model": _i,
+        "expression": str(_ind),
+        "wrapper": WRAPPER_NAMES[_wid],
+        "length": hgh.chromosome_length(_ind),
+        "train_mse": _F[0], "val_mse": _F[1], "max_err": _F[2],
+        "train_r2": _r2_tr, "val_r2": _r2_va,
+        "holdout_mse": _mse_ho, "holdout_r2": _r2_ho,
+        "a": getattr(_ind, "a", 1.0), "b": getattr(_ind, "b", 0.0),
+    }, _F))
+
+if _bundles:
+    _Fm = np.array([f for _, _, f in _bundles], dtype=np.float64)
+    _ang = hff.calculate_fitness_hf1_enhanced(
+        _Fm, normalize=True, north_pole_method=settings.north_pole_method
+    )
+    _rows = []
+    for _slot, (_, _row, _) in enumerate(_bundles):
+        _row["angular_distance"] = float(_ang[_slot])
+        _rows.append(_row)
+    ranked = pd.DataFrame(_rows).sort_values("angular_distance").reset_index(drop=True)
+    ranked = hgh._dedupe_hof(ranked)
+    hgh._mark_pareto(
+        ranked,
+        objective_cols=["train_mse", "val_mse", "max_err", "train_r2", "val_r2"],
+        minimise=[True, True, True, False, False],
+    )
+else:
+    ranked = pd.DataFrame()
+
 hgh.print_hof_with_pareto(
     ranked,
-    columns=["model", "length", "train_mse", "val_mse",
-             "train_mae", "val_mae", "max_err", "angular_distance"],
+    columns=["model", "wrapper", "length", "train_mse", "val_mse",
+             "max_err", "train_r2", "val_r2", "angular_distance"],
     top_n=10,
     title=f"Top 10 HOF models by HFF angular distance "
           f"(north_pole={settings.north_pole_method})",
+    raw_hof_size=len(hof),
+)
+
+# %% [markdown]
+# ### 6.1b Production-ranked HOF — sorted by holdout R²
+#
+# Same chromosomes, re-sorted on holdout R² (higher = better generalisation).
+# Pareto ★ markers carry over from the train/val/max_err evolution objectives,
+# so a ★ here means "non-dominated on what evolution optimised AND best on
+# what production cares about". Big reorderings between this view and the
+# angular-distance view above flag train/val overfit that the holdout exposes.
+
+# %%
+if not ranked.empty:
+    production = ranked.sort_values("holdout_r2", ascending=False).reset_index(drop=True)
+else:
+    production = ranked
+hgh.print_hof_with_pareto(
+    production,
+    columns=["model", "wrapper", "length", "train_mse", "val_mse",
+             "holdout_mse", "train_r2", "val_r2", "holdout_r2",
+             "angular_distance"],
+    top_n=10,
+    title="Top 10 HOF models by HOLDOUT R² (production view)",
     raw_hof_size=len(hof),
 )
 
@@ -1197,9 +1395,31 @@ hgh.print_hof_with_pareto(
 # (no directional bias).
 
 # %%
-higd_score = hgh.holdout_higd_diagnostic(
-    hof, holdout, target_col, finalTerminals, toolbox, settings, task="regression"
-)
+# Wrapper-aware HIGD: each HOF model's holdout prediction must apply its
+# own chromosome wrapper, otherwise residuals come from a different
+# function than evolution actually selected.
+_Y_ho = holdout[target_col].values
+_solutions = []
+for _ind in hof:
+    _wid = int(getattr(_ind, "wrapper_id", 0)) % N_WRAPPERS
+    _pred = hgh._eval_individual_on_df(
+        _ind, holdout, finalTerminals, toolbox,
+        apply_sigmoid=False, wrapper_fn=WRAPPER_FUNCS[_wid],
+    )
+    if _pred is None:
+        continue
+    _solutions.append((_pred - _Y_ho).astype(np.float64).tolist())
+
+if _solutions:
+    higd_score = hff.calculate_higd(
+        _solutions,
+        n_reference_points=settings.higd_reference_points,
+        dimensions=len(_Y_ho),
+        seed=settings.higd_seed,
+        positive_orthant=False,
+    )
+else:
+    higd_score = float("nan")
 print(f"HIGD (holdout, n_ref={settings.higd_reference_points}, dims={len(holdout)}): {higd_score:.6f}")
 experiment["holdout_higd"] = float(higd_score) if not math.isnan(higd_score) else None
 

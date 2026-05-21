@@ -137,13 +137,18 @@ import os
 import random
 
 # Headless-mode detection: when the notebook .py is run as a script
-# (e.g. by the sweep driver or any CLI invocation) there's no display,
-# so we switch matplotlib to the non-interactive Agg backend BEFORE
-# pyplot is imported. ``plt.show()`` then becomes a no-op and we
-# additionally save every figure to ``data/figures/<problem>/`` so the
-# visuals survive the run. In Jupyter, ``MPLBACKEND`` is already set by
-# the kernel so this branch leaves it alone.
-HEADLESS = (not sys.stdout.isatty()) or bool(os.environ.get("HFF_HEADLESS"))
+# Figure handling — save AND show in Jupyter, save-only in CLI mode.
+# Every figure lands under data/figures/<problem>/ regardless, so the
+# visuals survive after the run; Jupyter additionally renders them
+# inline. CLI mode (sweep driver, HFF_HEADLESS=1) switches matplotlib to
+# the non-interactive Agg backend BEFORE pyplot is imported.
+try:
+    get_ipython  # type: ignore[name-defined]
+    IN_JUPYTER = True
+except NameError:
+    IN_JUPYTER = False
+FORCE_HEADLESS = bool(os.environ.get("HFF_HEADLESS"))
+HEADLESS = FORCE_HEADLESS or not IN_JUPYTER
 if HEADLESS:
     import matplotlib
     matplotlib.use("Agg")
@@ -186,15 +191,15 @@ settings = hgh.GeppySettings(
     # Splits: filled in by the problem registry, ignored here.
     # Genes
     head_length=16,
-    n_genes=6,
+    n_genes=3,
     rnc_array_length=10,
     # Evolution
-    n_gen=40,
-    population_size=200,
+    n_gen=400,
+    population_size=25,    # per island; 10 islands × 25 = 250 inds/gen
     tournament_size=3,
     num_elites=2,
-    num_islands=2,
-    migration_freq=40,
+    num_islands=10,        # 5 wrappers × 2 island roles (intake + champion) for "pump"
+    migration_freq=25,     # cross-class broadcast cadence
     k_migrants=3,
     # HOF
     champs=30,
@@ -211,6 +216,101 @@ settings = hgh.GeppySettings(
 
 random.seed(settings.seed)
 np.random.seed(settings.seed)
+
+# Wrapper names + count are needed by the topology configuration below
+# AND by the actual wrapper functions defined later (in section 2.1).
+# Declared here once; the runtime wrapper functions in section 2.1 read
+# from these same constants.
+WRAPPER_NAMES = ["identity", "log_abs", "exp", "sqrt_abs", "square"]
+N_WRAPPERS = len(WRAPPER_NAMES)
+
+# 🔴 CONFIGURE HERE — WRAPPER SCOPE.
+# "per_chromosome": ind.wrapper_id is a per-chromosome attribute mutated
+#     by mut_wrapper / cx_wrapper. Every wrapper competes in every deme.
+#     Tends to collapse to a single dominant wrapper (monoculture failure
+#     mode observed on Bayesian I_6_2a).
+# "per_island" (recommended): wrapper is fixed per deme via
+#     ISLAND_WRAPPERS[deme_idx]. Chromosomes inherit their deme's wrapper
+#     at creation; on migration, they are STAMPED with the receiving
+#     deme's wrapper and re-evaluated. Structural diversity — no wrapper
+#     can be selected out of existence.
+WRAPPER_SCOPE = "per_island"
+
+# 🔴 CONFIGURE HERE — MIGRATION TOPOLOGY.
+# "ring": deap's default. Best k from deme i replace worst k of deme i+1.
+# "broadcast": every deme's best k cloned to every OTHER deme, replacing
+#     worst k×(n-1). Re-evaluated under receiver's wrapper. A migrant
+#     that wins multi-environment is genuinely good; one that overfits
+#     its native wrapper dies on arrival.
+# "pump" (recommended): two islands per wrapper — an INTAKE (exploration
+#     crucible, constantly mixing new randoms + cross-class champs) and
+#     a CHAMPION (curated archive of proven genes for this wrapper).
+#     Each migration cycle:
+#       1. Top third of each intake clones into its own champion island
+#          (replacing the champion island's worst third) — promotion
+#       2. The 3 best from each champion island are broadcast across
+#          every intake (5 * 3 = 15 incoming per intake) — gauntlet
+#       3. Each intake's worst third is wiped — half random, half cross-
+#          class champs from step 2 — exploration + cross-environment
+#          re-validation
+#       4. All disturbed chromosomes get the receiving deme's wrapper
+#          stamped on them and fitness invalidated → re-eval next gen
+MIGRATION_TOPOLOGY = "pump"
+
+# 🔴 CONFIGURE HERE — INTRA-CLASS CADENCE (pump topology only).
+# In-class step: promote intake's best into champion AND demote the
+# single best champion's gene-fragments back into intake. Fast cadence
+# (default 10 gens) for continuous distillation — the champion's best
+# chromosome gets disassembled into 6 single-gene chromosomes that have
+# to re-prove themselves alone. The original stays archived in champion.
+# Cross-class broadcast (settings.migration_freq) stays at the slower
+# cadence so each intake has time to evolve between gauntlet shocks.
+MIGRATION_FREQ_INTRA = 10
+
+# 🔴 CONFIGURE HERE — ISLAND → WRAPPER + ROLE MAPPING.
+# Used only when WRAPPER_SCOPE == "per_island".
+# For "pump": pairs of (wrapper, role) — INTAKE then CHAMPION per wrapper,
+# so 5 wrappers × 2 roles = 10 islands.
+# For "ring"/"broadcast": one island per wrapper (5 islands).
+# ROLES: "intake" = exploration crucible, "champion" = curated archive.
+ISLAND_ROLE_INTAKE = "intake"
+ISLAND_ROLE_CHAMPION = "champion"
+
+if MIGRATION_TOPOLOGY == "pump":
+    # Build 10 islands: identity_intake, identity_champ, log_intake, log_champ, …
+    ISLAND_WRAPPERS = []
+    ISLAND_ROLES = []
+    for w in range(N_WRAPPERS):
+        ISLAND_WRAPPERS.append(w); ISLAND_ROLES.append(ISLAND_ROLE_INTAKE)
+        ISLAND_WRAPPERS.append(w); ISLAND_ROLES.append(ISLAND_ROLE_CHAMPION)
+else:
+    # ring / broadcast: one island per wrapper, all "intake" semantically
+    # (champion role is meaningless without the pump cycle).
+    ISLAND_WRAPPERS = list(range(min(settings.num_islands, N_WRAPPERS)))
+    while len(ISLAND_WRAPPERS) < settings.num_islands:
+        ISLAND_WRAPPERS.append(0)
+    ISLAND_ROLES = [ISLAND_ROLE_INTAKE] * settings.num_islands
+
+# Adjust num_islands if topology demands a different count than the
+# settings default. This keeps the rest of the notebook (which reads
+# settings.num_islands) in sync.
+if len(ISLAND_WRAPPERS) != settings.num_islands:
+    print(f"[topology={MIGRATION_TOPOLOGY}] adjusting num_islands "
+          f"{settings.num_islands} → {len(ISLAND_WRAPPERS)} to match "
+          f"the wrapper×role layout.")
+    settings.num_islands = len(ISLAND_WRAPPERS)
+assert len(ISLAND_WRAPPERS) == settings.num_islands == len(ISLAND_ROLES)
+
+# Convenience: for pump topology, list of (intake_idx, champion_idx)
+# tuples per wrapper.
+WRAPPER_ISLAND_PAIRS = []
+if MIGRATION_TOPOLOGY == "pump":
+    for w in range(N_WRAPPERS):
+        intake_idx = next(i for i in range(len(ISLAND_WRAPPERS))
+                          if ISLAND_WRAPPERS[i] == w and ISLAND_ROLES[i] == ISLAND_ROLE_INTAKE)
+        champ_idx = next(i for i in range(len(ISLAND_WRAPPERS))
+                         if ISLAND_WRAPPERS[i] == w and ISLAND_ROLES[i] == ISLAND_ROLE_CHAMPION)
+        WRAPPER_ISLAND_PAIRS.append((intake_idx, champ_idx))
 
 # Constant-snap tolerance and library (notebook-level, not stored on
 # `settings` because they only matter post-evolution).
@@ -342,19 +442,18 @@ Y_extrap = extrapolation[target_col].values
 
 # %%
 FIG_DIR = os.path.join("data", "figures", problem.name)
-if HEADLESS:
-    os.makedirs(FIG_DIR, exist_ok=True)
+os.makedirs(FIG_DIR, exist_ok=True)
 
 
 def _save_or_show(name: str):
-    """Save the current figure to FIG_DIR when headless, else show()."""
-    if HEADLESS:
-        path = os.path.join(FIG_DIR, f"{name}.png")
-        plt.savefig(path, dpi=110, bbox_inches="tight")
-        plt.close()
-        print(f"  saved figure → {path}")
-    else:
+    """ALWAYS save to FIG_DIR. Show inline in Jupyter, close in CLI mode."""
+    path = os.path.join(FIG_DIR, f"{name}.png")
+    plt.savefig(path, dpi=110, bbox_inches="tight")
+    print(f"  saved figure → {path}")
+    if IN_JUPYTER and not FORCE_HEADLESS:
         plt.show()
+    else:
+        plt.close()
 
 
 if len(problem.variables) <= 4:
@@ -427,6 +526,38 @@ pset.add_rnc_terminal()
 experiment["final_terminal_inputs"] = finalTerminals
 experiment["wide_primitives"] = USE_WIDE_PRIMITIVES or _is_feynman_problem
 
+# === Chromosome-level regression wrapper functions ===
+# WRAPPER_NAMES / N_WRAPPERS are defined up in section 0.2 so the
+# topology configuration there can refer to them. Here we attach the
+# runtime numpy implementations.
+#
+#     y_pred = a · WRAPPER[ind.wrapper_id]( linker(genes) ) + b
+#
+# Evolution decides which wrapper to use — either per-chromosome (mut_wrapper)
+# or per-island (ISLAND_WRAPPERS), set by WRAPPER_SCOPE in section 0.2.
+
+
+def _w_identity(x):  return x
+def _w_log_abs(x):   return np.log(np.abs(x) + 1e-12)
+def _w_exp(x):       return np.exp(np.clip(x, -50.0, 50.0))
+def _w_sqrt_abs(x):  return np.sqrt(np.abs(x))
+def _w_square(x):    return x * x
+
+
+WRAPPER_FUNCS = [_w_identity, _w_log_abs, _w_exp, _w_sqrt_abs, _w_square]
+
+
+def apply_wrapper(arr, wid):
+    """Safely apply WRAPPER_FUNCS[wid % N_WRAPPERS] to a numpy array.
+    Returns None if the result is non-finite or the call raises."""
+    try:
+        out = WRAPPER_FUNCS[int(wid) % N_WRAPPERS](arr)
+    except (ValueError, OverflowError, FloatingPointError):
+        return None
+    if not np.all(np.isfinite(out)):
+        return None
+    return out
+
 # %% [markdown]
 # ## 2.2 Fitness, genes, toolbox
 
@@ -442,11 +573,41 @@ toolbox.register(
     rnc_gen=toolbox.rnc_gen, rnc_array_length=settings.rnc_array_length,
 )
 if settings.n_genes > 1:
-    toolbox.register("individual", creator.Individual,
+    toolbox.register("_chromosome_factory", creator.Individual,
                      gene_gen=toolbox.gene_gen, n_genes=settings.n_genes, linker=hgh.avgval)
 else:
-    toolbox.register("individual", creator.Individual,
+    toolbox.register("_chromosome_factory", creator.Individual,
                      gene_gen=toolbox.gene_gen, n_genes=settings.n_genes)
+
+
+def make_individual():
+    """Build a chromosome and stamp it with a randomly chosen wrapper_id.
+    The wrapper_id is a chromosome-level attribute that survives deap's
+    clone (which copies __dict__). For per_island mode the initial value
+    is overwritten by stamp_deme_wrappers() once islands are built."""
+    ind = toolbox._chromosome_factory()
+    ind.wrapper_id = random.randrange(N_WRAPPERS)
+    return ind
+
+
+def stamp_deme_wrappers(demes):
+    """Per-island mode: set every chromosome's wrapper_id to its deme's
+    fixed wrapper. Called once after deme creation and again on every
+    migration arrival (so the receiving deme's wrapper sticks). Also
+    invalidates fitness so the chromosome is re-evaluated under the new
+    wrapper."""
+    if WRAPPER_SCOPE != "per_island":
+        return
+    for idx, deme in enumerate(demes):
+        target = ISLAND_WRAPPERS[idx]
+        for ind in deme:
+            if getattr(ind, "wrapper_id", None) != target:
+                ind.wrapper_id = target
+                if ind.fitness.valid:
+                    del ind.fitness.values
+
+
+toolbox.register("individual", make_individual)
 toolbox.register("compile", gep.compile_, pset=pset)
 toolbox.register("population", tools.initRepeat, list, toolbox.individual)
 
@@ -456,7 +617,7 @@ toolbox.register("population", tools.initRepeat, list, toolbox.individual)
 # Fitness vector:
 #
 # ```
-# [train_MSE, val_MSE, train_MAE, val_MAE, max_err, extrapolation_MSE]
+# [train_MSE, val_MSE, max_err, extrapolation_MSE, 1 - train_R², 1 - val_R²]
 # ```
 #
 # All entries are minimised. The **extrapolation_MSE** is the one that
@@ -467,7 +628,7 @@ toolbox.register("population", tools.initRepeat, list, toolbox.individual)
 # dimensionality.
 
 # %%
-METRIC_NAMES = ["mse_tr", "mse_va", "mae_tr", "mae_va", "max_err", "mse_extrap"]
+METRIC_NAMES = ["mse_tr", "mse_va", "max_err", "mse_extrap", "one_minus_r2_tr", "one_minus_r2_va"]
 N_OBJECTIVES = len(METRIC_NAMES)
 
 FAILED_METRIC_VALUE = 1.0e9
@@ -475,49 +636,65 @@ FAILED_FITNESS = 1.0e9
 
 
 def compute_raw_metrics(individual):
-    """Phase 1: per-individual. Returns a bundle dict or None."""
+    """Phase 1: per-individual. Returns a bundle dict or None.
+
+    Pipeline: linker(genes) → WRAPPER[wrapper_id] → LSM. The wrapper is
+    applied ONCE at the root, mirroring v1.0.4c. Train/val/extrap all go
+    through the same wrapper so any extrapolation signal in the fitness
+    is computed against the model that will actually be deployed."""
     raw_train = hgh.compile_and_predict(individual, train, finalTerminals, toolbox)
     raw_val = hgh.compile_and_predict(individual, validation, finalTerminals, toolbox)
     raw_extr = hgh.compile_and_predict(individual, extrapolation, finalTerminals, toolbox)
     if raw_train is None or raw_val is None or raw_extr is None:
         return None
 
+    wrapper_id = int(getattr(individual, "wrapper_id", 0)) % N_WRAPPERS
+    wrapped_train = apply_wrapper(raw_train, wrapper_id)
+    wrapped_val = apply_wrapper(raw_val, wrapper_id)
+    wrapped_extr = apply_wrapper(raw_extr, wrapper_id)
+    if wrapped_train is None or wrapped_val is None or wrapped_extr is None:
+        return None
+
     if settings.enable_linear_scaling:
-        scale = hgh.apply_linear_scaling(raw_train, Y)
+        scale = hgh.apply_linear_scaling(wrapped_train, Y)
         if scale is None:
             return None
         a, b = scale
-        pred_train = a * raw_train + b
-        pred_val = a * raw_val + b
-        pred_extr = a * raw_extr + b
+        pred_train = a * wrapped_train + b
+        pred_val = a * wrapped_val + b
+        pred_extr = a * wrapped_extr + b
     else:
         a, b = 1.0, 0.0
-        pred_train = raw_train
-        pred_val = raw_val
-        pred_extr = raw_extr
+        pred_train = wrapped_train
+        pred_val = wrapped_val
+        pred_extr = wrapped_extr
 
     mse_tr = float(np.mean((Y - pred_train) ** 2))
     mse_va = float(np.mean((Y_val - pred_val) ** 2))
-    mae_tr = float(np.mean(np.abs(Y - pred_train)))
-    mae_va = float(np.mean(np.abs(Y_val - pred_val)))
     max_err = float(np.max(np.abs(Y_val - pred_val)))
     mse_extrap = float(np.mean((Y_extrap - pred_extr) ** 2))
+    # R² folded in as (1 - R²) so every objective is "lower is better".
+    var_tr = float(np.var(Y))
+    var_va = float(np.var(Y_val))
+    one_minus_r2_tr = mse_tr / var_tr if var_tr > 0 else float("inf")
+    one_minus_r2_va = mse_va / var_va if var_va > 0 else float("inf")
 
     if HFF_INCLUDE_VAL:
-        # Full 6-objective: train + validation + extrapolation. The paper's
-        # documented configuration.
-        vec = [mse_tr, mse_va, mae_tr, mae_va, max_err, mse_extrap]
+        # Full 6-objective: train+val MSE, max_err, extrapolation MSE,
+        # plus train+val (1-R²). The paper's documented configuration.
+        vec = [mse_tr, mse_va, max_err, mse_extrap, one_minus_r2_tr, one_minus_r2_va]
     else:
         # ABLATION: train-only. No validation or extrapolation signal in the
         # fitness — pure curve-fitting. Used to demonstrate how badly the
         # search degrades without the val+extrap steering that the paper
         # contributes.
-        vec = [mse_tr, mae_tr]
+        vec = [mse_tr, one_minus_r2_tr]
     if not all(np.isfinite(vec)):
         return None
     return {
         "a": float(a),
         "b": float(b),
+        "wrapper_id": wrapper_id,
         "metrics": dict(zip(METRIC_NAMES, vec)),
         "vec": vec,
     }
@@ -549,6 +726,7 @@ def assign_fitness_batch(population, raw_results):
         ind.metrics = r["metrics"]
         ind.a = r["a"]
         ind.b = r["b"]
+        ind.wrapper_id = int(r["wrapper_id"])
 
 
 toolbox.register("evaluate", evaluate_individual)
@@ -570,6 +748,43 @@ toolbox.register("mut_invert_dc", gep.invert_dc, pb=0.1)
 toolbox.register("mut_transpose_dc", gep.transpose_dc, pb=0.1)
 toolbox.register("mut_rnc_array_dc", gep.mutate_rnc_array_dc, rnc_gen=toolbox.rnc_gen, ind_pb="0.5p")
 toolbox.pbs["mut_rnc_array_dc"] = 1
+
+
+# === Chromosome-level wrapper operators ===
+# Operate on ind.wrapper_id (a single int), not gene contents. Picked up
+# by the existing 'mut*' / 'cx*' loops in the run cell via toolbox.pbs.
+
+def mut_wrapper(individual):
+    """Flip the chromosome's wrapper choice to a different value at random."""
+    current = int(getattr(individual, "wrapper_id", 0)) % N_WRAPPERS
+    if N_WRAPPERS > 1:
+        choices = [i for i in range(N_WRAPPERS) if i != current]
+        individual.wrapper_id = random.choice(choices)
+    return (individual,)
+
+
+def cx_wrapper(ind1, ind2):
+    """Swap wrapper_id between two parents."""
+    ind1.wrapper_id, ind2.wrapper_id = (
+        int(getattr(ind2, "wrapper_id", 0)) % N_WRAPPERS,
+        int(getattr(ind1, "wrapper_id", 0)) % N_WRAPPERS,
+    )
+    return ind1, ind2
+
+
+# Wrapper-id operators only register in per_chromosome mode. In per_island
+# mode the wrapper is a property of the deme, not the chromosome, so we
+# DON'T want mut_wrapper / cx_wrapper firing — that would break the
+# structural diversity guarantee.
+if WRAPPER_SCOPE == "per_chromosome":
+    toolbox.register("mut_wrapper", mut_wrapper)
+    toolbox.pbs["mut_wrapper"] = 0.2
+    toolbox.register("cx_wrapper", cx_wrapper)
+    toolbox.pbs["cx_wrapper"] = 0.2
+    print("Wrapper scope: per_chromosome  (mut_wrapper + cx_wrapper enabled)")
+else:
+    print(f"Wrapper scope: per_island  "
+          f"(island → wrapper map: {[WRAPPER_NAMES[w] for w in ISLAND_WRAPPERS]})")
 
 # %% [markdown]
 # ## 2.5 Statistics
@@ -680,9 +895,424 @@ def gep_apply_crossover(population, operator, pb):
 from deap import algorithms
 
 number_islands = settings.num_islands
+
+
+def _migrate_ring(demes):
+    """DEAP's default ring migration: best k of deme i replace worst k of
+    deme (i+1) % n. References move; no clone. In per_island mode the
+    migrated chromosomes are then stamped with the receiver's wrapper."""
+    tools.migRing(demes, k=k_migrants,
+                  selection=tools.selBest, replacement=tools.selWorst)
+
+
+def _migrate_broadcast(demes):
+    """Every deme's best k are CLONED to every other deme, where they
+    replace the worst k×(n-1). In per_island mode the receiver's wrapper
+    is then stamped onto every arrival, forcing re-evaluation under the
+    new environment. A genuinely good chromosome wins in multiple
+    environments; one that overfits its native wrapper dies on arrival."""
+    n = len(demes)
+    if n < 2:
+        return
+    senders_best = [list(tools.selBest(deme, k=k_migrants)) for deme in demes]
+    # Stage 1: collect clones to send to each receiver (k × (n-1) per receiver).
+    incoming = {j: [] for j in range(n)}
+    for i, best in enumerate(senders_best):
+        for j in range(n):
+            if j == i:
+                continue
+            for ind in best:
+                incoming[j].append(toolbox.clone(ind))
+    # Stage 2: each receiver swaps its worst (k×(n-1)) for the incoming clones.
+    for j, deme in enumerate(demes):
+        arrivals = incoming[j]
+        if not arrivals:
+            continue
+        # Replace the worst |arrivals| in this deme.
+        worst_idx = sorted(
+            range(len(deme)),
+            key=lambda k_i: deme[k_i].fitness.values[0]
+            if deme[k_i].fitness.valid else float("inf"),
+            reverse=True,
+        )[:len(arrivals)]
+        for slot, arrival in zip(worst_idx, arrivals):
+            # Invalidate fitness so re-eval happens under the receiver's
+            # wrapper (which stamp_deme_wrappers sets right after).
+            if arrival.fitness.valid:
+                del arrival.fitness.values
+            deme[slot] = arrival
+
+
+# Fragment lineage instrumentation. Each fragment carries a frag_id + the
+# parent's fitness at creation time. After re-eval we compare to find out
+# whether fragments meaningfully beat their (full-chromosome) source.
+_FRAG_LINEAGE = []   # list of dicts: {frag_id, parent_fit, wrapper, gen_created}
+_FRAG_COUNTER = [0]
+
+
+# ------------------------------------------------------------------ #
+# Sympy → karva fragmentation (denoise-winner step)
+#
+# Approach: simplify the winning chromosome via gep.simplify, decompose the
+# resulting sympy expression into its top-level Add (or Mul) parts, then
+# translate each part BACK into a fresh karva genome by overwriting all
+# n_genes of a freshly-built random chromosome (so avgval(c,c,…,c) = c).
+# LSM refits a, b on the fragment. A part that captures the truth solo
+# will hit val_R² ≈ 1.0 and rise back into the champion archive.
+#
+# Why all-same-genes: avgval(c, rand, rand, …) dilutes c with noise that LSM
+# can't fully reject (verified by 0/960 win-rate in v6). avgval(c,…,c) = c,
+# clean signal, LSM does its job.
+# ------------------------------------------------------------------ #
+
+# Map sympy node class → (pset function name, arity) for non-arithmetic ops.
+SYMPY_TO_PSET = {
+    sp.exp:  "protected_exp",
+    sp.log:  "protected_log",
+    sp.sin:  "sin",
+    sp.cos:  "cos",
+    sp.Abs:  "protected_sqrt",
+}
+_PSET_BY_NAME = {f.name: f for f in pset.functions}
+_TERMINAL_BY_NAME = {t.name: t for t in pset.terminals if t.name != "?"}
+_RNC_TERMINAL = next(t for t in pset.terminals if t.name == "?")
+
+
+class _TranslationError(Exception):
+    pass
+
+
+def _emit_sympy_node(expr):
+    """Sympy → ('var', name) | ('rnc', float) | ('func', name, [child_exprs])."""
+    if expr.is_Symbol:
+        if expr.name in _TERMINAL_BY_NAME:
+            return ("var", expr.name)
+        raise _TranslationError(f"Symbol {expr.name} not in pset")
+    if expr.is_Number:
+        return ("rnc", float(expr))
+    if expr.is_Add:
+        args = list(expr.args)
+        if len(args) == 1:
+            return _emit_sympy_node(args[0])
+        left = args[0]
+        right = sp.Add(*args[1:], evaluate=False) if len(args) > 2 else args[1]
+        return ("func", "add", [left, right])
+    if expr.is_Mul:
+        symbolic = [a for a in expr.args if not a.is_Number]
+        numeric = [a for a in expr.args if a.is_Number]
+        prod = 1
+        for n in numeric:
+            prod = prod * n
+        sign_negative = (prod < 0) if numeric else False
+        if not symbolic:
+            return ("rnc", float(expr))
+        if len(symbolic) == 1:
+            body_expr = symbolic[0]
+        else:
+            body_expr = sp.Mul(*symbolic, evaluate=False)
+        if sign_negative:
+            # Negate via sub(0, body) — sign must survive (can't pass through wrappers).
+            return ("func", "sub", [sp.Integer(0), body_expr])
+        return _emit_sympy_node(body_expr) if body_expr is not expr else ("func", "mul",
+            [symbolic[0],
+             sp.Mul(*symbolic[1:], evaluate=False) if len(symbolic) > 2 else symbolic[1]])
+    if expr.is_Pow:
+        base_, exponent = expr.args
+        if exponent == 2:
+            return ("func", "mul", [base_, base_])
+        if exponent == sp.Rational(1, 2):
+            return ("func", "protected_sqrt", [base_])
+        if exponent == -1:
+            return ("func", "protected_div_zero", [sp.Integer(1), base_])
+        return ("func", "protected_exp",
+                [sp.Mul(exponent, sp.log(sp.Abs(base_)), evaluate=False)])
+    for cls, fname in SYMPY_TO_PSET.items():
+        if isinstance(expr, cls):
+            if fname not in _PSET_BY_NAME:
+                raise _TranslationError(f"pset missing {fname}")
+            return ("func", fname, [expr.args[0]])
+    raise _TranslationError(f"Unhandled sympy node: {type(expr).__name__} {expr}")
+
+
+def _sympy_to_karva_head(expr, rnc_lo, rnc_hi, head_length):
+    """BFS-expand sympy expr → (head_symbols_list, rnc_array, rnc_indices_used).
+
+    head_symbols_list may be SHORTER than head_length; caller pads.
+    Constants are rounded to nearest int in [rnc_lo, rnc_hi] (LSM absorbs
+    magnitude loss for outer prefactors; inner constants lose some precision).
+    """
+    head_symbols = []
+    rnc_array = []
+    rnc_indices_used = []
+    queue = [expr]
+    while queue and len(head_symbols) < head_length:
+        cur = queue.pop(0)
+        kind = _emit_sympy_node(cur)
+        if kind[0] == "var":
+            head_symbols.append(_TERMINAL_BY_NAME[kind[1]])
+        elif kind[0] == "rnc":
+            head_symbols.append(_RNC_TERMINAL)
+            v = int(round(kind[1]))
+            v = max(rnc_lo, min(rnc_hi, v))
+            rnc_array.append(v)
+            rnc_indices_used.append(len(rnc_array) - 1)
+        else:
+            _, fname, children = kind
+            head_symbols.append(_PSET_BY_NAME[fname])
+            queue.extend(children)
+    if queue:
+        raise _TranslationError(f"Expression too large for head_length={head_length}")
+    return head_symbols, rnc_array, rnc_indices_used
+
+
+def _build_karva_gene(head_symbols, rnc_array, rnc_indices_used):
+    """Take a fresh random gene and overwrite its head + rnc_array + Dc."""
+    g = toolbox.gene_gen()
+    n_head = settings.head_length
+    rnc_len = settings.rnc_array_length
+
+    # Pad head_symbols up to n_head with random terminals.
+    padded = list(head_symbols)
+    while len(padded) < n_head:
+        # Use a random terminal from the existing gene's head (already random).
+        padded.append(g[len(padded)])
+    for i in range(n_head):
+        g[i] = padded[i]
+
+    # rnc_array: ours followed by random fill (the existing array is already random).
+    new_rnc = list(rnc_array)
+    while len(new_rnc) < rnc_len:
+        new_rnc.append(g._rnc_array[len(new_rnc)])
+    g._rnc_array = new_rnc[:rnc_len]
+
+    # Dc tail: overwrite first len(rnc_indices_used) slots.
+    dc_start = n_head + g.tail_length
+    for j, idx in enumerate(rnc_indices_used):
+        if dc_start + j < len(g):
+            g[dc_start + j] = idx
+    return g
+
+
+def _build_fragment_chromosome_from_part(part_expr, parent_wrapper_id):
+    """Translate one sympy part → a chromosome where EVERY gene is that part."""
+    head, rnc_arr, rnc_idx = _sympy_to_karva_head(
+        part_expr,
+        rnc_lo=settings.rnc_lo, rnc_hi=settings.rnc_hi,
+        head_length=settings.head_length,
+    )
+    genes = [_build_karva_gene(head, rnc_arr, rnc_idx)
+             for _ in range(settings.n_genes)]
+    if settings.n_genes > 1:
+        fragment = creator.Individual.from_genes(genes, linker=hgh.avgval)
+    else:
+        fragment = creator.Individual.from_genes(genes, linker=None)
+    fragment.fitness = creator.FitnessMin()
+    fragment.wrapper_id = parent_wrapper_id
+    return fragment
+
+
+_SIMPLIFY_CACHE = {}   # chromosome_str → (simplified_expr, expanded_parts)
+_SIMPLIFY_CACHE_MAX = 500   # cap to avoid unbounded growth
+
+
+def _decompose_winner_to_fragments(winner, gen=None):
+    """Return fragment chromosomes from the simplified+split winner. The
+    sympy simplify+expand+split is CACHED by chromosome string so the same
+    champion sitting in champion island for multiple intra cycles only
+    pays the sympy cost ONCE."""
+    parent_wrapper_id = int(getattr(winner, "wrapper_id", 0)) % N_WRAPPERS
+    parent_fit = float(winner.fitness.values[0]) if winner.fitness.valid else float("inf")
+
+    cache_key = str(winner)
+    if cache_key in _SIMPLIFY_CACHE:
+        parts = _SIMPLIFY_CACHE[cache_key]
+    else:
+        sym_map = hgh.custom_symbolic_function_map()
+        sym_map["protected_sqrt"] = lambda x: sp.sqrt(sp.Abs(x))
+        sym_map["protected_exp"]  = sp.exp
+        sym_map["protected_log"]  = lambda x: sp.log(sp.Abs(x))
+        try:
+            expr = gep.simplify(winner, symbolic_function_map=sym_map)
+        except Exception:
+            _SIMPLIFY_CACHE[cache_key] = []
+            return []
+        try:
+            expr = sp.expand(expr) if not expr.is_Atom else expr
+        except Exception:
+            pass
+        if expr.is_Add:
+            parts = list(expr.args)
+        elif expr.is_Mul:
+            parts = list(expr.args)
+        else:
+            parts = [expr]
+        # Drop pure numeric parts up front.
+        parts = [p for p in parts if not p.is_Number]
+        if len(_SIMPLIFY_CACHE) >= _SIMPLIFY_CACHE_MAX:
+            # Trim oldest half — dict preserves insertion order.
+            for k in list(_SIMPLIFY_CACHE.keys())[: _SIMPLIFY_CACHE_MAX // 2]:
+                del _SIMPLIFY_CACHE[k]
+        _SIMPLIFY_CACHE[cache_key] = parts
+
+    if not parts:
+        return []
+
+    fragments = []
+    for part in parts:
+        try:
+            frag = _build_fragment_chromosome_from_part(part, parent_wrapper_id)
+        except _TranslationError:
+            continue
+        except Exception:
+            continue
+        # Lineage stamp
+        _FRAG_COUNTER[0] += 1
+        frag._frag_id = _FRAG_COUNTER[0]
+        frag._parent_fit = parent_fit
+        frag._parent_wrapper = WRAPPER_NAMES[parent_wrapper_id]
+        frag._gen_created = gen
+        fragments.append(frag)
+    return fragments
+
+
+def _migrate_pump_intra(demes, gen=None):
+    """Intra-class pump step — runs every MIGRATION_FREQ_INTRA generations.
+
+    For each (intake_idx, champ_idx) pair:
+      1. PROMOTE: top third of intake → cloned into champion, replacing
+         champion's worst third.
+      2. DENOISE-WINNER: the SINGLE best champion (post-promotion) gets
+         disassembled into n_genes single-gene chromosomes, each landing
+         in the same-class intake (replacing intake's worst n_genes).
+         The original best champion stays archived intact.
+
+    No cross-class flow here. This is the tight in-class distillation
+    loop — fast cadence, low disruption per island.
+    """
+    if not WRAPPER_ISLAND_PAIRS:
+        return
+
+    # Step 1: PROMOTE 1 — best of each intake into its champion island,
+    # replacing champion's single worst. Champion accumulates one winner
+    # per pump cycle.
+    for intake_idx, champ_idx in WRAPPER_ISLAND_PAIRS:
+        intake = demes[intake_idx]
+        champ = demes[champ_idx]
+        if not intake or not champ:
+            continue
+        promotee = toolbox.clone(tools.selBest(intake, 1)[0])
+        worst_slot = max(
+            range(len(champ)),
+            key=lambda k_i: champ[k_i].fitness.values[0]
+            if champ[k_i].fitness.valid else float("inf"),
+        )
+        champ[worst_slot] = promotee   # promotee already has valid fitness
+
+    # Step 2: DENOISE + DEMOTE 1 — best of each champion goes to its intake
+    # (full winner) PLUS its n_genes component fragments. They replace the
+    # intake's worst (1 + n_genes) chromosomes. Champion's best stays
+    # archived intact (we clone the winner before fragmenting).
+    for intake_idx, champ_idx in WRAPPER_ISLAND_PAIRS:
+        champ = demes[champ_idx]
+        intake = demes[intake_idx]
+        if not champ or not intake:
+            continue
+        valid_champs = [ind for ind in champ if ind.fitness.valid]
+        if not valid_champs:
+            continue
+        best = tools.selBest(valid_champs, 1)[0]
+        # Full winner clone (so champion's original stays in place).
+        winner_clone = toolbox.clone(best)
+        # Sympy decomposition: simplify the winner, split top-level Add/Mul,
+        # translate each part back into karva → fresh chromosome where every
+        # gene is the same part (avgval collapses cleanly). Untranslatable
+        # parts are dropped. Replaces the old gene-swap fragmentation that
+        # never beat parent (0/960 in v6 run).
+        # Gate: only decompose if the champion is genuinely good (val_R² ≥ 0.99).
+        # Sympy simplify on a deep multi-gene chromosome is single-threaded
+        # and can hang for minutes. If the winner isn't close to truth, its
+        # fragments are noise too — skip.
+        _best_val_r2 = 1.0 - best.metrics.get("one_minus_r2_va", float("inf")) \
+            if hasattr(best, "metrics") and best.metrics else -float("inf")
+        if _best_val_r2 >= 0.99:
+            fragments = _decompose_winner_to_fragments(best, gen=gen)
+        else:
+            fragments = []
+        arrivals = [winner_clone] + fragments
+        worst_idx = sorted(
+            range(len(intake)),
+            key=lambda k_i: intake[k_i].fitness.values[0]
+            if intake[k_i].fitness.valid else float("inf"),
+            reverse=True,
+        )[:len(arrivals)]
+        for slot, arrival in zip(worst_idx, arrivals):
+            intake[slot] = arrival
+
+
+def _migrate_pump_cross(demes):
+    """Cross-class broadcast step — runs every settings.migration_freq.
+
+    Builds the broadcast pool from each champion island's top k_migrants,
+    then floods every intake's bottom third (half random / half champs
+    from other classes). The receiver's wrapper gets stamped onto every
+    arrival → forced re-eval under the new environment. The gauntlet.
+    """
+    if not WRAPPER_ISLAND_PAIRS:
+        return
+
+    broadcast_pool = []
+    for _, champ_idx in WRAPPER_ISLAND_PAIRS:
+        champ = demes[champ_idx]
+        if not champ:
+            continue
+        valid = [ind for ind in champ if ind.fitness.valid]
+        if len(valid) >= k_migrants:
+            top = tools.selBest(valid, k_migrants)
+        else:
+            top = list(valid) + list(champ[:k_migrants - len(valid)])
+        broadcast_pool.extend([toolbox.clone(ind) for ind in top])
+
+    for intake_idx, _ in WRAPPER_ISLAND_PAIRS:
+        intake = demes[intake_idx]
+        if not intake:
+            continue
+        third = max(1, len(intake) // 3)
+        n_random = third // 2
+        n_champs = third - n_random
+        worst_idx = sorted(
+            range(len(intake)),
+            key=lambda k_i: intake[k_i].fitness.values[0]
+            if intake[k_i].fitness.valid else float("inf"),
+            reverse=True,
+        )[:third]
+        # Fresh random in first half (wrapper stamped by stamp_deme_wrappers).
+        for slot in worst_idx[:n_random]:
+            intake[slot] = toolbox.individual()
+        # Cross-class champs in second half.
+        if broadcast_pool and n_champs > 0:
+            arrivals = [toolbox.clone(broadcast_pool[k_i % len(broadcast_pool)])
+                        for k_i in range(n_champs)]
+            for slot, arrival in zip(worst_idx[n_random:n_random + n_champs], arrivals):
+                if arrival.fitness.valid:
+                    del arrival.fitness.values
+                intake[slot] = arrival
+
+
+def _migrate_pump(demes):
+    """Combined pump cycle (used for ablation comparisons or as a single
+    coarse-cadence event). The split-tempo run loop calls _intra and
+    _cross separately on their own cadences and does NOT call this."""
+    _migrate_pump_intra(demes)
+    _migrate_pump_cross(demes)
+
+
 if number_islands > 0:
-    toolbox.register("migrate", tools.migRing, k=k_migrants,
-                     selection=tools.selBest, replacement=tools.selWorst)
+    if MIGRATION_TOPOLOGY == "pump":
+        toolbox.register("migrate", _migrate_pump)
+    elif MIGRATION_TOPOLOGY == "broadcast":
+        toolbox.register("migrate", _migrate_broadcast)
+    else:
+        toolbox.register("migrate", _migrate_ring)
 
 startDT = datetime.datetime.now()
 print(f"Initialising evolution at {startDT}")
@@ -695,6 +1325,10 @@ if number_islands == 0:
 else:
     _ensure_pool()
     demes = [toolbox.population(n=population_size) for _ in range(number_islands)]
+    # Stamp each deme's chromosomes with its island wrapper BEFORE gen-0
+    # evaluation so the fitness is computed under the right wrapper from
+    # the start. No-op in per_chromosome mode.
+    stamp_deme_wrappers(demes)
     log = tools.Logbook()
     log.header = ("gen", "deme", "evals", "min fitness", *METRIC_NAMES)
 
@@ -704,7 +1338,9 @@ else:
         log.record(gen=0, deme=idx, evals=len(deme),
                    **stats.compile(deme), **per_metric_mins(deme))
         hof.update(deme)
-        print(log.stream)
+        if idx == 0:
+            print(hgh.format_log_header(METRIC_NAMES))
+        print(hgh.format_log_row(log[-1], METRIC_NAMES))
     gen = 1
 
 # %% [markdown]
@@ -715,6 +1351,13 @@ else:
 
 # %%
 extra_gen = settings.n_gen
+
+# 🔴 CONFIGURE HERE — early stop when val_R² hits "exact match" precision.
+# For equation recovery we're looking for R² = 1.0 (truth recovered). The
+# 1e-9 tolerance lets float-precision rounding through but refuses any
+# approximation. val_R² is read from the logbook as 1 - one_minus_r2_va.
+EARLY_STOP_VAL_R2 = 1.0 - 1e-9
+_early_stop_triggered = False
 
 if number_islands == 0:
     _ensure_pool()
@@ -746,10 +1389,76 @@ else:
             log.record(gen=gen, deme=idx, evals=len(deme),
                        **stats.compile(deme), **per_metric_mins(deme))
             hof.update(deme)
-            print(log.stream)
-        if gen > 30 and gen % FREQ == 0 or gen > (target_gen - 10):
-            toolbox.migrate(demes)
-            print("------------------------migration across islands---------------")
+            print(hgh.format_log_row(log[-1], METRIC_NAMES))
+
+        # Early-stop: any deme produced an individual with val_R² ≥ threshold
+        # → equation recovered, stop burning budget. ABSOLUTE measure, not
+        # relative-to-population like angular distance.
+        _gen_rows = [r for r in log if r["gen"] == gen]
+        _best_val_r2 = max(
+            (1.0 - r["one_minus_r2_va"] for r in _gen_rows
+             if math.isfinite(r.get("one_minus_r2_va", float("inf")))),
+            default=float("-inf"),
+        )
+        if _best_val_r2 >= EARLY_STOP_VAL_R2:
+            print(f"\n*** Early stop at generation {gen}: "
+                  f"best val_R² = {_best_val_r2:.10f} ≥ {EARLY_STOP_VAL_R2:.10f}")
+            _early_stop_triggered = True
+            gen += 1
+            break
+
+        # Split-tempo migration for "pump" topology: intra-class step
+        # (promote + denoise-winner) on the fast cadence, cross-class
+        # broadcast on the slow cadence. Both stamp wrappers + re-eval.
+        # For "ring" / "broadcast" topologies fall back to single migrate
+        # at FREQ (original behaviour).
+        _fired_anything = False
+        _fired_label = None
+        if MIGRATION_TOPOLOGY == "pump":
+            if gen > 0 and gen % MIGRATION_FREQ_INTRA == 0:
+                _migrate_pump_intra(demes, gen=gen)
+                _fired_anything = True
+                _fired_label = "intra (promote + denoise-winner)"
+            if gen > 30 and (gen % FREQ == 0 or gen > (target_gen - 10)):
+                _migrate_pump_cross(demes)
+                _fired_anything = True
+                _fired_label = (f"{_fired_label} + cross"
+                                if _fired_label else "cross-class")
+        else:
+            if gen > 30 and (gen % FREQ == 0 or gen > (target_gen - 10)):
+                toolbox.migrate(demes)
+                _fired_anything = True
+                _fired_label = MIGRATION_TOPOLOGY
+
+        if _fired_anything:
+            # In per_island mode arrivals get the receiver's wrapper stamped
+            # and their fitness invalidated → re-eval now so next gen's
+            # selection sees correct values. Fragments from denoise-winner
+            # always carry invalid fitness, so they get re-eval'd too.
+            stamp_deme_wrappers(demes)
+            for _deme in demes:
+                _invalid = [_ind for _ind in _deme if not _ind.fitness.valid]
+                if _invalid:
+                    _rr = list(toolbox.map(toolbox.evaluate, _invalid))
+                    assign_fitness_batch(_invalid, _rr)
+            # Lineage capture: every fragment now has valid fitness — record
+            # (frag_fit, parent_fit) so we can tally fragment win-rate later.
+            for _deme in demes:
+                for _ind in _deme:
+                    if hasattr(_ind, "_frag_id") and _ind.fitness.valid:
+                        _FRAG_LINEAGE.append({
+                            "frag_id": _ind._frag_id,
+                            "wrapper": _ind._parent_wrapper,
+                            "parent_fit": _ind._parent_fit,
+                            "child_fit": float(_ind.fitness.values[0]),
+                            "gen_created": _ind._gen_created,
+                            "gen_evaluated": gen,
+                            "beat_parent": float(_ind.fitness.values[0]) < _ind._parent_fit,
+                        })
+                        # Strip lineage markers so this fragment doesn't get
+                        # double-counted in any future migration cycle.
+                        del _ind._frag_id, _ind._parent_fit, _ind._parent_wrapper, _ind._gen_created
+            print(f"--------- pump migration: {_fired_label} ---------")
         gen += 1
 
     end_time = datetime.datetime.now()
@@ -765,10 +1474,20 @@ else:
 # %%
 best_ind = hof[0]
 # Refit linear scaling deterministically (the multiprocess pool can lose it).
+# IMPORTANT: fit on the WRAPPED output, not the raw output — must match what
+# deployment evaluates, otherwise a, b are scaled to the wrong function.
+_best_wid = int(getattr(best_ind, "wrapper_id", 0)) % N_WRAPPERS
+_best_wrapper_name = WRAPPER_NAMES[_best_wid]
 _raw_for_scale = hgh.compile_and_predict(best_ind, train, finalTerminals, toolbox)
-_scale = hgh.apply_linear_scaling(_raw_for_scale, Y)
-if _scale is not None:
-    best_ind.a, best_ind.b = _scale
+_wrapped_for_scale = apply_wrapper(_raw_for_scale, _best_wid) if _raw_for_scale is not None else None
+if _wrapped_for_scale is not None:
+    _scale = hgh.apply_linear_scaling(_wrapped_for_scale, Y)
+    if _scale is not None:
+        best_ind.a, best_ind.b = _scale
+
+print(f"Chromosome wrapper: id={_best_wid}  →  {_best_wrapper_name}")
+experiment["wrapper_id"] = _best_wid
+experiment["wrapper_name"] = _best_wrapper_name
 
 CUSTOM_SYMBOLIC_FUNCTION_MAP = hgh.custom_symbolic_function_map()
 # Map protected_sqrt → sqrt(Abs(x)). The runtime version uses
@@ -780,11 +1499,23 @@ CUSTOM_SYMBOLIC_FUNCTION_MAP["protected_log"]  = lambda x: sp.log(sp.Abs(x))
 
 raw_gene_sym = gep.simplify(best_ind, symbolic_function_map=CUSTOM_SYMBOLIC_FUNCTION_MAP)
 
+# Apply the chromosome wrapper once at the root (between the linker output
+# and the LSM scaling). Where sympy has a real function (log/exp/sqrt) we
+# use it; identity and square stay as themselves.
+_WRAPPER_SYMPY = {
+    "identity": lambda e: e,
+    "log_abs":  lambda e: sp.log(sp.Abs(e)),
+    "exp":      lambda e: sp.exp(e),
+    "sqrt_abs": lambda e: sp.sqrt(sp.Abs(e)),
+    "square":   lambda e: e ** 2,
+}
+wrapped_gene_sym = _WRAPPER_SYMPY[_best_wrapper_name](raw_gene_sym)
+
 # Compose with linear scaling.
 if settings.enable_linear_scaling:
-    composed = sp.Float(best_ind.a) * raw_gene_sym + sp.Float(best_ind.b)
+    composed = sp.Float(best_ind.a) * wrapped_gene_sym + sp.Float(best_ind.b)
 else:
-    composed = raw_gene_sym
+    composed = wrapped_gene_sym
 
 print("Pre-snap expression (after sympify + LSM compose):")
 print(f"  {composed}\n")
@@ -879,8 +1610,12 @@ experiment["discovered_expr"] = str(snapped)
 # %%
 from sklearn.metrics import mean_squared_error, r2_score, mean_absolute_error
 
-pred_holdout = best_ind.a * hgh.compile_and_predict(best_ind, holdout, finalTerminals, toolbox) + best_ind.b
-pred_extrap = best_ind.a * hgh.compile_and_predict(best_ind, extrapolation, finalTerminals, toolbox) + best_ind.b
+_raw_h = hgh.compile_and_predict(best_ind, holdout, finalTerminals, toolbox)
+_raw_e = hgh.compile_and_predict(best_ind, extrapolation, finalTerminals, toolbox)
+_w_h = apply_wrapper(_raw_h, _best_wid)
+_w_e = apply_wrapper(_raw_e, _best_wid)
+pred_holdout = best_ind.a * _w_h + best_ind.b
+pred_extrap = best_ind.a * _w_e + best_ind.b
 Y_holdout = holdout[target_col].values
 Y_extr = extrapolation[target_col].values
 
@@ -903,15 +1638,64 @@ experiment["extrap_r2"] = float(r2_score(Y_extr, pred_extrap))
 # ## 5.1 HOF reranking (deduped, Pareto-marked)
 
 # %%
-# We use rerank_hof_regression on (train, val) for the standard view —
-# the extrapolation column gets surfaced separately in 5.2.
-ranked = hgh.rerank_hof_regression(
-    hof, train, validation, target_col, finalTerminals, toolbox, settings
-)
+# Wrapper-aware HOF rerank — each individual's evaluation must apply its own
+# chromosome wrapper so reported metrics match what evolution actually
+# optimised. Same projection as hgh.rerank_hof_regression, inlined here so
+# wrapper_fn can vary per HOF entry.
+from sklearn.metrics import mean_squared_error as _mse_fn, r2_score as _r2_fn
+
+_Y_tr = train[target_col].values
+_Y_va = validation[target_col].values
+_bundles = []
+for _i, _ind in enumerate(hof):
+    _wid_i = int(getattr(_ind, "wrapper_id", 0)) % N_WRAPPERS
+    _wrap_i = WRAPPER_FUNCS[_wid_i]
+    _pt = hgh._eval_individual_on_df(_ind, train, finalTerminals, toolbox,
+                                     apply_sigmoid=False, wrapper_fn=_wrap_i)
+    _pv = hgh._eval_individual_on_df(_ind, validation, finalTerminals, toolbox,
+                                     apply_sigmoid=False, wrapper_fn=_wrap_i)
+    if _pt is None or _pv is None:
+        continue
+    _r2_tr = float(_r2_fn(_Y_tr, _pt))
+    _r2_va = float(_r2_fn(_Y_va, _pv))
+    _F = [float(_mse_fn(_Y_tr, _pt)), float(_mse_fn(_Y_va, _pv)),
+          float(np.max(np.abs(_Y_va - _pv))),
+          1.0 - _r2_tr, 1.0 - _r2_va]
+    if not all(math.isfinite(_v) for _v in _F):
+        continue
+    _bundles.append((_i, {
+        "model": _i,
+        "expression": str(_ind),
+        "wrapper": WRAPPER_NAMES[_wid_i],
+        "length": hgh.chromosome_length(_ind),
+        "train_mse": _F[0], "val_mse": _F[1], "max_err": _F[2],
+        "train_r2": _r2_tr, "val_r2": _r2_va,
+        "a": getattr(_ind, "a", 1.0), "b": getattr(_ind, "b", 0.0),
+    }, _F))
+
+if _bundles:
+    _Fm = np.array([f for _, _, f in _bundles], dtype=np.float64)
+    _ang = hff.calculate_fitness_hf1_enhanced(
+        _Fm, normalize=True, north_pole_method=settings.north_pole_method
+    )
+    _rows = []
+    for _slot, (_, _row, _) in enumerate(_bundles):
+        _row["angular_distance"] = float(_ang[_slot])
+        _rows.append(_row)
+    ranked = pd.DataFrame(_rows).sort_values("angular_distance").reset_index(drop=True)
+    ranked = hgh._dedupe_hof(ranked)
+    hgh._mark_pareto(
+        ranked,
+        objective_cols=["train_mse", "val_mse", "max_err", "train_r2", "val_r2"],
+        minimise=[True, True, True, False, False],
+    )
+else:
+    ranked = pd.DataFrame()
+
 hgh.print_hof_with_pareto(
     ranked,
-    columns=["model", "length", "train_mse", "val_mse",
-             "train_mae", "val_mae", "max_err", "angular_distance"],
+    columns=["model", "wrapper", "length", "train_mse", "val_mse",
+             "max_err", "train_r2", "val_r2", "angular_distance"],
     top_n=10,
     title=f"Top 10 HOF models (north_pole={settings.north_pole_method})",
     raw_hof_size=len(hof),
@@ -929,16 +1713,23 @@ recoveries = []
 for _, row in ranked.iterrows():
     i = int(row["model"])
     ind = hof[i]
-    # Recompose + snap + score
+    wid_i = int(getattr(ind, "wrapper_id", 0)) % N_WRAPPERS
+    wname_i = WRAPPER_NAMES[wid_i]
+    # Recompose + snap + score, applying the chromosome wrapper at the root.
     try:
         raw_train_i = hgh.compile_and_predict(ind, train, finalTerminals, toolbox)
-        scale_i = hgh.apply_linear_scaling(raw_train_i, Y)
+        wrapped_train_i = apply_wrapper(raw_train_i, wid_i)
+        if wrapped_train_i is None:
+            recoveries.append({"model": i, "exact": False, "numerical": False, "snapped": None})
+            continue
+        scale_i = hgh.apply_linear_scaling(wrapped_train_i, Y)
         if scale_i is None:
             recoveries.append({"model": i, "exact": False, "numerical": False, "snapped": None})
             continue
         ind.a, ind.b = scale_i
         gene_sym_i = gep.simplify(ind, symbolic_function_map=CUSTOM_SYMBOLIC_FUNCTION_MAP)
-        composed_i = sp.Float(ind.a) * gene_sym_i + sp.Float(ind.b)
+        wrapped_sym_i = _WRAPPER_SYMPY[wname_i](gene_sym_i)
+        composed_i = sp.Float(ind.a) * wrapped_sym_i + sp.Float(ind.b)
         snapped_i, _ = hgh.snap_constants(
             composed_i, library=KNOWN_CONSTANTS, rel_tol=SNAP_REL_TOL,
             nsimplify_mode="shallow", verbose=False,
@@ -952,6 +1743,7 @@ for _, row in ranked.iterrows():
         )
         recoveries.append({
             "model": i,
+            "wrapper": wname_i,
             "exact": bool(rec["exact"]),
             "numerical": bool(rec["numerical"]),
             "snapped": snapped_i,
@@ -992,8 +1784,37 @@ experiment["hof_numerical_recoveries"] = n_numerical
 # ```
 
 # %%
+# Fragment lineage report — how often did denoise-winner fragments beat
+# their parent's fitness? Per-wrapper tally so we can see which wrapper
+# environments benefit most from fragmentation.
+if _FRAG_LINEAGE:
+    print("\n=== Fragment lineage (denoise-winner step) ===")
+    total = len(_FRAG_LINEAGE)
+    beat = sum(1 for r in _FRAG_LINEAGE if r["beat_parent"])
+    print(f"Total fragments evaluated : {total}")
+    print(f"Beat parent fitness       : {beat} ({100*beat/total:.1f}%)")
+    print(f"\nPer-wrapper breakdown:")
+    print(f"{'wrapper':<10s}  {'n_frags':>8s}  {'n_beat':>7s}  {'win_rate':>9s}  {'mean_improvement':>17s}")
+    for w in WRAPPER_NAMES:
+        rows = [r for r in _FRAG_LINEAGE if r["wrapper"] == w]
+        if not rows:
+            continue
+        nw = len(rows)
+        bw = sum(1 for r in rows if r["beat_parent"])
+        # mean improvement = mean(parent - child) for fragments that beat their parent
+        improvers = [r["parent_fit"] - r["child_fit"] for r in rows if r["beat_parent"]]
+        mi = sum(improvers) / len(improvers) if improvers else 0.0
+        print(f"{w:<10s}  {nw:>8d}  {bw:>7d}  {100*bw/nw:>8.1f}%  {mi:>17.6e}")
+    experiment["fragment_total"] = total
+    experiment["fragment_beat_parent"] = beat
+    experiment["fragment_win_rate"] = beat / total
+    experiment["fragment_lineage"] = _FRAG_LINEAGE  # full log if you want it
+else:
+    print("(no fragment lineage data — pump topology not active or no migrations fired)")
+
 import json
-print(json.dumps(experiment, sort_keys=False, indent=4, default=str))
+print(json.dumps({k: v for k, v in experiment.items() if k != "fragment_lineage"},
+                 sort_keys=False, indent=4, default=str))
 
 # %%
 # Clean pool shutdown — explicit close + join avoids the
