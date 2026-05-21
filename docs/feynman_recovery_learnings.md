@@ -171,12 +171,17 @@ Each experiment block:
 ---
 
 ### E17 — Wrapper cull at gen 104, ranked by best HOF index per wrapper
-- **Change vs E16**: at the cull, the ranking metric switches from "best intake/champion `one_minus_r2_va`" to "best HOF index each wrapper appears at".
-  - Scan HOF in fitness order. First index a wrapper shows up is its score.
-  - Wrappers absent from HOF entirely get score = len(hof) (worst).
-  - Halt the bottom 2 wrappers (highest first-HOF-index); grow the top 2 intakes by +100.
-- **Why**: HOF uses truenorth multi-objective fitness — the same scoring that picks the final discovered expression. Aligning cull and HOF prevents E16's pathology (cull halted sqrt_abs, then HOF picked sqrt_abs as hof[0]).
-- **Test**: I_15_3x (canary), then 13-sample.
+- **Change vs E16**: cull-rank by each wrapper's best (lowest) HOF index, not val_R².
+- **Test**: 13-sample.
+- **Result**: **4/13 exact (31%) — REGRESSION** vs E15 (6/13).
+  - Recovered: I_12_1, I_12_5, I_14_3, I_25_13. **Lost** I_14_4 and I_29_4 vs E15.
+  - Discovered exprs more verbose / overfit-shaped (`24.9·log(|x2+y1+y3|/3)` for I_11_19, etc.).
+- **Interpretation**: any cull at gen 104 hurts. Whether ranked by val_R² (E16) or HOF index (E17), halting wrapper classes prematurely reduces the structural diversity the HOF post-hoc selection needs.
+
+### E18 — Drop the cull entirely; keep all E15 diversity gains
+- **Change vs E17**: `WRAPPER_CULL_GEN=10_000` (effectively disabled).
+- **Hypothesis**: E15 settings without the cull are the strongest configuration so far. E16/17 both regressed vs E15. Validating that.
+- **Test**: 13-sample.
 - **Result**: **PENDING**.
 
 ---

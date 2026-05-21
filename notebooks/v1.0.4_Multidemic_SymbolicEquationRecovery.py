@@ -280,7 +280,7 @@ DEDUP_FREQ = 5
 # expanded by WRAPPER_CULL_GROWTH each (champion stays the same). The
 # next pump-intra reset (≤15 gens later) fills the new slots with
 # fresh random chromosomes via the keep-top-20%+random rule.
-WRAPPER_CULL_GEN = 104
+WRAPPER_CULL_GEN = 10_000  # disabled (E16/E17 both regressed; cull halts wrappers HOF then wants)
 WRAPPER_CULL_N = 2
 WRAPPER_CULL_GROWTH = 100
 # Disable the intra-class pump (promote champion + demote winner back).
