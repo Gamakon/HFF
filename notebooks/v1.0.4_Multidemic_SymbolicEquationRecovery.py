@@ -705,6 +705,210 @@ FAILED_METRIC_VALUE = 1.0e9
 FAILED_FITNESS = 1.0e9
 
 
+# ============================================================================
+# E22: Per-eval mechanical RULES
+# ----------------------------------------------------------------------------
+# Each rule produces additional candidate {wrapper_id, vec, a, b, metrics}
+# dicts on top of the 3 wrapper candidates. Rules are gated by:
+#   - min_r2 / max_r2 (chromosome's identity-wrapper val_R² must be in zone)
+#   - needs_var_pattern (matched against problem's variable signature)
+# A rule that doesn't fire returns []. Rule winners get wrapper_id ≥ 100 so
+# the post-run pipeline can tell them apart from native wrappers.
+# ============================================================================
+
+RULE_WRAPPER_ID_OFFSET = 100
+
+
+def _detect_var_patterns(variables):
+    """Inspect problem.variables and return a set of pattern tags:
+      - "x_y_pairs": every x_i has a matching y_i (any n ≥ 2)
+      - "paired_numbered": variables like m1, m2, r1, r2 (2+ subscripted families)
+      - "no_pattern": fallback
+    """
+    import re
+    tags = set()
+    xs = sorted(v for v in variables if re.match(r"^x\d+$", v))
+    ys = sorted(v for v in variables if re.match(r"^y\d+$", v))
+    if xs and ys:
+        x_idx = {v[1:] for v in xs}
+        y_idx = {v[1:] for v in ys}
+        if x_idx == y_idx and len(x_idx) >= 2:
+            tags.add("x_y_pairs")
+    # paired_numbered: groups like m1,m2 or r1,r2 (≥2 same-prefix vars with digits)
+    from collections import defaultdict
+    by_prefix = defaultdict(list)
+    for v in variables:
+        m = re.match(r"^([a-zA-Z_]+)(\d+)$", v)
+        if m:
+            by_prefix[m.group(1)].append(int(m.group(2)))
+    pair_families = [k for k, idxs in by_prefix.items() if len(idxs) >= 2]
+    if pair_families:
+        tags.add("paired_numbered")
+    if not tags:
+        tags.add("no_pattern")
+    return tags, xs, ys, dict(by_prefix)
+
+
+# Cached at problem-load time (one detection per run).
+_VAR_PATTERN_TAGS, _XS, _YS, _BY_PREFIX = _detect_var_patterns(problem.variables)
+print(f"[E22 rules] variable pattern tags: {_VAR_PATTERN_TAGS}")
+if "x_y_pairs" in _VAR_PATTERN_TAGS:
+    print(f"  x_y_pairs: {list(zip(_XS, _YS))}")
+
+
+def _vec_from_pred(pred_train, pred_val, pred_extr):
+    """Compute the standard 6-objective vec from prediction arrays."""
+    var_tr = float(np.var(Y))
+    var_va = float(np.var(Y_val))
+    mse_tr = float(np.mean((Y - pred_train) ** 2))
+    mse_va = float(np.mean((Y_val - pred_val) ** 2))
+    max_err = float(np.max(np.abs(Y_val - pred_val)))
+    mse_extrap = float(np.mean((Y_extrap - pred_extr) ** 2))
+    one_minus_r2_tr = mse_tr / var_tr if var_tr > 0 else float("inf")
+    one_minus_r2_va = mse_va / var_va if var_va > 0 else float("inf")
+    if HFF_INCLUDE_VAL:
+        return [mse_tr, mse_va, max_err, mse_extrap, one_minus_r2_tr, one_minus_r2_va]
+    return [mse_tr, one_minus_r2_tr]
+
+
+def _lsm_fit(raw_train, raw_val, raw_extr):
+    """Fit (a, b) on train via lstsq; return (a, b, pred_train, pred_val, pred_extr)
+    or None if fit is singular / non-finite."""
+    if raw_train is None or raw_val is None or raw_extr is None:
+        return None
+    if np.allclose(raw_train - raw_train.mean(), 0.0):
+        return None
+    Q = np.hstack((raw_train.reshape(-1, 1), np.ones((len(raw_train), 1))))
+    try:
+        (a, b), *_ = np.linalg.lstsq(Q, Y, rcond=None)
+    except np.linalg.LinAlgError:
+        return None
+    if not (np.isfinite(a) and np.isfinite(b)):
+        return None
+    return (float(a), float(b),
+            a * raw_train + b, a * raw_val + b, a * raw_extr + b)
+
+
+def _candidate_from_pred(rule_idx, raw_train, raw_val, raw_extr):
+    """Helper: LSM-fit + build candidate dict from raw prediction arrays."""
+    if raw_train is None or raw_val is None or raw_extr is None:
+        return None
+    if not (np.all(np.isfinite(raw_train)) and np.all(np.isfinite(raw_val))
+            and np.all(np.isfinite(raw_extr))):
+        return None
+    if settings.enable_linear_scaling:
+        fit = _lsm_fit(raw_train, raw_val, raw_extr)
+        if fit is None:
+            return None
+        a, b, pred_train, pred_val, pred_extr = fit
+    else:
+        a, b = 1.0, 0.0
+        pred_train, pred_val, pred_extr = raw_train, raw_val, raw_extr
+    vec = _vec_from_pred(pred_train, pred_val, pred_extr)
+    if not all(np.isfinite(vec)):
+        return None
+    return {
+        "wrapper_id": RULE_WRAPPER_ID_OFFSET + rule_idx,
+        "vec": vec,
+        "a": a,
+        "b": b,
+        "metrics": dict(zip(METRIC_NAMES, vec)),
+    }
+
+
+# Pre-compute static rule outputs once at module load (they don't depend
+# on the chromosome) — purely data-driven candidate predictions.
+
+def _rule_pairwise_xy_product_static():
+    """For every non-empty subset of (x_i, y_i) pairs, generate the sum
+    Σ x_i·y_i prediction arrays.
+    Returns list of (label, raw_train, raw_val, raw_extr, sym_expr)."""
+    from itertools import combinations
+    out = []
+    if "x_y_pairs" not in _VAR_PATTERN_TAGS:
+        return out
+    pairs = list(zip(_XS, _YS))
+    for k in range(1, len(pairs) + 1):
+        for combo in combinations(pairs, k):
+            label = "+".join(f"{a}*{b}" for a, b in combo)
+            raw_train = np.zeros(len(train), dtype=np.float64)
+            raw_val = np.zeros(len(validation), dtype=np.float64)
+            raw_extr = np.zeros(len(extrapolation), dtype=np.float64)
+            for a, b in combo:
+                raw_train += train[a].values * train[b].values
+                raw_val += validation[a].values * validation[b].values
+                raw_extr += extrapolation[a].values * extrapolation[b].values
+            sym_expr = sum(sp.Symbol(a) * sp.Symbol(b) for a, b in combo)
+            out.append((label, raw_train, raw_val, raw_extr, sym_expr))
+    return out
+
+
+def _rule_squared_sum_static():
+    """Sum of squares of all variables: Σ v_i² (e.g. v²+u²+w² in I_13_4)."""
+    raw_train = np.zeros(len(train), dtype=np.float64)
+    raw_val = np.zeros(len(validation), dtype=np.float64)
+    raw_extr = np.zeros(len(extrapolation), dtype=np.float64)
+    for v in problem.variables:
+        raw_train += train[v].values ** 2
+        raw_val += validation[v].values ** 2
+        raw_extr += extrapolation[v].values ** 2
+    sym_expr = sum(sp.Symbol(v) ** 2 for v in problem.variables)
+    return [("sum_sq", raw_train, raw_val, raw_extr, sym_expr)]
+
+
+def _rule_prefix_squared_sum_static():
+    """For each prefix family with ≥2 vars, generate sum-of-squares (e.g. v1²+v2² from m1,m2)."""
+    out = []
+    for prefix, idxs in _BY_PREFIX.items():
+        if len(idxs) < 2:
+            continue
+        vars_in = [f"{prefix}{i}" for i in sorted(idxs)]
+        raw_train = np.zeros(len(train), dtype=np.float64)
+        raw_val = np.zeros(len(validation), dtype=np.float64)
+        raw_extr = np.zeros(len(extrapolation), dtype=np.float64)
+        for v in vars_in:
+            raw_train += train[v].values ** 2
+            raw_val += validation[v].values ** 2
+            raw_extr += extrapolation[v].values ** 2
+        label = "+".join(f"{v}^2" for v in vars_in)
+        sym_expr = sum(sp.Symbol(v) ** 2 for v in vars_in)
+        out.append((label, raw_train, raw_val, raw_extr, sym_expr))
+    return out
+
+
+# Static candidates: precompute their predictions (which don't depend on the
+# chromosome at all) so per-eval we just LSM-fit each against the chromosome's
+# scale-context. Actually — since predictions don't depend on the chromosome,
+# the LSM (a, b) doesn't depend on it either. So these are TRULY static
+# candidate vecs computed once per problem.
+
+_STATIC_RULE_CANDIDATES = []   # list of {wrapper_id, vec, a, b, metrics, label}
+
+def _build_static_candidates():
+    global _STATIC_RULE_CANDIDATES
+    _STATIC_RULE_CANDIDATES = []
+    builders = [
+        ("pairwise_xy_product", _rule_pairwise_xy_product_static),
+        ("sum_sq_all", _rule_squared_sum_static),
+        ("prefix_sum_sq", _rule_prefix_squared_sum_static),
+    ]
+    for family_name, fn in builders:
+        for label, rt, rv, re_, sym_expr in fn():
+            cand = _candidate_from_pred(len(_STATIC_RULE_CANDIDATES), rt, rv, re_)
+            if cand is not None:
+                cand["rule_family"] = family_name
+                cand["rule_label"] = label
+                cand["sym_expr"] = sym_expr
+                _STATIC_RULE_CANDIDATES.append(cand)
+    print(f"[E22 rules] static candidate count: {len(_STATIC_RULE_CANDIDATES)}")
+    for c in _STATIC_RULE_CANDIDATES[:20]:
+        print(f"  [{c['rule_family']}/{c['rule_label']}] "
+              f"a={c['a']:.4f} b={c['b']:.4e} 1-R²_va={c['metrics']['one_minus_r2_va']:.4e}")
+
+
+_build_static_candidates()
+
+
 def compute_raw_metrics(individual):
     """Phase 1: per-individual. Returns a bundle dict or None.
 
@@ -767,6 +971,11 @@ def compute_raw_metrics(individual):
 
     if not candidates:
         return None
+    # E22: append static rule candidates. They share the chromosome's eval
+    # slot so each individual gets to "win" via a rule's vec if that vec
+    # has the lowest HFF distance in the per-population batch.
+    for c in _STATIC_RULE_CANDIDATES:
+        candidates.append(c)
     return {"candidates": candidates}
 
 
@@ -827,6 +1036,11 @@ def assign_fitness_batch(population, raw_results):
         ind.a = payload["a"]
         ind.b = payload["b"]
         ind.wrapper_id = int(payload["wrapper_id"])
+        # E22: if a rule won, stash its sympy expression on the individual
+        # so the post-run pipeline can use it as discovered_expr.
+        ind.rule_sym_expr = payload.get("sym_expr", None)
+        ind.rule_label = payload.get("rule_label", None)
+        ind.rule_family = payload.get("rule_family", None)
 
 
 toolbox.register("evaluate", evaluate_individual)
@@ -1547,11 +1761,21 @@ else:
 
 # %%
 best_ind = hof[0]
-# Refit linear scaling deterministically (the multiprocess pool can lose it).
-# IMPORTANT: fit on the WRAPPED output, not the raw output — must match what
-# deployment evaluates, otherwise a, b are scaled to the wrong function.
-_best_wid = int(getattr(best_ind, "wrapper_id", 0)) % N_WRAPPERS
-_best_wrapper_name = WRAPPER_NAMES[_best_wid]
+# E22: if hof[0] won via a static rule, the discovered expression IS the
+# rule's sympy expression (no chromosome sympify needed).
+_best_wrapper_raw = int(getattr(best_ind, "wrapper_id", 0))
+_won_via_rule = _best_wrapper_raw >= RULE_WRAPPER_ID_OFFSET
+if _won_via_rule:
+    _rule_sym = getattr(best_ind, "rule_sym_expr", None)
+    print(f">>> hof[0] won via static RULE: {getattr(best_ind, 'rule_family', '?')}/"
+          f"{getattr(best_ind, 'rule_label', '?')}")
+    print(f"    rule sym_expr: {_rule_sym}")
+    # Fake wrapper to keep downstream code happy.
+    _best_wid = 0
+    _best_wrapper_name = "identity"
+else:
+    _best_wid = _best_wrapper_raw % N_WRAPPERS
+    _best_wrapper_name = WRAPPER_NAMES[_best_wid]
 _raw_for_scale = hgh.compile_and_predict(best_ind, train, finalTerminals, toolbox)
 _wrapped_for_scale = apply_wrapper(_raw_for_scale, _best_wid) if _raw_for_scale is not None else None
 if _wrapped_for_scale is not None:
@@ -1599,7 +1823,11 @@ _WRAPPER_SYMPY = {
 wrapped_gene_sym = _WRAPPER_SYMPY[_best_wrapper_name](raw_gene_sym)
 
 # Compose with linear scaling.
-if settings.enable_linear_scaling:
+if _won_via_rule and _rule_sym is not None:
+    # E22: replace the chromosome's sympified form with the rule's expression,
+    # still LSM-scaled with (a, b) that the rule produced.
+    composed = sp.Float(best_ind.a) * _rule_sym + sp.Float(best_ind.b)
+elif settings.enable_linear_scaling:
     composed = sp.Float(best_ind.a) * wrapped_gene_sym + sp.Float(best_ind.b)
 else:
     composed = wrapped_gene_sym
@@ -1731,12 +1959,20 @@ experiment["discovered_expr"] = str(snapped)
 # %%
 from sklearn.metrics import mean_squared_error, r2_score, mean_absolute_error
 
-_raw_h = hgh.compile_and_predict(best_ind, holdout, finalTerminals, toolbox)
-_raw_e = hgh.compile_and_predict(best_ind, extrapolation, finalTerminals, toolbox)
-_w_h = apply_wrapper(_raw_h, _best_wid)
-_w_e = apply_wrapper(_raw_e, _best_wid)
-pred_holdout = best_ind.a * _w_h + best_ind.b
-pred_extrap = best_ind.a * _w_e + best_ind.b
+if _won_via_rule and _rule_sym is not None:
+    # E22: rule-winner: eval the rule's sympy expression directly.
+    _rule_f = sp.lambdify([sp.Symbol(v) for v in problem.variables], _rule_sym, "numpy")
+    _raw_h = np.asarray(_rule_f(*[holdout[v].values for v in problem.variables]), dtype=np.float64)
+    _raw_e = np.asarray(_rule_f(*[extrapolation[v].values for v in problem.variables]), dtype=np.float64)
+    pred_holdout = best_ind.a * _raw_h + best_ind.b
+    pred_extrap = best_ind.a * _raw_e + best_ind.b
+else:
+    _raw_h = hgh.compile_and_predict(best_ind, holdout, finalTerminals, toolbox)
+    _raw_e = hgh.compile_and_predict(best_ind, extrapolation, finalTerminals, toolbox)
+    _w_h = apply_wrapper(_raw_h, _best_wid)
+    _w_e = apply_wrapper(_raw_e, _best_wid)
+    pred_holdout = best_ind.a * _w_h + best_ind.b
+    pred_extrap = best_ind.a * _w_e + best_ind.b
 Y_holdout = holdout[target_col].values
 Y_extr = extrapolation[target_col].values
 
