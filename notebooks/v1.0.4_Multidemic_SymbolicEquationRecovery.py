@@ -1210,6 +1210,24 @@ else:
                 print(f"\n*** Early stop at generation {gen}: "
                       f"best val_R² = {_best_val_r2:.10f} ≥ {EARLY_STOP_VAL_R2:.10f}, "
                       f"holdout_R² = {_hr2:.10f} confirmed")
+                # Force the early-stop winner into hof[0]. DEAP's HOF dedupes
+                # by similarity *and* requires strictly better fitness to
+                # replace — once 30 chromosomes hit truenorth distance 0.0,
+                # later equally-good (but truth-bearing) chromosomes never
+                # enter the HOF. We insert manually so hof[0] is the
+                # individual that actually triggered the stop.
+                _winner_clone = toolbox.clone(_ind)
+                hof.insert(_winner_clone)
+                # Move it to the front (insert keeps order by fitness; with
+                # ties it lands wherever bisect inserts. Force position 0.)
+                if hof[0] is not _winner_clone:
+                    try:
+                        _idx = list(hof).index(_winner_clone)
+                        if _idx > 0:
+                            hof.items.insert(0, hof.items.pop(_idx))
+                            hof.keys.insert(0, hof.keys.pop(_idx))
+                    except (ValueError, AttributeError):
+                        pass
                 _early_stop_triggered = True
                 gen += 1
                 break
@@ -1278,6 +1296,19 @@ if _wrapped_for_scale is not None:
 print(f"Chromosome wrapper: id={_best_wid}  →  {_best_wrapper_name}")
 experiment["wrapper_id"] = _best_wid
 experiment["wrapper_name"] = _best_wrapper_name
+
+# Diagnostic: compare runtime val MSE (what fitness scored) with the val
+# MSE the sympified expression will give. Big divergence ⇒ gep.simplify is
+# producing an expression that doesn't behave like the chromosome (rare,
+# but caught the gravity early-stop overfit).
+_raw_v = hgh.compile_and_predict(best_ind, validation, finalTerminals, toolbox)
+if _raw_v is not None:
+    _wv = apply_wrapper(_raw_v, _best_wid)
+    if _wv is not None:
+        _pv = best_ind.a * _wv + best_ind.b
+        _runtime_mse_va = float(np.mean((Y_val - _pv) ** 2))
+        _runtime_r2_va = 1.0 - _runtime_mse_va / float(np.var(Y_val)) if np.var(Y_val) > 0 else float("nan")
+        print(f"hof[0] runtime val: mse={_runtime_mse_va:.3e}  R²={_runtime_r2_va:.6f}")
 
 CUSTOM_SYMBOLIC_FUNCTION_MAP = hgh.custom_symbolic_function_map()
 # Map protected_sqrt → sqrt(Abs(x)). The runtime version uses
