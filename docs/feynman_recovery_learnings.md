@@ -185,9 +185,17 @@ Each experiment block:
 
 ### E19 — Revert head to 16 + symmetric pop/tournsize, cross-broadcast back on
 - **Change vs E18**: head_length 48 → 16, POP_INTAKE 100 → 25, TOURN_INTAKE 8 → 3, DEDUP_FREQ 5 → 0, pump-intra disabled, cross-broadcast re-enabled (with the modern keep-20%+champions+random rebuild rule).
-- **Hypothesis**: the original "baseline 8/13" claim (E1) was a different seed setup; today's diversity ladder (E12-E18) hasn't beaten the original baseline. Check whether reverting head + pop gets us back to 6+ recoveries on the 13-sample.
 - **Test**: 13-sample.
-- **Result**: **PENDING**.
+- **Result**: **5/13 exact (38%), 6/13 numerical (46%)**.
+  - Recovered: I_12_1, I_12_4, I_12_5, I_14_4, I_29_4.
+  - Curiously **lost** I_14_3 (`m·g·z`) and I_25_13 (`q/C`) that E16-E18 (head=48) all recovered.
+  - I_12_4 was lost in E16-E18 but recovered here.
+- **Net finding from E12-E19**: every config lands at 4–5/13 exact, but **different configs recover different subsets**. No single config dominates the easy 6. Hard 7 (I_15_3x, I_13_4, I_8_14, I_18_4, I_11_19, I_12_2, I_14_4*) remain unrecovered in all configs (*I_14_4 flips between configs).
+
+### Key insight emerging
+The wrapper choice per-chromosome is the dominant variable: a chromosome that's structurally close to truth under one wrapper looks like noise under another. By assigning ONE wrapper per island, we're forcing wrong-wrapper chromosomes to die before they can be tried under a better wrapper.
+
+**Candidate E20 (held — not started)**: evaluate every chromosome under ALL 5 wrappers; pick the wrapper that minimises truenorth distance per-individual. Removes wrapper-class commitment entirely.
 
 ---
 
