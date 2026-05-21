@@ -1140,8 +1140,13 @@ else:
             print(hgh.format_log_row(log[-1], METRIC_NAMES))
 
         # Early-stop: any deme produced an individual with val_R² ≥ threshold
-        # → equation recovered, stop burning budget. ABSOLUTE measure, not
-        # relative-to-population like angular distance.
+        # AND that same individual scores ≥ threshold on the held-out holdout
+        # split (re-eval via the same protected-primitive runtime path). The
+        # holdout confirmation catches degenerate fits where clipped exp/log
+        # makes the gene's runtime output overfit val (200 pts) to machine
+        # precision while the sympified discovered expression generalises
+        # only to R²~0.5. Both splits sample from train_ranges, so a
+        # structurally correct gene fits both.
         _gen_rows = [r for r in log if r["gen"] == gen]
         _best_val_r2 = max(
             (1.0 - r["one_minus_r2_va"] for r in _gen_rows
@@ -1149,11 +1154,49 @@ else:
             default=float("-inf"),
         )
         if _best_val_r2 >= EARLY_STOP_VAL_R2:
-            print(f"\n*** Early stop at generation {gen}: "
-                  f"best val_R² = {_best_val_r2:.10f} ≥ {EARLY_STOP_VAL_R2:.10f}")
-            _early_stop_triggered = True
-            gen += 1
-            break
+            # Find the actual chromosome that produced this val_R² and
+            # confirm on holdout. Iterate demes ranked by deme's best
+            # val_R², stop at first that confirms.
+            _candidate = None
+            _best_pairs = []
+            for _deme in demes:
+                _valid = [ind for ind in _deme if ind.fitness.valid
+                          and ind.metrics
+                          and math.isfinite(ind.metrics.get("one_minus_r2_va", float("inf")))]
+                if not _valid:
+                    continue
+                _best = min(_valid, key=lambda i: i.metrics["one_minus_r2_va"])
+                _best_pairs.append((_best.metrics["one_minus_r2_va"], _best))
+            _best_pairs.sort(key=lambda p: p[0])
+            for _omr2_va, _ind in _best_pairs:
+                if 1.0 - _omr2_va < EARLY_STOP_VAL_R2:
+                    continue
+                _raw_h = hgh.compile_and_predict(_ind, holdout, finalTerminals, toolbox)
+                if _raw_h is None:
+                    continue
+                _wid = int(getattr(_ind, "wrapper_id", 0)) % N_WRAPPERS
+                _wh = apply_wrapper(_raw_h, _wid)
+                if _wh is None:
+                    continue
+                _ph = _ind.a * _wh + _ind.b
+                _yh = holdout[target_col].values
+                _vh = float(np.var(_yh))
+                _mh = float(np.mean((_yh - _ph) ** 2))
+                _holdout_r2 = 1.0 - _mh / _vh if _vh > 0 else float("-inf")
+                if _holdout_r2 >= EARLY_STOP_VAL_R2:
+                    _candidate = (_ind, _holdout_r2)
+                    break
+                else:
+                    print(f"  early-stop candidate rejected: val_R²={1.0-_omr2_va:.10f} "
+                          f"but holdout_R²={_holdout_r2:.6f} — clipped-primitive overfit")
+            if _candidate is not None:
+                _ind, _hr2 = _candidate
+                print(f"\n*** Early stop at generation {gen}: "
+                      f"best val_R² = {_best_val_r2:.10f} ≥ {EARLY_STOP_VAL_R2:.10f}, "
+                      f"holdout_R² = {_hr2:.10f} confirmed")
+                _early_stop_triggered = True
+                gen += 1
+                break
 
         # Split-tempo migration for "pump" topology: intra-class step
         # (promote + denoise-winner) on the fast cadence, cross-class
