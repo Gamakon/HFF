@@ -395,9 +395,21 @@ elif os.environ.get("HFF_PROBLEM"):
 # and n_genes=3 wastes head capacity on inert genes that average to noise.
 # Drop to n_genes=1 with a bigger head so the truth tree has room.
 _USE_MULVAL_LINKER = False
+_USE_ADDVAL_LINKER = False
+# Experimental override: env HFF_LINKER ∈ {"avgval","mulval","addval"} swaps
+# the multi-gene linker for the Feynman set (used to probe whether the
+# linker choice matters for the corpus).
+_LINKER_OVERRIDE = os.environ.get("HFF_LINKER", "").strip().lower()
 if PROBLEM_ID.startswith(("I_", "II_", "III_", "test_")):
     settings.head_length = 24
-    print(f"[feynman override] head_length=24 (keep n_genes={settings.n_genes}, avgval linker)")
+    if _LINKER_OVERRIDE == "mulval":
+        _USE_MULVAL_LINKER = True
+        print(f"[feynman override] head_length=24, n_genes={settings.n_genes}, linker=mulval")
+    elif _LINKER_OVERRIDE == "addval":
+        _USE_ADDVAL_LINKER = True
+        print(f"[feynman override] head_length=24, n_genes={settings.n_genes}, linker=addval")
+    else:
+        print(f"[feynman override] head_length=24 (keep n_genes={settings.n_genes}, avgval linker)")
 
 if PROBLEM_ID == "_custom":
     # CONFIGURE HERE — your own equation:
@@ -595,7 +607,12 @@ toolbox.register(
     pset=pset, head_length=settings.head_length,
     rnc_gen=toolbox.rnc_gen, rnc_array_length=settings.rnc_array_length,
 )
-_LINKER = hgh.mulval if _USE_MULVAL_LINKER else hgh.avgval
+if _USE_MULVAL_LINKER:
+    _LINKER = hgh.mulval
+elif _USE_ADDVAL_LINKER:
+    _LINKER = hgh.addval
+else:
+    _LINKER = hgh.avgval
 if settings.n_genes > 1:
     toolbox.register("_chromosome_factory", creator.Individual,
                      gene_gen=toolbox.gene_gen, n_genes=settings.n_genes, linker=_LINKER)

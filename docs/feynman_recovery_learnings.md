@@ -79,7 +79,18 @@ Each experiment block:
 
 ### E6 — `n_genes=3, linker=avgval, head_length=24` (only depth change)
 - **Change vs E0**: head_length 16 → 24 for Feynman.
-- **Test**: 13-problem sample (same as E3).
+- **Test**: 13-problem sample (same as E3). Killed at 9/13.
+- **Result so far**: **6/9 exact on the easy subset (I_12_1, I_12_5, I_14_3, I_14_4, I_25_13, I_29_4)**. STILL lost I_12_2, I_12_4 vs the E1 baseline (avgval head=16 got them).
+- **Interesting**: I_15_3x got CLOSER structurally: `-1.06·u + 1.05·x + 1.06·cos(t) - 1.0` (vs E3's pure log). Bigger head exposes more candidate structures even if it doesn't cross the recovery line.
+- **Net**: head=24 alone is NOT a clean win — costs us I_12_2 and I_12_4. Whatever 3-gene avgval at head=16 did to recover those, head=24 perturbs.
+- **Next**: try `addval` linker (E7); try head=100 with no parsimony (E8).
+
+---
+
+### E7 — `n_genes=3, linker=addval, head_length=24`
+- **Hypothesis**: many Feynman truths are *additive sums* (`x1·y1+x2·y2+x3·y3`, `½m(v²+u²+w²)`). With addval linker, the chromosome computes `g1+g2+g3` — each gene could be one term. Easier search than embedding the sum in a single gene's head.
+- **Trade-off**: pure products (`G·m1·m2/r²`) become harder under addval — must be expressed by ONE gene with the other two = 0.
+- **Test**: 13-problem sample.
 - **Result**: **PENDING**.
 
 ---
