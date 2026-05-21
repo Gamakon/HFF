@@ -909,10 +909,17 @@ population_size = settings.population_size
 # Single-int population_size still applies for non-pump topologies.
 POP_INTAKE = 100
 POP_CHAMPION = 25
+TOURN_INTAKE = 8     # wider net per tournament (100-pool, ~8% pressure)
+TOURN_CHAMPION = 3   # tighter pressure on the small elite pool (12%)
 def _island_pop_size(island_idx):
     if MIGRATION_TOPOLOGY != "pump":
         return population_size
     return POP_INTAKE if ISLAND_ROLES[island_idx] == ISLAND_ROLE_INTAKE else POP_CHAMPION
+
+def _island_tournsize(island_idx):
+    if MIGRATION_TOPOLOGY != "pump":
+        return settings.tournament_size
+    return TOURN_INTAKE if ISLAND_ROLES[island_idx] == ISLAND_ROLE_INTAKE else TOURN_CHAMPION
 
 k_migrants = settings.k_migrants
 toolbox.register("select", tools.selTournament, tournsize=tournament)
@@ -924,7 +931,8 @@ print(f"Genes: head_length={settings.head_length}, n_genes={settings.n_genes}, "
 print(f"Population size: {population_size}, tournament: {tournament}, "
       f"elites: {num_elites}, generations: {n_gen}, migration FREQ: {FREQ}")
 if MIGRATION_TOPOLOGY == "pump":
-    print(f"  pump per-island sizes: intake={POP_INTAKE}, champion={POP_CHAMPION}")
+    print(f"  pump per-island sizes: intake={POP_INTAKE} (tournsize={TOURN_INTAKE}), "
+          f"champion={POP_CHAMPION} (tournsize={TOURN_CHAMPION})")
 experiment["head_length"] = str(settings.head_length)
 experiment["n_genes"] = str(settings.n_genes)
 experiment["rnc_array_length"] = str(settings.rnc_array_length)
@@ -1244,9 +1252,10 @@ else:
 
     while gen <= target_gen:
         for idx, deme in enumerate(demes):
-            deme[:] = toolbox.select(deme, len(deme))
+            _ts = _island_tournsize(idx)
+            deme[:] = tools.selTournament(deme, len(deme), tournsize=_ts)
             elites = tools.selBest(deme, k=num_elites)
-            offspring = toolbox.select(deme, len(deme) - num_elites)
+            offspring = tools.selTournament(deme, len(deme) - num_elites, tournsize=_ts)
             offspring = [toolbox.clone(ind) for ind in offspring]
             for op in toolbox.pbs:
                 if op.startswith("mut"):

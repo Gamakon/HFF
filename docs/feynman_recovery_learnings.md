@@ -137,7 +137,13 @@ Each experiment block:
 
 ### E14 — Post-hoc dedup pass every 5 gens (both intake + champion)
 - **Change vs E13**: every `DEDUP_FREQ=5` gens, scan EVERY deme; replace each duplicate `str(individual)` after the first with a fresh random chromosome. Wrapper-stamped + re-eval'd via shared post-migration path.
-- **Hypothesis**: clone bloat accumulates inside each deme between the larger migration ticks. Killing clones every 5 gens keeps the deme's effective diversity higher without disturbing fitness selection. Cheap.
+- **Test**: superseded by E15 (added role-aware tournsize before E14 finished).
+
+### E15 — E14 + role-aware tournament size
+- **Change vs E14**: `tournsize` now varies by island role.
+  - Intake (pop=100): `tournsize=8` — wider net, ~8% selection pressure.
+  - Champion (pop=25): `tournsize=3` — same as before, ~12% pressure on the elite pool.
+- **Hypothesis**: a 3-tournament on 100-pop intake gave only ~3% pressure (effectively random), masking the fitness signal that should drive intake convergence enough to feed quality into pump-promote-2. Larger tournament restores intake selection without crushing diversity.
 - **Test**: I_15_3x (canary), then 13-sample.
 - **Result**: **PENDING**.
 
