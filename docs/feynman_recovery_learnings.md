@@ -153,6 +153,18 @@ Each experiment block:
 
 ---
 
+### E16 — Wrapper cull at gen 104 (halt bottom 2, grow top 2 intakes)
+- **Change vs E15**: at the end of gen `WRAPPER_CULL_GEN=104`, rank wrapper classes by min `one_minus_r2_va` across their (intake, champion) pair.
+  - Bottom 2 wrapper classes: HALT — their 4 islands freeze (no select/mutate/cross/eval/dedup/migration). Existing chromosomes stay searchable post-hoc via HOF.
+  - Top 2 wrapper classes: each intake grows by `WRAPPER_CULL_GROWTH=100` (100 → 200). Champions stay at 25. The next pump-intra reset (≤15 gens later) fills the new slots via the keep-top-20%+random rule.
+  - Middle wrapper class (1 of 5): unchanged.
+- **Hypothesis**: by gen 100 the wrapper-class ranking is largely informative — the I_15_3x diagnostic showed log_abs led from gen 29 onward and never lost the lead. Halting clear losers reallocates compute to wrappers that have already shown signal.
+- **Risk**: a wrapper that recovers truth via a slow-burning structural path (sqrt_abs on I_15_3x) gets culled before it converges. We're betting that the gen-104 ranking is correlated with eventual success.
+- **Test**: I_15_3x (canary), then 13-sample.
+- **Result**: **PENDING**.
+
+---
+
 ## Heuristics emerging
 
 1. **Multiplicative `a·b·c` or `a/b` truths recover** in <30s at the existing baseline.

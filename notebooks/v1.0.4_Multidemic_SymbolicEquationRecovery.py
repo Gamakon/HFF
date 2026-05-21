@@ -273,6 +273,16 @@ MIGRATION_FREQ_INTRA = 15
 # random chromosome. Cheap pressure against clone bloat without
 # disturbing the evolutionary signal.
 DEDUP_FREQ = 5
+# Wrapper-cull schedule. At end of gen WRAPPER_CULL_GEN, rank wrapper
+# classes by min one_minus_r2_va across their (intake, champion) pair.
+# Halt the bottom WRAPPER_CULL_N classes (their islands are frozen for
+# the remainder of the run). Top WRAPPER_CULL_N intakes get their pop
+# expanded by WRAPPER_CULL_GROWTH each (champion stays the same). The
+# next pump-intra reset (≤15 gens later) fills the new slots with
+# fresh random chromosomes via the keep-top-20%+random rule.
+WRAPPER_CULL_GEN = 104
+WRAPPER_CULL_N = 2
+WRAPPER_CULL_GROWTH = 100
 # Disable the intra-class pump (promote champion + demote winner back).
 # The demote step is currently a plain full-clone — original "denoise"
 # was the fragmentation path which we deleted. Without fragmentation,
@@ -1042,6 +1052,9 @@ def _migrate_pump_intra(demes, gen=None):
         return
 
     for intake_idx, champ_idx in WRAPPER_ISLAND_PAIRS:
+        # Skip halted wrapper classes — both their islands are frozen.
+        if intake_idx in HALTED_DEMES or champ_idx in HALTED_DEMES:
+            continue
         intake = demes[intake_idx]
         champ = demes[champ_idx]
         if not intake or not champ:
@@ -1064,7 +1077,9 @@ def _migrate_pump_intra(demes, gen=None):
         # Step 2: NO demote — champion is a write-only archive of intake's bests.
 
         # Step 3: INTAKE RESET — dedup, keep top 20%, fill remainder random.
-        target_size = len(intake)
+        # If this intake was expanded by the wrapper cull, grow toward the
+        # override target so the new slots are filled with fresh chromosomes.
+        target_size = INTAKE_SIZE_OVERRIDE.get(intake_idx, len(intake))
         seen = set()
         dedup = []
         for ind in intake:
@@ -1082,6 +1097,67 @@ def _migrate_pump_intra(demes, gen=None):
         intake[:] = keepers + fresh
 
 
+# Runtime state for wrapper culling. Populated once at WRAPPER_CULL_GEN.
+HALTED_DEMES = set()             # island indices that no longer evolve
+INTAKE_SIZE_OVERRIDE = {}        # island_idx -> new target pop size
+
+def _do_wrapper_cull(demes):
+    """Rank wrapper classes at WRAPPER_CULL_GEN. Halt the bottom N classes
+    (both intake + champion islands frozen). Grow the top N intakes by
+    WRAPPER_CULL_GROWTH — the next pump-intra reset fills the new slots
+    with random chromosomes via the keep-top-20%+random rule."""
+    if not WRAPPER_ISLAND_PAIRS:
+        return
+    # Best (lowest) one_minus_r2_va across (intake, champion) per wrapper.
+    class_best = {}
+    for intake_idx, champ_idx in WRAPPER_ISLAND_PAIRS:
+        w = ISLAND_WRAPPERS[intake_idx]
+        best = float("inf")
+        for idx in (intake_idx, champ_idx):
+            for ind in demes[idx]:
+                m = getattr(ind, "metrics", None)
+                if not m:
+                    continue
+                v = m.get("one_minus_r2_va", float("inf"))
+                if math.isfinite(v) and v < best:
+                    best = v
+        class_best[w] = best
+
+    if not class_best:
+        return
+    ranked = sorted(class_best.items(), key=lambda kv: kv[1])  # best first
+    n_classes = len(ranked)
+    if n_classes <= 2 * WRAPPER_CULL_N:
+        # Not enough classes to safely cull (would leave nothing in the middle).
+        return
+    winners = [w for w, _ in ranked[:WRAPPER_CULL_N]]
+    losers = [w for w, _ in ranked[-WRAPPER_CULL_N:]]
+
+    # Halt loser islands (both intake + champion).
+    halted_now = []
+    for intake_idx, champ_idx in WRAPPER_ISLAND_PAIRS:
+        if ISLAND_WRAPPERS[intake_idx] in losers:
+            HALTED_DEMES.add(intake_idx)
+            HALTED_DEMES.add(champ_idx)
+            halted_now.extend([intake_idx, champ_idx])
+
+    # Expand winner intakes by WRAPPER_CULL_GROWTH.
+    grown_now = []
+    for intake_idx, champ_idx in WRAPPER_ISLAND_PAIRS:
+        if ISLAND_WRAPPERS[intake_idx] in winners:
+            cur = len(demes[intake_idx])
+            new_target = cur + WRAPPER_CULL_GROWTH
+            INTAKE_SIZE_OVERRIDE[intake_idx] = new_target
+            grown_now.append((intake_idx, cur, new_target))
+
+    print(f"\n>>> WRAPPER CULL @ gen {WRAPPER_CULL_GEN}")
+    for w, v in ranked:
+        tag = "WIN" if w in winners else ("CULL" if w in losers else "keep")
+        print(f"    {WRAPPER_NAMES[w]:<10s} 1-R²_va={v:.4e}  [{tag}]")
+    print(f"    halted islands: {sorted(halted_now)}")
+    print(f"    grown intakes: {grown_now}")
+
+
 def _dedup_all_demes(demes):
     """Post-hoc duplicate killer. For every deme, replace each duplicate
     chromosome (after the first occurrence by str()) with a fresh random
@@ -1089,7 +1165,9 @@ def _dedup_all_demes(demes):
     DEDUP_FREQ gens — cheap clone-bloat pressure that doesn't disturb
     the regular evolutionary signal."""
     total_killed = 0
-    for deme in demes:
+    for d_idx, deme in enumerate(demes):
+        if d_idx in HALTED_DEMES:
+            continue
         if not deme:
             continue
         seen = set()
@@ -1118,8 +1196,13 @@ def _migrate_pump_cross(demes):
 
     # Per-champion top-k pool, keyed by champion island index, so we can
     # exclude the receiver's same-class champion from the broadcast.
+    # Halted wrappers don't contribute to the pool (frozen genes shouldn't
+    # leak diversity into active wrapper searches).
     pool_by_champ = {}
     for _, champ_idx in WRAPPER_ISLAND_PAIRS:
+        if champ_idx in HALTED_DEMES:
+            pool_by_champ[champ_idx] = []
+            continue
         champ = demes[champ_idx]
         if not champ:
             pool_by_champ[champ_idx] = []
@@ -1132,6 +1215,8 @@ def _migrate_pump_cross(demes):
         pool_by_champ[champ_idx] = [toolbox.clone(ind) for ind in top]
 
     for intake_idx, own_champ_idx in WRAPPER_ISLAND_PAIRS:
+        if intake_idx in HALTED_DEMES:
+            continue
         intake = demes[intake_idx]
         if not intake:
             continue
@@ -1252,6 +1337,12 @@ else:
 
     while gen <= target_gen:
         for idx, deme in enumerate(demes):
+            if idx in HALTED_DEMES:
+                # Wrapper-culled — deme frozen. Skip select/mutate/cross/eval.
+                # Logbook still records its current state for transparency.
+                log.record(gen=gen, deme=idx, evals=0,
+                           **stats.compile(deme), **per_metric_mins(deme))
+                continue
             _ts = _island_tournsize(idx)
             deme[:] = tools.selTournament(deme, len(deme), tournsize=_ts)
             elites = tools.selBest(deme, k=num_elites)
@@ -1349,6 +1440,13 @@ else:
                 _early_stop_triggered = True
                 gen += 1
                 break
+
+        # One-shot wrapper cull: at WRAPPER_CULL_GEN, rank wrapper classes,
+        # halt the bottom WRAPPER_CULL_N, grow the top WRAPPER_CULL_N
+        # intakes. Fires once per run.
+        if (MIGRATION_TOPOLOGY == "pump" and gen == WRAPPER_CULL_GEN
+                and not HALTED_DEMES):
+            _do_wrapper_cull(demes)
 
         # Split-tempo migration for "pump" topology: intra-class step
         # (promote + denoise-winner) on the fast cadence, cross-class
