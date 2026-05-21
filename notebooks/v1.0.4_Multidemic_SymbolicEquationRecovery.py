@@ -1360,7 +1360,21 @@ def _union_ranges(a, b):
 # probes at [0.5, 5] and keeps tiny constants that should be zero for
 # problems with extreme input scales (e.g. Kepler's a ~ 1e10).
 _problem_var_ranges = _union_ranges(problem.train_ranges, problem.extrap_ranges)
-levels = hgh.snap_levels(composed, library=KNOWN_CONSTANTS, var_ranges=_problem_var_ranges)
+import signal as _signal_snap
+class _SnapTimeout(Exception): pass
+def _snap_alarm(signum, frame): raise _SnapTimeout()
+_snap_has_sigalrm = hasattr(_signal_snap, "SIGALRM")
+if _snap_has_sigalrm:
+    _signal_snap.signal(_signal_snap.SIGALRM, _snap_alarm)
+    _signal_snap.alarm(60)
+try:
+    levels = hgh.snap_levels(composed, library=KNOWN_CONSTANTS, var_ranges=_problem_var_ranges)
+except _SnapTimeout:
+    print("WARN: snap_levels timed out — using raw composed expression.")
+    levels = {"strict": (composed, None), "default": (composed, None), "aggressive": (composed, None)}
+finally:
+    if _snap_has_sigalrm:
+        _signal_snap.alarm(0)
 print("Per-level snap results (before MSE scoring):")
 for lvl, (expr_l, _rep) in levels.items():
     print(f"  {lvl:<11} →  {expr_l}")
@@ -1397,13 +1411,33 @@ truth_expr = sp.sympify(problem.truth_expr, locals={
     name: val for name, val in KNOWN_CONSTANTS.items()
 })
 
-recovery = hgh.equation_recovery_report(
-    discovered_expr=snapped,
-    truth_expr=truth_expr,
-    variables=problem.variables,
-    rel_tol_numeric=1e-6,
-    var_ranges=_union_ranges(problem.train_ranges, problem.extrap_ranges),
-)
+import signal as _signal_main
+
+class _MainRecTimeout(Exception):
+    pass
+
+def _main_rec_alarm(signum, frame):
+    raise _MainRecTimeout()
+
+_main_has_sigalrm = hasattr(_signal_main, "SIGALRM")
+if _main_has_sigalrm:
+    _signal_main.signal(_signal_main.SIGALRM, _main_rec_alarm)
+    _signal_main.alarm(60)
+try:
+    recovery = hgh.equation_recovery_report(
+        discovered_expr=snapped,
+        truth_expr=truth_expr,
+        variables=problem.variables,
+        rel_tol_numeric=1e-6,
+        var_ranges=_union_ranges(problem.train_ranges, problem.extrap_ranges),
+    )
+except _MainRecTimeout:
+    print("WARN: equation_recovery_report timed out — marking unrecovered.")
+    recovery = {"exact": False, "numerical": False, "max_rel_err": float("inf"),
+                "report": "TIMEOUT in equation_recovery_report"}
+finally:
+    if _main_has_sigalrm:
+        _signal_main.alarm(0)
 
 def colourful(r, g, b, text):
     return "\033[38;2;{};{};{}m{} \033[38;2;255;255;255m".format(r, g, b, text)
@@ -1536,7 +1570,20 @@ hgh.print_hof_with_pareto(
 # top by angular distance.
 HOF_RECOVERY_SWEEP_MAX = 12
 HOF_RECOVERY_WALLCLOCK_S = 120  # abort the loop after this many seconds
+HOF_RECOVERY_PER_ITER_S = 20    # per-iteration SIGALRM (POSIX only)
 _recovery_start = time.perf_counter()
+
+import signal as _signal
+
+class _IterTimeout(Exception):
+    pass
+
+def _iter_alarm_handler(signum, frame):
+    raise _IterTimeout()
+
+_HAS_SIGALRM = hasattr(_signal, "SIGALRM")
+if _HAS_SIGALRM:
+    _signal.signal(_signal.SIGALRM, _iter_alarm_handler)
 
 n_total = len(ranked)
 recoveries = []
@@ -1552,6 +1599,8 @@ for _, row in ranked.iterrows():
     wname_i = WRAPPER_NAMES[wid_i]
     # Recompose + snap + score, applying the chromosome wrapper at the root.
     try:
+        if _HAS_SIGALRM:
+            _signal.alarm(HOF_RECOVERY_PER_ITER_S)
         raw_train_i = hgh.compile_and_predict(ind, train, finalTerminals, toolbox)
         wrapped_train_i = apply_wrapper(raw_train_i, wid_i)
         if wrapped_train_i is None:
@@ -1583,8 +1632,14 @@ for _, row in ranked.iterrows():
             "numerical": bool(rec["numerical"]),
             "snapped": snapped_i,
         })
+    except _IterTimeout:
+        print(f"  (HOF recovery iter timeout on model {i})")
+        recoveries.append({"model": i, "exact": False, "numerical": False, "snapped": None})
     except Exception:
         recoveries.append({"model": i, "exact": False, "numerical": False, "snapped": None})
+    finally:
+        if _HAS_SIGALRM:
+            _signal.alarm(0)
 
 n_exact = sum(1 for r in recoveries if r["exact"])
 n_numerical = sum(1 for r in recoveries if r["numerical"])
