@@ -282,7 +282,7 @@ impl HffGpuContext {
                     }
                 }
                 let range = if !col_min.is_finite() || !col_max.is_finite()
-                    || (col_max - col_min) < f64::EPSILON
+                    || (col_max - col_min).abs() < f64::EPSILON
                 {
                     1.0
                 } else {
@@ -382,7 +382,7 @@ impl HffGpuContext {
             });
             cpass.set_pipeline(&self.pipeline);
             cpass.set_bind_group(0, &bind_group, &[]);
-            let n_workgroups = ((n as u32) + 63) / 64;
+            let n_workgroups = (n as u32).div_ceil(64);
             cpass.dispatch_workgroups(n_workgroups, 1, 1);
         }
         encoder.copy_buffer_to_buffer(&dist_buf, 0, &staging_buf, 0, dist_buf_size);
@@ -445,7 +445,7 @@ mod tests {
                 let col: Vec<f64> = (0..n).map(|i| f[[i, j]]).collect();
                 let lo = col.iter().fold(f64::INFINITY, |a, &b| a.min(b));
                 let hi = col.iter().fold(f64::NEG_INFINITY, |a, &b| a.max(b));
-                let range = if (hi - lo) < f64::EPSILON { 1.0 } else { hi - lo };
+                let range = if (hi - lo).abs() < f64::EPSILON { 1.0 } else { hi - lo };
                 for i in 0..n {
                     out[[i, j]] = (f[[i, j]] - lo) / range;
                 }
@@ -529,7 +529,7 @@ mod tests {
         let m = 6;
         let mut data = vec![0.0; n * m];
         for i in 0..n {
-            data[i * m + 0] = 5.0;             // constant
+            data[i * m] = 5.0;                 // constant
             data[i * m + 1] = i as f64 * 0.1;  // varying
             data[i * m + 2] = (i * 2) as f64 * 0.05;
             data[i * m + 3] = 5.0;             // constant
@@ -568,7 +568,7 @@ mod tests {
     fn inf_input_becomes_pi() {
         let ctx = HffGpuContext::new().expect("GPU init");
         let mut data = vec![0.5; 5 * 6];
-        data[1 * 6 + 0] = f64::INFINITY;
+        data[6] = f64::INFINITY;
         data[3 * 6 + 2] = f64::NEG_INFINITY;
         let f = Array2::from_shape_vec((5, 6), data).unwrap();
         let out = ctx.calculate_hf1_truenorth_batch(&f, true).unwrap();

@@ -163,7 +163,7 @@ pub fn calculate_single_hyperspherical_fitness_f64_with_method(
     };
 
     // Clamp cosine to valid range [-1, 1] to handle numerical precision issues
-    let cos_theta = cos_theta.max(-1.0).min(1.0);
+    let cos_theta = cos_theta.clamp(-1.0, 1.0);
 
     // Calculate angular distance with robust error handling
     let angular_distance = if cos_theta.abs() > 1.0 - f64::EPSILON {
@@ -201,8 +201,8 @@ pub fn calculate_single_hyperspherical_fitness_f64_with_method(
 /// # Arguments
 ///
 /// * `individual` - Single individual's objective values
-/// * `population_stats` - Optional (mean, std_dev) statistics from population for z-score calculation
-///                       If None, will use the individual's own statistics (less ideal)
+/// * `population_stats` - Optional (mean, std_dev) statistics from population for z-score calculation.
+///   If None, will use the individual's own statistics (less ideal).
 ///
 /// # Returns
 ///

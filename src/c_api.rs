@@ -389,7 +389,7 @@ mod tests {
 
     #[test]
     fn unknown_method_is_rejected() {
-        let obj = vec![0.1, 0.2];
+        let obj = [0.1, 0.2];
         let mut out = vec![0.0];
         let bad = CString::new("sideways").unwrap();
         unsafe {
@@ -418,6 +418,6 @@ mod tests {
             let r = hff_higd(sols.as_ptr(), 3, 3, 100, 42, 1, &mut out);
             assert_eq!(r, HFF_OK);
         }
-        assert!(out >= 0.0 && out <= 1.0);
+        assert!((0.0..=1.0).contains(&out));
     }
 }

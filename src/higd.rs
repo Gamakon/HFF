@@ -127,7 +127,13 @@ pub fn cdf_beta_correction(theta: f64, dimensions: usize) -> f64 {
     let alpha = (dimensions - 1) as f64 / 2.0;
     let x = theta.sin().powi(2);  // sin²(θ)
 
-    // Handle edge cases
+    // Cai+Fang 2013 (used as cited in the GECCO 2026 poster, eq. 3):
+    //   P(θ ≤ t) = I_{sin² t}((m-1)/2, 1/2)
+    // Defined for θ ∈ [0, π/2]. In the HIGD use case θ is always a minimum
+    // angular distance between a (positive-orthant) reference point and
+    // (positive-orthant) solution, so it never exceeds π/2 in practice.
+    // Endpoint guards on x mirror the closed-form values at the formula
+    // boundaries.
     if x <= 0.0 {
         return 0.0;
     }
@@ -357,17 +363,17 @@ mod tests {
 
     #[test]
     fn test_cdf_correction_bounds() {
-        // theta = 0 should give CDF = 0
+        // Cai+Fang 2013 formula (paper eq. 3) is defined on θ ∈ [0, π/2].
+        // At the endpoints: P(θ ≤ 0) = 0, P(θ ≤ π/2) = I_1(α, 1/2) = 1.
         let cdf_0 = cdf_beta_correction(0.0, 100);
         assert!(cdf_0 < 1e-10);
 
-        // theta = pi should give CDF = 1
-        let cdf_pi = cdf_beta_correction(std::f64::consts::PI, 100);
-        assert!((cdf_pi - 1.0).abs() < 1e-10);
-
-        // theta = pi/2 should give CDF = 0.5
         let cdf_half = cdf_beta_correction(std::f64::consts::FRAC_PI_2, 100);
-        assert!((cdf_half - 0.5).abs() < 0.01);
+        assert!((cdf_half - 1.0).abs() < 1e-10);
+
+        // Monotonic on (0, π/2): a small angle should be far below 1.
+        let cdf_small = cdf_beta_correction(0.01, 100);
+        assert!(cdf_small < 0.5);
     }
 
     #[test]
@@ -387,6 +393,6 @@ mod tests {
             .collect();
 
         let higd = calculate_higd(&solutions, 1000, 50, 42, true);
-        assert!(higd >= 0.0 && higd <= 1.0, "HIGD should be in [0,1], got {}", higd);
+        assert!((0.0..=1.0).contains(&higd), "HIGD should be in [0,1], got {}", higd);
     }
 }
