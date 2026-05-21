@@ -102,6 +102,18 @@ Each experiment block:
 
 ---
 
+### E11 — add `_square` and `_cube` primitives (Feynman only)
+- **Change vs E6**: add `_square(x) = x*x`, `_cube(x) = x*x*x` to the pset for Feynman problems. Sympy mirror `x**2`, `x**3`.
+- **Hypothesis**: `r²`, `v²`, `½kx²`, `r³` (Kepler), `(x-ut)²` are pervasive in Feynman. Currently each `x²` costs 2 nodes (`mul(x,x)`); `x³` costs 3 (`mul(mul(x,x),x)`). Compressing them to 1 node each frees head capacity for the rest of the truth.
+- **Test**: 13-problem sample (E3/E6 standard) at head=24, n_genes=3, avgval.
+- **Result**: **5/13 exact (38%) — REGRESSION** vs E6 (6/13).
+  - **Lost**: I_14_4 (`½k·x²`) → noisy `x**4/x**6/cos(1/x⁶)` overfit. The added primitives created new degenerate locals.
+  - **Closer (but no exact)**: I_13_4 → `0.55·(m+v+w+√u)² - 19.3` (vs E6's log; got the squared-outer structure but wrong inner).
+- **Interpretation**: Adding primitives ENLARGES the search space without adding selection pressure toward the truth. The search drifts to gnarly compositions like `square(square(x))` that overfit val to high R² but aren't truth-shaped. Parsimony pressure (length penalty or operator count) would help filter these — but we don't have it.
+- **Next**: revert the cube/square primitives. They cost more than they gain.
+
+---
+
 ## Heuristics emerging
 
 1. **Multiplicative `a·b·c` or `a/b` truths recover** in <30s at the existing baseline.

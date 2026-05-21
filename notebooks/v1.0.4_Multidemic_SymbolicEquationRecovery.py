@@ -555,6 +555,12 @@ if USE_WIDE_PRIMITIVES or _is_feynman_problem:
     pset.add_function(protected_log, 1)
     print(f"Wide primitive set enabled: sin, cos, exp, log added.")
 
+# NOTE: square / cube primitives were tested in E11 — net REGRESSION
+# (5/13 vs E6 6/13). The added primitives enlarged the search space and
+# created new degenerate locals (e.g. I_14_4 ½kx² → noisy cos(1/x⁶)
+# overfit). Without parsimony pressure, more primitives hurt more than
+# they help on the current sample. See docs/feynman_recovery_learnings.md.
+
 pset.add_rnc_terminal()
 experiment["final_terminal_inputs"] = finalTerminals
 experiment["wide_primitives"] = USE_WIDE_PRIMITIVES or _is_feynman_problem
