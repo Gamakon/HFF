@@ -42,6 +42,13 @@ NB_PATH = "v1.0.4_Multidemic_SymbolicEquationRecovery.py"
 def _select_problems(args) -> list[str]:
     """Pick the subset of registry keys this run will sweep."""
     all_keys = list(eq.REGISTRY.keys())
+    if args.problems:
+        wanted = [s.strip() for s in args.problems.split(",") if s.strip()]
+        picked = [k for k in wanted if k in eq.REGISTRY]
+        missing = [k for k in wanted if k not in eq.REGISTRY]
+        if missing:
+            print(f"[warn] not in registry: {missing}", file=sys.stderr)
+        return picked
     if args.filter:
         rx = re.compile(args.filter)
         picked = [k for k in all_keys if rx.search(k)]
@@ -77,7 +84,12 @@ def run_one(problem_id: str, no_val: bool = False) -> dict:
     # read it (especially with multiprocess workers also writing), which
     # deadlocks at exit. Route stdout/stderr to temp files instead.
     import tempfile
-    timeout_s = int(os.environ.get("HFF_SWEEP_TIMEOUT", "1800"))
+    # No per-problem timeout — every problem runs to completion (the
+    # notebook's own early-stop + n_gen cap bounds it). HFF_SWEEP_TIMEOUT
+    # is still honoured if explicitly set (e.g. for debugging); otherwise
+    # we wait indefinitely.
+    _env_t = os.environ.get("HFF_SWEEP_TIMEOUT")
+    timeout_s = int(_env_t) if _env_t else None
     out_fd, out_path = tempfile.mkstemp(suffix=f".{problem_id}.out")
     err_fd, err_path = tempfile.mkstemp(suffix=f".{problem_id}.err")
     os.close(out_fd); os.close(err_fd)
@@ -174,6 +186,8 @@ def main():
                      help="sweep every problem currently in the registry")
     grp.add_argument("--filter", type=str, default=None,
                      help="regex; sweep registry keys matching this pattern")
+    grp.add_argument("--problems", type=str, default=None,
+                     help="comma-separated explicit list of registry keys")
     parser.add_argument("--limit", type=int, default=None,
                         help="cap the sweep to first N problems (useful for testing)")
     parser.add_argument("--no-val", action="store_true",
