@@ -408,12 +408,12 @@ _USE_MULVAL_LINKER = False
 # products, defeats mixed forms; net regression on sample).
 _LINKER_OVERRIDE = os.environ.get("HFF_LINKER", "").strip().lower()
 if PROBLEM_ID.startswith(("I_", "II_", "III_", "test_")):
-    settings.head_length = 24
+    settings.head_length = 48
     if _LINKER_OVERRIDE == "mulval":
         _USE_MULVAL_LINKER = True
-        print(f"[feynman override] head_length=24, n_genes={settings.n_genes}, linker=mulval")
+        print(f"[feynman override] head_length=48, n_genes={settings.n_genes}, linker=mulval")
     else:
-        print(f"[feynman override] head_length=24 (keep n_genes={settings.n_genes}, avgval linker)")
+        print(f"[feynman override] head_length=48 (keep n_genes={settings.n_genes}, avgval linker)")
 
 if PROBLEM_ID == "_custom":
     # CONFIGURE HERE — your own equation:
@@ -893,6 +893,17 @@ _ensure_pool()
 tournament = settings.tournament_size
 num_elites = settings.num_elites
 population_size = settings.population_size
+# Asymmetric island sizes for "pump" topology:
+#  - intake islands act as the explore stage, wider net catches diversity
+#  - champion islands act as the elite distiller, kept small + tight
+# Single-int population_size still applies for non-pump topologies.
+POP_INTAKE = 100
+POP_CHAMPION = 25
+def _island_pop_size(island_idx):
+    if MIGRATION_TOPOLOGY != "pump":
+        return population_size
+    return POP_INTAKE if ISLAND_ROLES[island_idx] == ISLAND_ROLE_INTAKE else POP_CHAMPION
+
 k_migrants = settings.k_migrants
 toolbox.register("select", tools.selTournament, tournsize=tournament)
 n_gen = settings.n_gen
@@ -902,6 +913,8 @@ print(f"Genes: head_length={settings.head_length}, n_genes={settings.n_genes}, "
       f"rnc_array_length={settings.rnc_array_length}")
 print(f"Population size: {population_size}, tournament: {tournament}, "
       f"elites: {num_elites}, generations: {n_gen}, migration FREQ: {FREQ}")
+if MIGRATION_TOPOLOGY == "pump":
+    print(f"  pump per-island sizes: intake={POP_INTAKE}, champion={POP_CHAMPION}")
 experiment["head_length"] = str(settings.head_length)
 experiment["n_genes"] = str(settings.n_genes)
 experiment["rnc_array_length"] = str(settings.rnc_array_length)
@@ -1088,26 +1101,40 @@ def _migrate_pump_cross(demes):
                 continue
             cross_pool.extend(inds)
 
-        third = max(1, len(intake) // 3)
-        n_random = third // 2
-        n_champs = third - n_random
-        worst_idx = sorted(
-            range(len(intake)),
-            key=lambda k_i: intake[k_i].fitness.values[0]
-            if intake[k_i].fitness.valid else float("inf"),
-            reverse=True,
-        )[:third]
-        # Fresh random in first half (wrapper stamped by stamp_deme_wrappers).
-        for slot in worst_idx[:n_random]:
-            intake[slot] = toolbox.individual()
-        # Cross-class champs in second half (excludes own sister).
-        if cross_pool and n_champs > 0:
-            arrivals = [toolbox.clone(cross_pool[k_i % len(cross_pool)])
-                        for k_i in range(n_champs)]
-            for slot, arrival in zip(worst_idx[n_random:n_random + n_champs], arrivals):
-                if arrival.fitness.valid:
-                    del arrival.fitness.values
-                intake[slot] = arrival
+        # New rebuild rule (intake only):
+        #   1. Dedup by chromosome string.
+        #   2. Keep top 20% by fitness.
+        #   3. Refill remaining slots with all available cross-class
+        #      champions, then top up with random chromosomes.
+        target_size = len(intake)
+        seen = set()
+        dedup = []
+        for ind in intake:
+            key = str(ind)
+            if key in seen:
+                continue
+            seen.add(key)
+            dedup.append(ind)
+        # Sort by fitness (valid first, ascending — FitnessMin).
+        dedup.sort(key=lambda i: i.fitness.values[0]
+                   if (i.fitness is not None and i.fitness.valid) else float("inf"))
+        n_keep = max(1, int(round(target_size * 0.20)))
+        keepers = dedup[:n_keep]
+
+        n_to_fill = target_size - len(keepers)
+        arrivals = []
+        # Cross-class champions first (clone each available, no recycling
+        # past the pool size).
+        for ind in cross_pool[:n_to_fill]:
+            cloned = toolbox.clone(ind)
+            if cloned.fitness.valid:
+                del cloned.fitness.values
+            arrivals.append(cloned)
+        # Random top-up for any remaining slots.
+        while len(arrivals) < n_to_fill:
+            arrivals.append(toolbox.individual())
+
+        intake[:] = keepers + arrivals
 
 
 def _migrate_pump(demes):
@@ -1136,7 +1163,7 @@ if number_islands == 0:
     gen = None
 else:
     _ensure_pool()
-    demes = [toolbox.population(n=population_size) for _ in range(number_islands)]
+    demes = [toolbox.population(n=_island_pop_size(_i)) for _i in range(number_islands)]
     # Stamp each deme's chromosomes with its island wrapper BEFORE gen-0
     # evaluation so the fitness is computed under the right wrapper from
     # the start. No-op in per_chromosome mode.
