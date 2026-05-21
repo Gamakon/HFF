@@ -199,13 +199,13 @@ settings = hgh.GeppySettings(
     population_size=25,    # per island; 10 islands × 25 = 250 inds/gen
     tournament_size=3,
     num_elites=2,
-    num_islands=10,        # 5 wrappers × 2 island roles (intake + champion) for "pump"
+    num_islands=2,         # E20: 1 intake + 1 champion (single wrapper class — per-eval wrapper search)
     migration_freq=30,     # cross-class broadcast cadence
     k_migrants=3,
     # HOF
     champs=30,
     # Multiprocessing
-    procs=8,
+    procs=14,
     # Fitness shape
     enable_linear_scaling=True,
     # HFF projection. "truenorth" — pole at the origin in an augmented
@@ -222,7 +222,7 @@ np.random.seed(settings.seed)
 # AND by the actual wrapper functions defined later (in section 2.1).
 # Declared here once; the runtime wrapper functions in section 2.1 read
 # from these same constants.
-WRAPPER_NAMES = ["identity", "log_abs", "exp", "sqrt_abs", "square"]
+WRAPPER_NAMES = ["identity", "log_abs", "sqrt_abs"]
 N_WRAPPERS = len(WRAPPER_NAMES)
 
 # 🔴 CONFIGURE HERE — WRAPPER SCOPE.
@@ -288,7 +288,7 @@ WRAPPER_CULL_GROWTH = 100
 # was the fragmentation path which we deleted. Without fragmentation,
 # the intra cycle just thrashes (champion's best replaces intake's
 # worst with no edit), which can crowd out exploratory chromosomes.
-DISABLE_PUMP_INTRA = True
+DISABLE_PUMP_INTRA = False   # E20: 1 intake ↔ 1 champion pump every 15 gens
 # Disable cross-class broadcast: every 5 wrapper classes runs as a fully
 # isolated intake↔champion pair, sharing nothing with other classes.
 # Only the intra-pump (above) couples intake/champion within a class.
@@ -304,12 +304,10 @@ ISLAND_ROLE_INTAKE = "intake"
 ISLAND_ROLE_CHAMPION = "champion"
 
 if MIGRATION_TOPOLOGY == "pump":
-    # Build 10 islands: identity_intake, identity_champ, log_intake, log_champ, …
-    ISLAND_WRAPPERS = []
-    ISLAND_ROLES = []
-    for w in range(N_WRAPPERS):
-        ISLAND_WRAPPERS.append(w); ISLAND_ROLES.append(ISLAND_ROLE_INTAKE)
-        ISLAND_WRAPPERS.append(w); ISLAND_ROLES.append(ISLAND_ROLE_CHAMPION)
+    # E20: single (intake, champion) pair. Wrapper is per-eval, not per-island,
+    # so we don't have a wrapper-class fanout. Just 2 islands.
+    ISLAND_WRAPPERS = [0, 0]
+    ISLAND_ROLES = [ISLAND_ROLE_INTAKE, ISLAND_ROLE_CHAMPION]
 else:
     # ring / broadcast: one island per wrapper, all "intake" semantically
     # (champion role is meaningless without the pump cycle).
@@ -428,7 +426,7 @@ _USE_MULVAL_LINKER = False
 # products, defeats mixed forms; net regression on sample).
 _LINKER_OVERRIDE = os.environ.get("HFF_LINKER", "").strip().lower()
 if PROBLEM_ID.startswith(("I_", "II_", "III_", "test_")):
-    settings.head_length = 16
+    settings.head_length = 48
     if _LINKER_OVERRIDE == "mulval":
         _USE_MULVAL_LINKER = True
         print(f"[feynman override] head_length=48, n_genes={settings.n_genes}, linker=mulval")
@@ -609,7 +607,7 @@ def _w_sqrt_abs(x):  return np.sqrt(np.abs(x))
 def _w_square(x):    return x * x
 
 
-WRAPPER_FUNCS = [_w_identity, _w_log_abs, _w_exp, _w_sqrt_abs, _w_square]
+WRAPPER_FUNCS = [_w_identity, _w_log_abs, _w_sqrt_abs]   # E20: 3-wrapper subset
 
 
 def apply_wrapper(arr, wid):
@@ -657,20 +655,12 @@ def make_individual():
 
 
 def stamp_deme_wrappers(demes):
-    """Per-island mode: set every chromosome's wrapper_id to its deme's
-    fixed wrapper. Called once after deme creation and again on every
-    migration arrival (so the receiving deme's wrapper sticks). Also
-    invalidates fitness so the chromosome is re-evaluated under the new
-    wrapper."""
-    if WRAPPER_SCOPE != "per_island":
-        return
-    for idx, deme in enumerate(demes):
-        target = ISLAND_WRAPPERS[idx]
-        for ind in deme:
-            if getattr(ind, "wrapper_id", None) != target:
-                ind.wrapper_id = target
-                if ind.fitness.valid:
-                    del ind.fitness.values
+    """E20: wrapper is chosen per-eval inside assign_fitness_batch, NOT
+    by island. This function is now effectively a no-op (kept for the
+    callers that still reference it). Migration arrivals already have
+    their fitness invalidated by the migration step so they get re-eval'd
+    next gen — that's enough."""
+    return
 
 
 toolbox.register("individual", make_individual)
@@ -704,66 +694,66 @@ FAILED_FITNESS = 1.0e9
 def compute_raw_metrics(individual):
     """Phase 1: per-individual. Returns a bundle dict or None.
 
-    Pipeline: linker(genes) → WRAPPER[wrapper_id] → LSM. The wrapper is
-    applied ONCE at the root, mirroring v1.0.4c. Train/val/extrap all go
-    through the same wrapper so any extrapolation signal in the fitness
-    is computed against the model that will actually be deployed."""
+    E20: for each wrapper in WRAPPER_FUNCS, compute the full 6-objective
+    vec + LSM (a, b). The actual wrapper choice is deferred to
+    assign_fitness_batch, which compares all candidates under the
+    population-normalised truenorth metric and picks per-individual."""
     raw_train = hgh.compile_and_predict(individual, train, finalTerminals, toolbox)
     raw_val = hgh.compile_and_predict(individual, validation, finalTerminals, toolbox)
     raw_extr = hgh.compile_and_predict(individual, extrapolation, finalTerminals, toolbox)
     if raw_train is None or raw_val is None or raw_extr is None:
         return None
 
-    wrapper_id = int(getattr(individual, "wrapper_id", 0)) % N_WRAPPERS
-    wrapped_train = apply_wrapper(raw_train, wrapper_id)
-    wrapped_val = apply_wrapper(raw_val, wrapper_id)
-    wrapped_extr = apply_wrapper(raw_extr, wrapper_id)
-    if wrapped_train is None or wrapped_val is None or wrapped_extr is None:
-        return None
-
-    if settings.enable_linear_scaling:
-        scale = hgh.apply_linear_scaling(wrapped_train, Y)
-        if scale is None:
-            return None
-        a, b = scale
-        pred_train = a * wrapped_train + b
-        pred_val = a * wrapped_val + b
-        pred_extr = a * wrapped_extr + b
-    else:
-        a, b = 1.0, 0.0
-        pred_train = wrapped_train
-        pred_val = wrapped_val
-        pred_extr = wrapped_extr
-
-    mse_tr = float(np.mean((Y - pred_train) ** 2))
-    mse_va = float(np.mean((Y_val - pred_val) ** 2))
-    max_err = float(np.max(np.abs(Y_val - pred_val)))
-    mse_extrap = float(np.mean((Y_extrap - pred_extr) ** 2))
-    # R² folded in as (1 - R²) so every objective is "lower is better".
     var_tr = float(np.var(Y))
     var_va = float(np.var(Y_val))
-    one_minus_r2_tr = mse_tr / var_tr if var_tr > 0 else float("inf")
-    one_minus_r2_va = mse_va / var_va if var_va > 0 else float("inf")
 
-    if HFF_INCLUDE_VAL:
-        # Full 6-objective: train+val MSE, max_err, extrapolation MSE,
-        # plus train+val (1-R²). The paper's documented configuration.
-        vec = [mse_tr, mse_va, max_err, mse_extrap, one_minus_r2_tr, one_minus_r2_va]
-    else:
-        # ABLATION: train-only. No validation or extrapolation signal in the
-        # fitness — pure curve-fitting. Used to demonstrate how badly the
-        # search degrades without the val+extrap steering that the paper
-        # contributes.
-        vec = [mse_tr, one_minus_r2_tr]
-    if not all(np.isfinite(vec)):
+    candidates = []   # list of {wrapper_id, vec, a, b, metrics}
+    for w_id in range(N_WRAPPERS):
+        wrapped_train = apply_wrapper(raw_train, w_id)
+        wrapped_val = apply_wrapper(raw_val, w_id)
+        wrapped_extr = apply_wrapper(raw_extr, w_id)
+        if wrapped_train is None or wrapped_val is None or wrapped_extr is None:
+            continue
+
+        if settings.enable_linear_scaling:
+            scale = hgh.apply_linear_scaling(wrapped_train, Y)
+            if scale is None:
+                continue
+            a, b = scale
+            pred_train = a * wrapped_train + b
+            pred_val = a * wrapped_val + b
+            pred_extr = a * wrapped_extr + b
+        else:
+            a, b = 1.0, 0.0
+            pred_train = wrapped_train
+            pred_val = wrapped_val
+            pred_extr = wrapped_extr
+
+        mse_tr = float(np.mean((Y - pred_train) ** 2))
+        mse_va = float(np.mean((Y_val - pred_val) ** 2))
+        max_err = float(np.max(np.abs(Y_val - pred_val)))
+        mse_extrap = float(np.mean((Y_extrap - pred_extr) ** 2))
+        one_minus_r2_tr = mse_tr / var_tr if var_tr > 0 else float("inf")
+        one_minus_r2_va = mse_va / var_va if var_va > 0 else float("inf")
+
+        if HFF_INCLUDE_VAL:
+            vec = [mse_tr, mse_va, max_err, mse_extrap, one_minus_r2_tr, one_minus_r2_va]
+        else:
+            vec = [mse_tr, one_minus_r2_tr]
+        if not all(np.isfinite(vec)):
+            continue
+
+        candidates.append({
+            "wrapper_id": w_id,
+            "vec": vec,
+            "a": float(a),
+            "b": float(b),
+            "metrics": dict(zip(METRIC_NAMES, vec)),
+        })
+
+    if not candidates:
         return None
-    return {
-        "a": float(a),
-        "b": float(b),
-        "wrapper_id": wrapper_id,
-        "metrics": dict(zip(METRIC_NAMES, vec)),
-        "vec": vec,
-    }
+    return {"candidates": candidates}
 
 
 def evaluate_individual(individual):
@@ -771,28 +761,58 @@ def evaluate_individual(individual):
 
 
 def assign_fitness_batch(population, raw_results):
-    good_idx = [i for i, r in enumerate(raw_results) if r is not None]
+    """E20: every raw_results[i] holds N_WRAPPERS candidate vecs. Stack
+    ALL candidates from all individuals into one F matrix, compute HFF
+    truenorth across the full pool, then per-individual pick the wrapper
+    with min angular distance."""
+    # First fail-out the un-evaluatable individuals.
     for i, r in enumerate(raw_results):
-        if r is None:
+        if r is None or not r.get("candidates"):
             ind = population[i]
             ind.fitness.values = (FAILED_FITNESS,)
             ind.metrics = dict.fromkeys(METRIC_NAMES, FAILED_METRIC_VALUE)
             ind.a = 1.0
             ind.b = 0.0
+            ind.wrapper_id = 0
+    good_idx = [i for i, r in enumerate(raw_results)
+                if r is not None and r.get("candidates")]
     if not good_idx:
         return
-    F = np.array([raw_results[i]["vec"] for i in good_idx], dtype=np.float64)
+
+    # Stack: per individual, all candidate vecs flattened to one big matrix.
+    # cand_owner[k] = which individual the k-th row belongs to.
+    # cand_w[k] = which wrapper_id that row used.
+    F_rows = []
+    cand_owner = []
+    cand_wrapper = []
+    cand_payload = []  # full dict so we can grab a,b,metrics later
+    for i in good_idx:
+        for c in raw_results[i]["candidates"]:
+            F_rows.append(c["vec"])
+            cand_owner.append(i)
+            cand_wrapper.append(c["wrapper_id"])
+            cand_payload.append(c)
+    F = np.array(F_rows, dtype=np.float64)
+
     fitness = hff.calculate_fitness_hf1_enhanced(
         F, normalize=True, north_pole_method=settings.north_pole_method
     )
-    for slot, i in enumerate(good_idx):
+
+    # Per individual: pick the candidate row with minimum fitness.
+    best_for_ind = {}   # ind_idx -> (fitness, payload)
+    for k, owner in enumerate(cand_owner):
+        f = float(fitness[k])
+        prev = best_for_ind.get(owner)
+        if prev is None or f < prev[0]:
+            best_for_ind[owner] = (f, cand_payload[k])
+
+    for i, (f, payload) in best_for_ind.items():
         ind = population[i]
-        r = raw_results[i]
-        ind.fitness.values = (float(fitness[slot]),)
-        ind.metrics = r["metrics"]
-        ind.a = r["a"]
-        ind.b = r["b"]
-        ind.wrapper_id = int(r["wrapper_id"])
+        ind.fitness.values = (f,)
+        ind.metrics = payload["metrics"]
+        ind.a = payload["a"]
+        ind.b = payload["b"]
+        ind.wrapper_id = int(payload["wrapper_id"])
 
 
 toolbox.register("evaluate", evaluate_individual)
@@ -917,10 +937,10 @@ population_size = settings.population_size
 #  - intake islands act as the explore stage, wider net catches diversity
 #  - champion islands act as the elite distiller, kept small + tight
 # Single-int population_size still applies for non-pump topologies.
-POP_INTAKE = 25       # E19 revert: symmetric pop=25 to test baseline 8/13 claim
-POP_CHAMPION = 25
-TOURN_INTAKE = 3      # E19 revert: symmetric tournsize=3
-TOURN_CHAMPION = 3
+POP_INTAKE = 100      # E20: 1 intake (100) + 1 champion (50) = 150
+POP_CHAMPION = 50
+TOURN_INTAKE = 8      # wider net per 100-pop intake
+TOURN_CHAMPION = 5    # slightly wider on the bigger champion pool
 def _island_pop_size(island_idx):
     if MIGRATION_TOPOLOGY != "pump":
         return population_size
