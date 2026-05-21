@@ -114,6 +114,16 @@ Each experiment block:
 
 ---
 
+### E12 — diversity preservation: disable intra-pump + exclude own-class broadcast
+- **Change vs E6**: two diversity-preserving toggles:
+  1. `DISABLE_PUMP_INTRA = True` — kills the every-10-gen step where champion's best is cloned back into its own intake's worst slot. The denoising fragmentation that used to live in this step was deleted last night, so the clone-back was just thrashing without adding signal.
+  2. `_migrate_pump_cross` excludes the receiver's OWN sister champion from the broadcast pool. Previously a wrapper class's winner re-seeded its own intake every 25 gens, locking the class into one solution shape.
+- **Hypothesis**: every "best-back-to-intake" path crowds out exploratory chromosomes. With both disabled, intakes only see random injections + champions from the OTHER 4 wrapper classes.
+- **Test**: 13-problem sample.
+- **Result**: **PENDING**.
+
+---
+
 ## Heuristics emerging
 
 1. **Multiplicative `a·b·c` or `a/b` truths recover** in <30s at the existing baseline.

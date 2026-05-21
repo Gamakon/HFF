@@ -267,6 +267,12 @@ MIGRATION_TOPOLOGY = "pump"
 # Cross-class broadcast (settings.migration_freq) stays at the slower
 # cadence so each intake has time to evolve between gauntlet shocks.
 MIGRATION_FREQ_INTRA = 10
+# Disable the intra-class pump (promote champion + demote winner back).
+# The demote step is currently a plain full-clone — original "denoise"
+# was the fragmentation path which we deleted. Without fragmentation,
+# the intra cycle just thrashes (champion's best replaces intake's
+# worst with no edit), which can crowd out exploratory chromosomes.
+DISABLE_PUMP_INTRA = True
 
 # 🔴 CONFIGURE HERE — ISLAND → WRAPPER + ROLE MAPPING.
 # Used only when WRAPPER_SCOPE == "per_island".
@@ -1045,30 +1051,43 @@ def _migrate_pump_intra(demes, gen=None):
 def _migrate_pump_cross(demes):
     """Cross-class broadcast step — runs every settings.migration_freq.
 
-    Builds the broadcast pool from each champion island's top k_migrants,
-    then floods every intake's bottom third (half random / half champs
-    from other classes). The receiver's wrapper gets stamped onto every
-    arrival → forced re-eval under the new environment. The gauntlet.
+    Each intake receives the top champions ONLY from OTHER wrapper classes
+    (never its own sister champion — that's what was killing diversity:
+    a class's winner kept reseeding its own intake every 25 gens, locking
+    the wrapper-class into one solution shape). The receiver's wrapper
+    gets stamped onto every arrival → forced re-eval under the new
+    environment.
     """
     if not WRAPPER_ISLAND_PAIRS:
         return
 
-    broadcast_pool = []
+    # Per-champion top-k pool, keyed by champion island index, so we can
+    # exclude the receiver's same-class champion from the broadcast.
+    pool_by_champ = {}
     for _, champ_idx in WRAPPER_ISLAND_PAIRS:
         champ = demes[champ_idx]
         if not champ:
+            pool_by_champ[champ_idx] = []
             continue
         valid = [ind for ind in champ if ind.fitness.valid]
         if len(valid) >= k_migrants:
             top = tools.selBest(valid, k_migrants)
         else:
             top = list(valid) + list(champ[:k_migrants - len(valid)])
-        broadcast_pool.extend([toolbox.clone(ind) for ind in top])
+        pool_by_champ[champ_idx] = [toolbox.clone(ind) for ind in top]
 
-    for intake_idx, _ in WRAPPER_ISLAND_PAIRS:
+    for intake_idx, own_champ_idx in WRAPPER_ISLAND_PAIRS:
         intake = demes[intake_idx]
         if not intake:
             continue
+        # Build the cross-class pool: every champion EXCEPT this intake's
+        # own sister champion. Diversity injection only from OTHER classes.
+        cross_pool = []
+        for cidx, inds in pool_by_champ.items():
+            if cidx == own_champ_idx:
+                continue
+            cross_pool.extend(inds)
+
         third = max(1, len(intake) // 3)
         n_random = third // 2
         n_champs = third - n_random
@@ -1081,9 +1100,9 @@ def _migrate_pump_cross(demes):
         # Fresh random in first half (wrapper stamped by stamp_deme_wrappers).
         for slot in worst_idx[:n_random]:
             intake[slot] = toolbox.individual()
-        # Cross-class champs in second half.
-        if broadcast_pool and n_champs > 0:
-            arrivals = [toolbox.clone(broadcast_pool[k_i % len(broadcast_pool)])
+        # Cross-class champs in second half (excludes own sister).
+        if cross_pool and n_champs > 0:
+            arrivals = [toolbox.clone(cross_pool[k_i % len(cross_pool)])
                         for k_i in range(n_champs)]
             for slot, arrival in zip(worst_idx[n_random:n_random + n_champs], arrivals):
                 if arrival.fitness.valid:
@@ -1269,7 +1288,7 @@ else:
         _fired_anything = False
         _fired_label = None
         if MIGRATION_TOPOLOGY == "pump":
-            if gen > 0 and gen % MIGRATION_FREQ_INTRA == 0:
+            if (not DISABLE_PUMP_INTRA) and gen > 0 and gen % MIGRATION_FREQ_INTRA == 0:
                 _migrate_pump_intra(demes, gen=gen)
                 _fired_anything = True
                 _fired_label = "intra (promote + denoise-winner)"
