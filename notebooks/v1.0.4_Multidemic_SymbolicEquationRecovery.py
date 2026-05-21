@@ -330,11 +330,25 @@ assert len(ISLAND_WRAPPERS) == settings.num_islands == len(ISLAND_ROLES)
 # tuples per wrapper.
 WRAPPER_ISLAND_PAIRS = []
 if MIGRATION_TOPOLOGY == "pump":
-    for w in range(N_WRAPPERS):
-        intake_idx = next(i for i in range(len(ISLAND_WRAPPERS))
-                          if ISLAND_WRAPPERS[i] == w and ISLAND_ROLES[i] == ISLAND_ROLE_INTAKE)
-        champ_idx = next(i for i in range(len(ISLAND_WRAPPERS))
-                         if ISLAND_WRAPPERS[i] == w and ISLAND_ROLES[i] == ISLAND_ROLE_CHAMPION)
+    # Iterate over the (wrapper) classes actually present in ISLAND_WRAPPERS,
+    # not range(N_WRAPPERS): E20 uses a single dummy wrapper class regardless
+    # of how many wrappers are in N_WRAPPERS, because wrapper choice is now
+    # per-eval, not per-island.
+    seen_w = set()
+    for i, w in enumerate(ISLAND_WRAPPERS):
+        if w in seen_w:
+            continue
+        seen_w.add(w)
+        try:
+            intake_idx = next(i2 for i2 in range(len(ISLAND_WRAPPERS))
+                              if ISLAND_WRAPPERS[i2] == w and ISLAND_ROLES[i2] == ISLAND_ROLE_INTAKE)
+        except StopIteration:
+            continue
+        try:
+            champ_idx = next(i2 for i2 in range(len(ISLAND_WRAPPERS))
+                             if ISLAND_WRAPPERS[i2] == w and ISLAND_ROLES[i2] == ISLAND_ROLE_CHAMPION)
+        except StopIteration:
+            continue
         WRAPPER_ISLAND_PAIRS.append((intake_idx, champ_idx))
 
 # Constant-snap tolerance and library (notebook-level, not stored on
