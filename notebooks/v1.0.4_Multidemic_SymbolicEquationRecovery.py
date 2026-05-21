@@ -1045,13 +1045,39 @@ def _rule_euclidean_distance_static():
                     m2_va = validation[pref_vars[1]].values
                     m1_ex = extrapolation[pref_vars[0]].values
                     m2_ex = extrapolation[pref_vars[1]].values
-                    out.append((
-                        f"{pref_vars[0]}*{pref_vars[1]}/||p{xa[1:]}-p{xb[1:]}||^2",
-                        m1_tr * m2_tr * inv_tr,
-                        m1_va * m2_va * inv_va,
-                        m1_ex * m2_ex * inv_ex,
-                        sp.Symbol(pref_vars[0]) * sp.Symbol(pref_vars[1]) / sym,
-                    ))
+                    base_label = f"{pref_vars[0]}*{pref_vars[1]}/||p{xa[1:]}-p{xb[1:]}||^2"
+                    base_pred_tr = m1_tr * m2_tr * inv_tr
+                    base_pred_va = m1_va * m2_va * inv_va
+                    base_pred_ex = m1_ex * m2_ex * inv_ex
+                    base_sym = sp.Symbol(pref_vars[0]) * sp.Symbol(pref_vars[1]) / sym
+                    out.append((base_label, base_pred_tr, base_pred_va, base_pred_ex, base_sym))
+
+                    # E25: also multiply by EACH other scalar variable. In
+                    # Feynman dataset, "constants" like G can appear as
+                    # variables (I_9_18 has G ∈ [1, 2] as an input). When
+                    # variable, LSM-fitted 'a' averages G over the range
+                    # instead of being exactly G, breaking exact recovery.
+                    # Multiplying it into the candidate prediction lets LSM
+                    # fit a = 1 exactly when the var is the missing factor.
+                    coord_vars = set()
+                    for triple in triples:
+                        coord_vars.update(triple)
+                    # Skip variables we've already incorporated (the masses
+                    # and the coordinate triples).
+                    used = set(pref_vars) | coord_vars
+                    other_scalars = [v for v in problem.variables if v not in used]
+                    # Single-other-scalar variants (e.g. G·m1·m2/||r||²)
+                    for sv in other_scalars:
+                        sv_tr = train[sv].values
+                        sv_va = validation[sv].values
+                        sv_ex = extrapolation[sv].values
+                        out.append((
+                            f"{sv}*{base_label}",
+                            sv_tr * base_pred_tr,
+                            sv_va * base_pred_va,
+                            sv_ex * base_pred_ex,
+                            sp.Symbol(sv) * base_sym,
+                        ))
     return out
 
 
