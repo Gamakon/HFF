@@ -175,6 +175,46 @@ def run_one(problem_id: str, no_val: bool = False) -> dict:
     return parsed
 
 
+def _format_row_lines(pid, result):
+    """Render one problem's result as a list of stdout lines."""
+    lines = [f"=== {pid} ==="]
+    if "error" in result:
+        lines.append(f"  ERROR: {result['error']}  ({result['elapsed_s']:.1f}s)")
+        if result.get("stderr_tail"):
+            for ln in result["stderr_tail"].splitlines():
+                lines.append(f"    | stderr: {ln}")
+        if result.get("stdout_tail"):
+            for ln in result["stdout_tail"].splitlines():
+                lines.append(f"    | stdout: {ln}")
+    else:
+        lines.append(f"  exact      : {result.get('recovery_exact')}")
+        lines.append(f"  numerical  : {result.get('recovery_numerical')}")
+        lines.append(f"  max rel err: {result.get('recovery_max_rel_err')}")
+        lines.append(f"  discovered : {result.get('discovered_expr')}")
+        lines.append(f"  hof exact  : {result.get('hof_exact_recoveries')}/{result.get('hof_size')}")
+        lines.append(f"  elapsed    : {result.get('elapsed_s', 0):.1f}s")
+    return lines
+
+
+def _result_to_row(pid, result):
+    if "error" in result:
+        return {
+            "problem": pid, "exact": "—", "numerical": "—",
+            "max_rel_err": "—", "discovered": result["error"][:60],
+            "hof_exact": "—",
+            "elapsed_s": result["elapsed_s"],
+        }
+    return {
+        "problem": pid,
+        "exact": result.get("recovery_exact"),
+        "numerical": result.get("recovery_numerical"),
+        "max_rel_err": result.get("recovery_max_rel_err"),
+        "discovered": str(result.get("discovered_expr"))[:70],
+        "hof_exact": f"{result.get('hof_exact_recoveries')}/{result.get('hof_size')}",
+        "elapsed_s": result.get("elapsed_s", 0),
+    }
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     grp = parser.add_mutually_exclusive_group()
@@ -192,52 +232,51 @@ def main():
                         help="cap the sweep to first N problems (useful for testing)")
     parser.add_argument("--no-val", action="store_true",
                         help="ABLATION: drop validation + extrapolation from fitness")
+    parser.add_argument("--parallel", type=int, default=1,
+                        help="number of problems to run concurrently (default 1)")
     args = parser.parse_args()
 
     problems = _select_problems(args)
     if args.limit is not None:
         problems = problems[: args.limit]
 
-    print(f"Sweeping {len(problems)} problems (registry has {len(eq.REGISTRY)})\n")
+    print(f"Sweeping {len(problems)} problems (registry has {len(eq.REGISTRY)})  "
+          f"parallel={args.parallel}\n")
     if len(problems) <= 12:
         print(f"  selection: {problems}\n")
     else:
         print(f"  selection: {problems[:6]} … {problems[-3:]}  ({len(problems)} total)\n")
 
     rows = []
-    for pid in problems:
-        print(f"=== {pid} ===", flush=True)
-        result = run_one(pid, no_val=args.no_val)
-        if "error" in result:
-            print(f"  ERROR: {result['error']}  ({result['elapsed_s']:.1f}s)")
-            if result.get("stderr_tail"):
-                for line in result["stderr_tail"].splitlines():
-                    print(f"    | stderr: {line}")
-            if result.get("stdout_tail"):
-                for line in result["stdout_tail"].splitlines():
-                    print(f"    | stdout: {line}")
-            rows.append({
-                "problem": pid, "exact": "—", "numerical": "—",
-                "max_rel_err": "—", "discovered": result["error"][:60],
-                "hof_exact": "—",
-                "elapsed_s": result["elapsed_s"],
-            })
-            continue
-        print(f"  exact      : {result.get('recovery_exact')}")
-        print(f"  numerical  : {result.get('recovery_numerical')}")
-        print(f"  max rel err: {result.get('recovery_max_rel_err')}")
-        print(f"  discovered : {result.get('discovered_expr')}")
-        print(f"  hof exact  : {result.get('hof_exact_recoveries')}/{result.get('hof_size')}")
-        print(f"  elapsed    : {result.get('elapsed_s', 0):.1f}s")
-        rows.append({
-            "problem": pid,
-            "exact": result.get("recovery_exact"),
-            "numerical": result.get("recovery_numerical"),
-            "max_rel_err": result.get("recovery_max_rel_err"),
-            "discovered": str(result.get("discovered_expr"))[:70],
-            "hof_exact": f"{result.get('hof_exact_recoveries')}/{result.get('hof_size')}",
-            "elapsed_s": result.get("elapsed_s", 0),
-        })
+    if args.parallel <= 1:
+        # Sequential path (preserved for back-compat).
+        for pid in problems:
+            print(f"=== {pid} ===", flush=True)
+            result = run_one(pid, no_val=args.no_val)
+            for ln in _format_row_lines(pid, result)[1:]:
+                print(ln)
+            rows.append(_result_to_row(pid, result))
+    else:
+        # Parallel path: ProcessPoolExecutor of N workers. Each worker runs
+        # run_one (which itself spawns a subprocess for the notebook).
+        # Results are streamed as they complete; output ordering is non-
+        # deterministic but each problem's block is contiguous.
+        from concurrent.futures import ProcessPoolExecutor, as_completed
+        completed = 0
+        with ProcessPoolExecutor(max_workers=args.parallel) as ex:
+            futures = {ex.submit(run_one, pid, args.no_val): pid for pid in problems}
+            for fut in as_completed(futures):
+                pid = futures[fut]
+                completed += 1
+                try:
+                    result = fut.result()
+                except Exception as e:
+                    result = {"problem": pid, "error": f"driver exception: {e}",
+                              "elapsed_s": 0.0}
+                for ln in _format_row_lines(pid, result):
+                    print(ln, flush=True)
+                print(f"  [{completed}/{len(problems)} done]", flush=True)
+                rows.append(_result_to_row(pid, result))
 
     print("\n" + "=" * 100)
     print(f"{'problem':<14} {'exact':<7} {'numerical':<11} {'max_rel_err':<14} "
