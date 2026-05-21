@@ -133,6 +133,7 @@ sys.path.insert(0, ".")  # local helpers + problem registry
 import datetime
 import time
 import math
+import re
 import operator
 import os
 import random
@@ -1221,6 +1222,394 @@ def _rule_harmonic_static():
     return out
 
 
+# ============================================================================
+# E24 — More rule families (R6 angle-diff trig, R7 arcsin/arccos, R8 Doppler
+# ratio, R9 reciprocal-difference, R10 sum-with-product, R11 kinetic-energy,
+# R12 radiated-power).
+# ============================================================================
+
+def _theta_like_vars():
+    """Return sorted list of theta-like variable names present."""
+    out = []
+    for v in problem.variables:
+        if v == "theta" or re.match(r"^theta\d+$", v):
+            out.append(v)
+    return sorted(out)
+
+
+def _rule_angle_diff_trig_static():
+    """R6: For each pair of theta-like vars, generate cos(θa-θb), sin(θa-θb),
+    plus n·θ multiplied forms for integer n∈{1,2,3}.
+    Covers I_29_16 (law of cosines), I_30_3 (sin(n·θ/2))."""
+    out = []
+    thetas = _theta_like_vars()
+    if not thetas:
+        return out
+    from itertools import combinations
+    # Pairwise differences
+    for a, b in combinations(thetas, 2):
+        a_tr = train[a].values
+        a_va = validation[a].values
+        a_ex = extrapolation[a].values
+        b_tr = train[b].values
+        b_va = validation[b].values
+        b_ex = extrapolation[b].values
+        diff_tr = a_tr - b_tr
+        diff_va = a_va - b_va
+        diff_ex = a_ex - b_ex
+        a_sym = sp.Symbol(a)
+        b_sym = sp.Symbol(b)
+        out.append((f"cos({a}-{b})",
+                    np.cos(diff_tr), np.cos(diff_va), np.cos(diff_ex),
+                    sp.cos(a_sym - b_sym)))
+        out.append((f"sin({a}-{b})",
+                    np.sin(diff_tr), np.sin(diff_va), np.sin(diff_ex),
+                    sp.sin(a_sym - b_sym)))
+    # n·theta variants for each theta
+    for v in thetas:
+        v_tr = train[v].values
+        v_va = validation[v].values
+        v_ex = extrapolation[v].values
+        v_sym = sp.Symbol(v)
+        for n in (2, 3):
+            out.append((f"sin({n}*{v}/2)",
+                        np.sin(n * v_tr / 2), np.sin(n * v_va / 2), np.sin(n * v_ex / 2),
+                        sp.sin(n * v_sym / 2)))
+            out.append((f"sin({n}*{v}/2)^2",
+                        np.sin(n * v_tr / 2) ** 2, np.sin(n * v_va / 2) ** 2,
+                        np.sin(n * v_ex / 2) ** 2,
+                        sp.sin(n * v_sym / 2) ** 2))
+    # Law-of-cosines magnitude: when we have (x1,x2,theta1,theta2)
+    # √(x1²+x2² - 2x1x2cos(θ1-θ2)) shape.
+    if "x1" in problem.variables and "x2" in problem.variables and len(thetas) >= 2:
+        x1_tr = train["x1"].values
+        x2_tr = train["x2"].values
+        x1_va = validation["x1"].values
+        x2_va = validation["x2"].values
+        x1_ex = extrapolation["x1"].values
+        x2_ex = extrapolation["x2"].values
+        for ta, tb in combinations(thetas, 2):
+            a_tr = train[ta].values
+            a_va = validation[ta].values
+            a_ex = extrapolation[ta].values
+            b_tr = train[tb].values
+            b_va = validation[tb].values
+            b_ex = extrapolation[tb].values
+            cdiff_tr = np.cos(a_tr - b_tr)
+            cdiff_va = np.cos(a_va - b_va)
+            cdiff_ex = np.cos(a_ex - b_ex)
+            arg_tr = x1_tr ** 2 + x2_tr ** 2 - 2 * x1_tr * x2_tr * cdiff_tr
+            arg_va = x1_va ** 2 + x2_va ** 2 - 2 * x1_va * x2_va * cdiff_va
+            arg_ex = x1_ex ** 2 + x2_ex ** 2 - 2 * x1_ex * x2_ex * cdiff_ex
+            arg_tr = np.maximum(arg_tr, 0.0)
+            arg_va = np.maximum(arg_va, 0.0)
+            arg_ex = np.maximum(arg_ex, 0.0)
+            sym = sp.sqrt(sp.Symbol("x1") ** 2 + sp.Symbol("x2") ** 2
+                          - 2 * sp.Symbol("x1") * sp.Symbol("x2")
+                          * sp.cos(sp.Symbol(ta) - sp.Symbol(tb)))
+            out.append((f"sqrt(x1^2+x2^2-2x1x2cos({ta}-{tb}))",
+                        np.sqrt(arg_tr), np.sqrt(arg_va), np.sqrt(arg_ex), sym))
+    return out
+
+
+def _rule_arcsin_arccos_static():
+    """R7: For ratios that COULD be in [-1, 1] (e.g. λ/(n·d) ≤ 1, n·sin(θ) ≤ 1),
+    generate arcsin and arccos wrappers. Snell's law (I_26_2) and diffraction
+    (I_30_5). Skip if ratio outside range.
+    """
+    out = []
+    vs = set(problem.variables)
+
+    # I_30_5 shape: arcsin(λ/(n·d)) — needs lambda/lambd, n, d
+    lam_name = None
+    for cand in ("lambd", "lambda"):
+        if cand in vs:
+            lam_name = cand
+            break
+    if lam_name and "n" in vs and "d" in vs:
+        lam_tr = train[lam_name].values
+        lam_va = validation[lam_name].values
+        lam_ex = extrapolation[lam_name].values
+        n_tr = train["n"].values
+        n_va = validation["n"].values
+        n_ex = extrapolation["n"].values
+        d_tr = train["d"].values
+        d_va = validation["d"].values
+        d_ex = extrapolation["d"].values
+        ratio_tr = _safe_div(lam_tr, n_tr * d_tr)
+        ratio_va = _safe_div(lam_va, n_va * d_va)
+        ratio_ex = _safe_div(lam_ex, n_ex * d_ex)
+        # Clip to safe arcsin domain
+        clipped_tr = np.clip(ratio_tr, -0.9999, 0.9999)
+        clipped_va = np.clip(ratio_va, -0.9999, 0.9999)
+        clipped_ex = np.clip(ratio_ex, -0.9999, 0.9999)
+        sym = sp.asin(sp.Symbol(lam_name) / (sp.Symbol("n") * sp.Symbol("d")))
+        out.append((f"arcsin({lam_name}/(n*d))",
+                    np.arcsin(clipped_tr), np.arcsin(clipped_va), np.arcsin(clipped_ex),
+                    sym))
+
+    # I_26_2 shape: arcsin(n·sin(θ2))
+    if "n" in vs and "theta2" in vs:
+        n_tr = train["n"].values
+        n_va = validation["n"].values
+        n_ex = extrapolation["n"].values
+        t_tr = train["theta2"].values
+        t_va = validation["theta2"].values
+        t_ex = extrapolation["theta2"].values
+        arg_tr = np.clip(n_tr * np.sin(t_tr), -0.9999, 0.9999)
+        arg_va = np.clip(n_va * np.sin(t_va), -0.9999, 0.9999)
+        arg_ex = np.clip(n_ex * np.sin(t_ex), -0.9999, 0.9999)
+        sym = sp.asin(sp.Symbol("n") * sp.sin(sp.Symbol("theta2")))
+        out.append(("arcsin(n*sin(theta2))",
+                    np.arcsin(arg_tr), np.arcsin(arg_va), np.arcsin(arg_ex), sym))
+    # Snell more general: arcsin(n*sin(theta))
+    if "n" in vs and "theta" in vs:
+        n_tr = train["n"].values
+        n_va = validation["n"].values
+        n_ex = extrapolation["n"].values
+        t_tr = train["theta"].values
+        t_va = validation["theta"].values
+        t_ex = extrapolation["theta"].values
+        arg_tr = np.clip(n_tr * np.sin(t_tr), -0.9999, 0.9999)
+        arg_va = np.clip(n_va * np.sin(t_va), -0.9999, 0.9999)
+        arg_ex = np.clip(n_ex * np.sin(t_ex), -0.9999, 0.9999)
+        sym = sp.asin(sp.Symbol("n") * sp.sin(sp.Symbol("theta")))
+        out.append(("arcsin(n*sin(theta))",
+                    np.arcsin(arg_tr), np.arcsin(arg_va), np.arcsin(arg_ex), sym))
+    return out
+
+
+def _rule_doppler_ratio_static():
+    """R8: For (v, c) and optional omega_0, generate ω_0 / (1 ± v/c) forms
+    and gamma·(1+v/c) (relativistic Doppler).
+    Covers I_34_1 (1/(1-v/c)), I_34_14 ((1+v/c)·gamma)."""
+    out = []
+    vs = set(problem.variables)
+    if "c" not in vs or not (vs & {"v", "u", "w"}):
+        return out
+    c_tr = train["c"].values
+    c_va = validation["c"].values
+    c_ex = extrapolation["c"].values
+
+    for vel in ("v", "u", "w"):
+        if vel not in vs:
+            continue
+        v_tr = train[vel].values
+        v_va = validation[vel].values
+        v_ex = extrapolation[vel].values
+        ratio_tr = _safe_div(v_tr, c_tr)
+        ratio_va = _safe_div(v_va, c_va)
+        ratio_ex = _safe_div(v_ex, c_ex)
+
+        # 1/(1 - v/c)  (classical Doppler)
+        denom_tr = 1.0 - ratio_tr
+        denom_va = 1.0 - ratio_va
+        denom_ex = 1.0 - ratio_ex
+        inv_minus_tr = _safe_div(np.ones_like(denom_tr), denom_tr)
+        inv_minus_va = _safe_div(np.ones_like(denom_va), denom_va)
+        inv_minus_ex = _safe_div(np.ones_like(denom_ex), denom_ex)
+        # 1/(1 + v/c)
+        denom_p_tr = 1.0 + ratio_tr
+        denom_p_va = 1.0 + ratio_va
+        denom_p_ex = 1.0 + ratio_ex
+        inv_plus_tr = _safe_div(np.ones_like(denom_p_tr), denom_p_tr)
+        inv_plus_va = _safe_div(np.ones_like(denom_p_va), denom_p_va)
+        inv_plus_ex = _safe_div(np.ones_like(denom_p_ex), denom_p_ex)
+
+        c_sym = sp.Symbol("c")
+        v_sym = sp.Symbol(vel)
+        ratio_sym = v_sym / c_sym
+
+        # Plain 1/(1±v/c)
+        out.append((f"1/(1-{vel}/c)",
+                    inv_minus_tr, inv_minus_va, inv_minus_ex,
+                    1 / (1 - ratio_sym)))
+        out.append((f"1/(1+{vel}/c)",
+                    inv_plus_tr, inv_plus_va, inv_plus_ex,
+                    1 / (1 + ratio_sym)))
+
+        # omega_0 / (1 - v/c) (classical Doppler shift)
+        if "omega_0" in vs:
+            w_tr = train["omega_0"].values
+            w_va = validation["omega_0"].values
+            w_ex = extrapolation["omega_0"].values
+            out.append((f"omega_0/(1-{vel}/c)",
+                        w_tr * inv_minus_tr, w_va * inv_minus_va, w_ex * inv_minus_ex,
+                        sp.Symbol("omega_0") / (1 - ratio_sym)))
+            # (1+v/c)*omega_0 / sqrt(1-v²/c²)  (relativistic Doppler) — uses Lorentz gamma
+            gamma_tr = 1.0 / np.sqrt(np.maximum(1.0 - ratio_tr ** 2, 1e-30))
+            gamma_va = 1.0 / np.sqrt(np.maximum(1.0 - ratio_va ** 2, 1e-30))
+            gamma_ex = 1.0 / np.sqrt(np.maximum(1.0 - ratio_ex ** 2, 1e-30))
+            out.append((f"(1+{vel}/c)*omega_0*gamma({vel})",
+                        (1 + ratio_tr) * w_tr * gamma_tr,
+                        (1 + ratio_va) * w_va * gamma_va,
+                        (1 + ratio_ex) * w_ex * gamma_ex,
+                        (1 + ratio_sym) * sp.Symbol("omega_0") / sp.sqrt(1 - ratio_sym ** 2)))
+    return out
+
+
+def _rule_reciprocal_diff_static():
+    """R9: For paired_numbered (m1,m2,r1,r2 etc.), generate
+    prefix·prefix·(1/r_a - 1/r_b) and (1/r_a - 1/r_b) forms.
+    Covers I_13_12 (G·m1·m2·(1/r2 - 1/r1))."""
+    out = []
+    if "paired_numbered" not in _VAR_PATTERN_TAGS:
+        return out
+    # Look for r-prefix with 2 elements
+    r_idxs = sorted(_BY_PREFIX.get("r", []))
+    if r_idxs != [1, 2]:
+        return out
+    r1_tr = train["r1"].values
+    r2_tr = train["r2"].values
+    r1_va = validation["r1"].values
+    r2_va = validation["r2"].values
+    r1_ex = extrapolation["r1"].values
+    r2_ex = extrapolation["r2"].values
+    inv_diff_tr = _safe_div(np.ones_like(r2_tr), r2_tr) - _safe_div(np.ones_like(r1_tr), r1_tr)
+    inv_diff_va = _safe_div(np.ones_like(r2_va), r2_va) - _safe_div(np.ones_like(r1_va), r1_va)
+    inv_diff_ex = _safe_div(np.ones_like(r2_ex), r2_ex) - _safe_div(np.ones_like(r1_ex), r1_ex)
+    sym = 1 / sp.Symbol("r2") - 1 / sp.Symbol("r1")
+    out.append(("1/r2-1/r1", inv_diff_tr, inv_diff_va, inv_diff_ex, sym))
+    # m1*m2 * (1/r2 - 1/r1)  — gravitational potential difference
+    if sorted(_BY_PREFIX.get("m", [])) == [1, 2]:
+        m1_tr = train["m1"].values
+        m2_tr = train["m2"].values
+        m1_va = validation["m1"].values
+        m2_va = validation["m2"].values
+        m1_ex = extrapolation["m1"].values
+        m2_ex = extrapolation["m2"].values
+        out.append((
+            "m1*m2*(1/r2-1/r1)",
+            m1_tr * m2_tr * inv_diff_tr,
+            m1_va * m2_va * inv_diff_va,
+            m1_ex * m2_ex * inv_diff_ex,
+            sp.Symbol("m1") * sp.Symbol("m2") * sym,
+        ))
+    return out
+
+
+def _rule_sum_with_product_static():
+    """R10: Combined additive+multiplicative form Ef + B·v·sin(θ).
+    Covers I_12_11 (q·(Ef + B·v·sin(θ)))."""
+    out = []
+    vs = set(problem.variables)
+    if not (vs >= {"Ef", "B", "v", "theta"}):
+        return out
+    Ef_tr = train["Ef"].values
+    B_tr = train["B"].values
+    v_tr = train["v"].values
+    th_tr = train["theta"].values
+    Ef_va = validation["Ef"].values
+    B_va = validation["B"].values
+    v_va = validation["v"].values
+    th_va = validation["theta"].values
+    Ef_ex = extrapolation["Ef"].values
+    B_ex = extrapolation["B"].values
+    v_ex = extrapolation["v"].values
+    th_ex = extrapolation["theta"].values
+    inner_tr = Ef_tr + B_tr * v_tr * np.sin(th_tr)
+    inner_va = Ef_va + B_va * v_va * np.sin(th_va)
+    inner_ex = Ef_ex + B_ex * v_ex * np.sin(th_ex)
+    inner_sym = sp.Symbol("Ef") + sp.Symbol("B") * sp.Symbol("v") * sp.sin(sp.Symbol("theta"))
+    out.append(("Ef+B*v*sin(theta)", inner_tr, inner_va, inner_ex, inner_sym))
+    if "q" in vs:
+        q_tr = train["q"].values
+        q_va = validation["q"].values
+        q_ex = extrapolation["q"].values
+        out.append((
+            "q*(Ef+B*v*sin(theta))",
+            q_tr * inner_tr, q_va * inner_va, q_ex * inner_ex,
+            sp.Symbol("q") * inner_sym,
+        ))
+    return out
+
+
+def _rule_kinetic_energy_static():
+    """R11: m·(v²+u²+w²)/2 and m·x²·(ω²+ω_0²)/4.
+    Covers I_13_4, I_24_6."""
+    out = []
+    vs = set(problem.variables)
+
+    # Kinetic energy: m*(v²+u²+w²)/2 (or any subset of v,u,w present)
+    if "m" in vs:
+        velocity_vars = [v for v in ("v", "u", "w") if v in vs]
+        if len(velocity_vars) >= 2:
+            sq_tr = np.zeros(len(train), dtype=np.float64)
+            sq_va = np.zeros(len(validation), dtype=np.float64)
+            sq_ex = np.zeros(len(extrapolation), dtype=np.float64)
+            sym_inner = sp.Integer(0)
+            for vv in velocity_vars:
+                sq_tr += train[vv].values ** 2
+                sq_va += validation[vv].values ** 2
+                sq_ex += extrapolation[vv].values ** 2
+                sym_inner = sym_inner + sp.Symbol(vv) ** 2
+            m_tr = train["m"].values
+            m_va = validation["m"].values
+            m_ex = extrapolation["m"].values
+            out.append((
+                f"m*({'+'.join(v+'^2' for v in velocity_vars)})/2",
+                0.5 * m_tr * sq_tr, 0.5 * m_va * sq_va, 0.5 * m_ex * sq_ex,
+                sp.Rational(1, 2) * sp.Symbol("m") * sym_inner,
+            ))
+
+    # I_24_6: m·x²·(ω²+ω_0²)/4
+    if vs >= {"m", "x", "omega", "omega_0"}:
+        m_tr = train["m"].values
+        m_va = validation["m"].values
+        m_ex = extrapolation["m"].values
+        x_tr = train["x"].values
+        x_va = validation["x"].values
+        x_ex = extrapolation["x"].values
+        om_tr = train["omega"].values
+        om_va = validation["omega"].values
+        om_ex = extrapolation["omega"].values
+        om0_tr = train["omega_0"].values
+        om0_va = validation["omega_0"].values
+        om0_ex = extrapolation["omega_0"].values
+        val_tr = 0.25 * m_tr * x_tr ** 2 * (om_tr ** 2 + om0_tr ** 2)
+        val_va = 0.25 * m_va * x_va ** 2 * (om_va ** 2 + om0_va ** 2)
+        val_ex = 0.25 * m_ex * x_ex ** 2 * (om_ex ** 2 + om0_ex ** 2)
+        sym = (sp.Rational(1, 4) * sp.Symbol("m") * sp.Symbol("x") ** 2
+               * (sp.Symbol("omega") ** 2 + sp.Symbol("omega_0") ** 2))
+        out.append(("m*x^2*(omega^2+omega_0^2)/4", val_tr, val_va, val_ex, sym))
+
+    return out
+
+
+def _rule_radiated_power_static():
+    """R12: q²·a²/(6π·epsilon·c³).
+    Covers I_32_5."""
+    out = []
+    vs = set(problem.variables)
+    if not (vs >= {"q", "a", "epsilon", "c"}):
+        return out
+    q_tr = train["q"].values
+    q_va = validation["q"].values
+    q_ex = extrapolation["q"].values
+    a_tr = train["a"].values
+    a_va = validation["a"].values
+    a_ex = extrapolation["a"].values
+    eps_tr = train["epsilon"].values
+    eps_va = validation["epsilon"].values
+    eps_ex = extrapolation["epsilon"].values
+    c_tr = train["c"].values
+    c_va = validation["c"].values
+    c_ex = extrapolation["c"].values
+    denom_tr = 6 * np.pi * eps_tr * c_tr ** 3
+    denom_va = 6 * np.pi * eps_va * c_va ** 3
+    denom_ex = 6 * np.pi * eps_ex * c_ex ** 3
+    inv_tr = _safe_div(np.ones_like(denom_tr), denom_tr)
+    inv_va = _safe_div(np.ones_like(denom_va), denom_va)
+    inv_ex = _safe_div(np.ones_like(denom_ex), denom_ex)
+    val_tr = q_tr ** 2 * a_tr ** 2 * inv_tr
+    val_va = q_va ** 2 * a_va ** 2 * inv_va
+    val_ex = q_ex ** 2 * a_ex ** 2 * inv_ex
+    sym = (sp.Symbol("q") ** 2 * sp.Symbol("a") ** 2
+           / (6 * sp.pi * sp.Symbol("epsilon") * sp.Symbol("c") ** 3))
+    out.append(("q^2*a^2/(6*pi*eps*c^3)", val_tr, val_va, val_ex, sym))
+    return out
+
+
 # Static candidates: precompute their predictions (which don't depend on the
 # chromosome at all) so per-eval we just LSM-fit each against the chromosome's
 # scale-context. Actually — since predictions don't depend on the chromosome,
@@ -1243,6 +1632,14 @@ def _build_static_candidates():
         ("gaussian_density", _rule_gaussian_density_static),
         ("coulomb_form", _rule_coulomb_form_static),
         ("harmonic", _rule_harmonic_static),
+        # E24 additions
+        ("angle_diff_trig", _rule_angle_diff_trig_static),
+        ("arcsin_arccos", _rule_arcsin_arccos_static),
+        ("doppler_ratio", _rule_doppler_ratio_static),
+        ("reciprocal_diff", _rule_reciprocal_diff_static),
+        ("sum_with_product", _rule_sum_with_product_static),
+        ("kinetic_energy", _rule_kinetic_energy_static),
+        ("radiated_power", _rule_radiated_power_static),
     ]
     for family_name, fn in builders:
         try:
