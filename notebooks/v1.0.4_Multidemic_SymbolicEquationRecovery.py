@@ -720,20 +720,29 @@ RULE_WRAPPER_ID_OFFSET = 100
 
 
 def _detect_var_patterns(variables):
-    """Inspect problem.variables and return a set of pattern tags:
+    """Inspect problem.variables and return a set of pattern tags + supporting maps:
       - "x_y_pairs": every x_i has a matching y_i (any n ≥ 2)
+      - "x_y_z_triples": every x_i has matching y_i AND z_i
       - "paired_numbered": variables like m1, m2, r1, r2 (2+ subscripted families)
+      - "has_c": variable 'c' present (speed of light — Lorentz forms)
+      - "has_velocity": one of v, u, w is present
+      - "has_gaussian_input": presence of theta/sigma names (Gaussian density)
+      - "has_4pi_epsilon": variable 'epsilon' present + 'r' (Coulomb forms)
       - "no_pattern": fallback
     """
     import re
     tags = set()
+    vset = set(variables)
     xs = sorted(v for v in variables if re.match(r"^x\d+$", v))
     ys = sorted(v for v in variables if re.match(r"^y\d+$", v))
+    zs = sorted(v for v in variables if re.match(r"^z\d+$", v))
     if xs and ys:
         x_idx = {v[1:] for v in xs}
         y_idx = {v[1:] for v in ys}
         if x_idx == y_idx and len(x_idx) >= 2:
             tags.add("x_y_pairs")
+        if zs and x_idx == y_idx == {v[1:] for v in zs} and len(x_idx) >= 2:
+            tags.add("x_y_z_triples")
     # paired_numbered: groups like m1,m2 or r1,r2 (≥2 same-prefix vars with digits)
     from collections import defaultdict
     by_prefix = defaultdict(list)
@@ -744,16 +753,27 @@ def _detect_var_patterns(variables):
     pair_families = [k for k, idxs in by_prefix.items() if len(idxs) >= 2]
     if pair_families:
         tags.add("paired_numbered")
+    # Lorentz: presence of c (speed) AND one of {v, u, w}
+    if "c" in vset and (vset & {"v", "u", "w"}):
+        tags.add("lorentz_pair")
+    # Gaussian-friendly variable names
+    if vset & {"theta", "theta1", "theta2", "sigma"}:
+        tags.add("has_gaussian_input")
+    # Coulomb: epsilon + r (the 4·π·ε·r² shape)
+    if "epsilon" in vset and "r" in vset:
+        tags.add("coulomb_form")
     if not tags:
         tags.add("no_pattern")
-    return tags, xs, ys, dict(by_prefix)
+    return tags, xs, ys, zs, dict(by_prefix)
 
 
 # Cached at problem-load time (one detection per run).
-_VAR_PATTERN_TAGS, _XS, _YS, _BY_PREFIX = _detect_var_patterns(problem.variables)
+_VAR_PATTERN_TAGS, _XS, _YS, _ZS, _BY_PREFIX = _detect_var_patterns(problem.variables)
 print(f"[E22 rules] variable pattern tags: {_VAR_PATTERN_TAGS}")
 if "x_y_pairs" in _VAR_PATTERN_TAGS:
     print(f"  x_y_pairs: {list(zip(_XS, _YS))}")
+if "x_y_z_triples" in _VAR_PATTERN_TAGS:
+    print(f"  x_y_z_triples: {list(zip(_XS, _YS, _ZS))}")
 
 
 def _vec_from_pred(pred_train, pred_val, pred_extr):
@@ -876,6 +896,331 @@ def _rule_prefix_squared_sum_static():
     return out
 
 
+# ============================================================================
+# E23 — New rule families (R1 Lorentz, R2 Euclidean, R3 Gaussian, R4 Coulomb,
+# R5 Harmonic).
+# Each builder returns list of (label, raw_train, raw_val, raw_extr, sym_expr).
+# LSM is fit per-candidate by _candidate_from_pred so a/b absorb any
+# remaining scale and offset.
+# ============================================================================
+
+def _safe_div(a, b):
+    """Element-wise division with zero protection. Returns 0 where |b| < 1e-12."""
+    out = np.zeros_like(a)
+    mask = np.abs(b) > 1e-12
+    out[mask] = a[mask] / b[mask]
+    return out
+
+
+def _rule_lorentz_factor_static():
+    """R1: For each (vel, c) pair, generate 1/√(1 - vel²/c²) candidates,
+    AND vel·1/√(...) candidates (relativistic momentum/length contraction).
+    Covers I_10_7, I_15_1, I_15_3x (partial)."""
+    out = []
+    if "lorentz_pair" not in _VAR_PATTERN_TAGS:
+        return out
+    vels = [v for v in ["v", "u", "w"] if v in problem.variables]
+    if "c" not in problem.variables or not vels:
+        return out
+
+    def lorentz_inv(arr_vel, arr_c):
+        ratio = (arr_vel ** 2) / np.maximum(arr_c ** 2, 1e-30)
+        ratio = np.minimum(ratio, 1.0 - 1e-12)  # avoid sqrt of negative
+        return 1.0 / np.sqrt(1.0 - ratio)
+
+    for vel in vels:
+        v_tr = train[vel].values
+        v_va = validation[vel].values
+        v_ex = extrapolation[vel].values
+        c_tr = train["c"].values
+        c_va = validation["c"].values
+        c_ex = extrapolation["c"].values
+        gamma_tr = lorentz_inv(v_tr, c_tr)
+        gamma_va = lorentz_inv(v_va, c_va)
+        gamma_ex = lorentz_inv(v_ex, c_ex)
+        c_sym = sp.Symbol("c")
+        v_sym = sp.Symbol(vel)
+        gamma_sym = 1 / sp.sqrt(1 - v_sym ** 2 / c_sym ** 2)
+        # 1) pure gamma factor (rarely useful alone but LSM may scale it)
+        out.append((f"gamma({vel})", gamma_tr, gamma_va, gamma_ex, gamma_sym))
+        # 2) m_0 · gamma (relativistic momentum/mass) for each other scalar var
+        for m_name in problem.variables:
+            if m_name in {vel, "c"} or m_name in ("v", "u", "w"):
+                continue
+            m_tr = train[m_name].values
+            m_va = validation[m_name].values
+            m_ex = extrapolation[m_name].values
+            out.append((
+                f"{m_name}*gamma({vel})",
+                m_tr * gamma_tr, m_va * gamma_va, m_ex * gamma_ex,
+                sp.Symbol(m_name) * gamma_sym,
+            ))
+        # 3) (x - vel·t) · gamma — Lorentz position transform — when x AND t present
+        if "x" in problem.variables and "t" in problem.variables:
+            x_tr = train["x"].values
+            x_va = validation["x"].values
+            x_ex = extrapolation["x"].values
+            t_tr = train["t"].values
+            t_va = validation["t"].values
+            t_ex = extrapolation["t"].values
+            out.append((
+                f"(x-{vel}*t)*gamma({vel})",
+                (x_tr - v_tr * t_tr) * gamma_tr,
+                (x_va - v_va * t_va) * gamma_va,
+                (x_ex - v_ex * t_ex) * gamma_ex,
+                (sp.Symbol("x") - v_sym * sp.Symbol("t")) * gamma_sym,
+            ))
+    return out
+
+
+def _rule_euclidean_distance_static():
+    """R2: Sum-of-pair-squares and √(sum) candidates. Covers I_8_14, I_9_18,
+    plus any Pythagorean truth involving x_i, y_i, z_i triples."""
+    out = []
+    pairs = list(zip(_XS, _YS))
+    triples = list(zip(_XS, _YS, _ZS)) if "x_y_z_triples" in _VAR_PATTERN_TAGS else []
+    if not pairs and not triples:
+        return out
+
+    # For pairs (x1,y1),(x2,y2): generate (x1-x2)² + (y1-y2)² and its sqrt.
+    # This is the 2D Euclidean distance between points 1 and 2.
+    if len(pairs) >= 2:
+        from itertools import combinations
+        for (a_pair, b_pair) in combinations(pairs, 2):
+            (xa, ya), (xb, yb) = a_pair, b_pair
+            dx_tr = train[xa].values - train[xb].values
+            dx_va = validation[xa].values - validation[xb].values
+            dx_ex = extrapolation[xa].values - extrapolation[xb].values
+            dy_tr = train[ya].values - train[yb].values
+            dy_va = validation[ya].values - validation[yb].values
+            dy_ex = extrapolation[ya].values - extrapolation[yb].values
+            sq_tr = dx_tr ** 2 + dy_tr ** 2
+            sq_va = dx_va ** 2 + dy_va ** 2
+            sq_ex = dx_ex ** 2 + dy_ex ** 2
+            sym = ((sp.Symbol(xa) - sp.Symbol(xb)) ** 2
+                   + (sp.Symbol(ya) - sp.Symbol(yb)) ** 2)
+            out.append((f"({xa}-{xb})^2+({ya}-{yb})^2",
+                        sq_tr, sq_va, sq_ex, sym))
+            # sqrt-distance form
+            out.append((f"sqrt(({xa}-{xb})^2+({ya}-{yb})^2)",
+                        np.sqrt(sq_tr), np.sqrt(sq_va), np.sqrt(sq_ex),
+                        sp.sqrt(sym)))
+
+    # For triples (x1,y1,z1),(x2,y2,z2): 3D Euclidean.
+    if len(triples) >= 2:
+        from itertools import combinations
+        for (a_t, b_t) in combinations(triples, 2):
+            (xa, ya, za), (xb, yb, zb) = a_t, b_t
+            dx_tr = train[xa].values - train[xb].values
+            dx_va = validation[xa].values - validation[xb].values
+            dx_ex = extrapolation[xa].values - extrapolation[xb].values
+            dy_tr = train[ya].values - train[yb].values
+            dy_va = validation[ya].values - validation[yb].values
+            dy_ex = extrapolation[ya].values - extrapolation[yb].values
+            dz_tr = train[za].values - train[zb].values
+            dz_va = validation[za].values - validation[zb].values
+            dz_ex = extrapolation[za].values - extrapolation[zb].values
+            sq_tr = dx_tr ** 2 + dy_tr ** 2 + dz_tr ** 2
+            sq_va = dx_va ** 2 + dy_va ** 2 + dz_va ** 2
+            sq_ex = dx_ex ** 2 + dy_ex ** 2 + dz_ex ** 2
+            sym = ((sp.Symbol(xa) - sp.Symbol(xb)) ** 2
+                   + (sp.Symbol(ya) - sp.Symbol(yb)) ** 2
+                   + (sp.Symbol(za) - sp.Symbol(zb)) ** 2)
+            out.append((f"||p{xa[1:]}-p{xb[1:]}||^2",
+                        sq_tr, sq_va, sq_ex, sym))
+            # Inverse for Coulomb-like denominators (I_9_18 = G·m1·m2/|r|²)
+            inv_tr = _safe_div(np.ones_like(sq_tr), sq_tr)
+            inv_va = _safe_div(np.ones_like(sq_va), sq_va)
+            inv_ex = _safe_div(np.ones_like(sq_ex), sq_ex)
+            out.append((f"1/||p{xa[1:]}-p{xb[1:]}||^2",
+                        inv_tr, inv_va, inv_ex, 1 / sym))
+            # Inverse times product of mass-like vars
+            for mass_pref in ("m", "q"):
+                pref_vars = [f"{mass_pref}{i+1}" for i in range(len(triples))]
+                if all(v in problem.variables for v in pref_vars[:2]):
+                    m1_tr = train[pref_vars[0]].values
+                    m2_tr = train[pref_vars[1]].values
+                    m1_va = validation[pref_vars[0]].values
+                    m2_va = validation[pref_vars[1]].values
+                    m1_ex = extrapolation[pref_vars[0]].values
+                    m2_ex = extrapolation[pref_vars[1]].values
+                    out.append((
+                        f"{pref_vars[0]}*{pref_vars[1]}/||p{xa[1:]}-p{xb[1:]}||^2",
+                        m1_tr * m2_tr * inv_tr,
+                        m1_va * m2_va * inv_va,
+                        m1_ex * m2_ex * inv_ex,
+                        sp.Symbol(pref_vars[0]) * sp.Symbol(pref_vars[1]) / sym,
+                    ))
+    return out
+
+
+def _rule_gaussian_density_static():
+    """R3: For each plausible (variable, sigma) pair, generate
+        exp(-((var - mu)/sigma)²/2) / (sigma * sqrt(2*pi))
+    using mu=0 (and mu=theta1 if both theta+theta1 present).
+    Covers I_6_2, I_6_2a, I_6_2b."""
+    out = []
+    if "has_gaussian_input" not in _VAR_PATTERN_TAGS:
+        return out
+    vset = set(problem.variables)
+    sqrt2pi = float(np.sqrt(2 * np.pi))
+
+    # Candidate (variable, mean, sigma) tuples.
+    candidates = []
+    if "theta" in vset:
+        if "sigma" in vset:
+            candidates.append(("theta", None, "sigma"))     # mu=0, sigma=sigma
+            if "theta1" in vset:
+                candidates.append(("theta", "theta1", "sigma"))  # mu=theta1
+        else:
+            candidates.append(("theta", None, None))         # mu=0, sigma=1
+    if "theta2" in vset and "sigma" in vset:
+        candidates.append(("theta2", None, "sigma"))
+
+    for var_name, mu_name, sig_name in candidates:
+        v_tr = train[var_name].values
+        v_va = validation[var_name].values
+        v_ex = extrapolation[var_name].values
+        if mu_name is not None:
+            mu_tr = train[mu_name].values
+            mu_va = validation[mu_name].values
+            mu_ex = extrapolation[mu_name].values
+        else:
+            mu_tr = mu_va = mu_ex = 0.0
+        if sig_name is not None:
+            sig_tr = train[sig_name].values
+            sig_va = validation[sig_name].values
+            sig_ex = extrapolation[sig_name].values
+        else:
+            sig_tr = sig_va = sig_ex = 1.0
+
+        def gauss(v, mu, sig):
+            sig_safe = np.maximum(np.abs(sig) if hasattr(sig, "__len__") else max(abs(sig), 1e-12), 1e-12)
+            z = (v - mu) / sig_safe
+            return np.exp(-0.5 * z * z) / (sig_safe * sqrt2pi)
+
+        raw_tr = gauss(v_tr, mu_tr, sig_tr)
+        raw_va = gauss(v_va, mu_va, sig_va)
+        raw_ex = gauss(v_ex, mu_ex, sig_ex)
+
+        v_sym = sp.Symbol(var_name)
+        mu_sym = sp.Symbol(mu_name) if mu_name else sp.Integer(0)
+        sig_sym = sp.Symbol(sig_name) if sig_name else sp.Integer(1)
+        sym = sp.exp(-((v_sym - mu_sym) / sig_sym) ** 2 / 2) / (sig_sym * sp.sqrt(2 * sp.pi))
+        label = f"N({var_name};{mu_name or '0'},{sig_name or '1'})"
+        out.append((label, raw_tr, raw_va, raw_ex, sym))
+
+    return out
+
+
+def _rule_coulomb_form_static():
+    """R4: For Coulomb-form problems with vars (q1, q2, epsilon, r) etc.,
+    generate q1*q2/(4*pi*epsilon*r²) and q/(4*pi*epsilon*r²) candidates.
+    Covers I_12_2, I_12_4."""
+    out = []
+    if "coulomb_form" not in _VAR_PATTERN_TAGS:
+        return out
+    vset = set(problem.variables)
+    if "r" not in vset or "epsilon" not in vset:
+        return out
+
+    eps_tr = train["epsilon"].values
+    eps_va = validation["epsilon"].values
+    eps_ex = extrapolation["epsilon"].values
+    r_tr = train["r"].values
+    r_va = validation["r"].values
+    r_ex = extrapolation["r"].values
+
+    denom_tr = 4 * np.pi * eps_tr * r_tr ** 2
+    denom_va = 4 * np.pi * eps_va * r_va ** 2
+    denom_ex = 4 * np.pi * eps_ex * r_ex ** 2
+
+    # Helper for safe division
+    inv_denom_tr = _safe_div(np.ones_like(denom_tr), denom_tr)
+    inv_denom_va = _safe_div(np.ones_like(denom_va), denom_va)
+    inv_denom_ex = _safe_div(np.ones_like(denom_ex), denom_ex)
+
+    denom_sym = 4 * sp.pi * sp.Symbol("epsilon") * sp.Symbol("r") ** 2
+
+    # q/(4πε·r²)
+    if "q1" in vset:
+        q1_tr = train["q1"].values
+        q1_va = validation["q1"].values
+        q1_ex = extrapolation["q1"].values
+        out.append((
+            "q1/(4*pi*eps*r^2)",
+            q1_tr * inv_denom_tr,
+            q1_va * inv_denom_va,
+            q1_ex * inv_denom_ex,
+            sp.Symbol("q1") / denom_sym,
+        ))
+        if "q2" in vset:
+            q2_tr = train["q2"].values
+            q2_va = validation["q2"].values
+            q2_ex = extrapolation["q2"].values
+            out.append((
+                "q1*q2/(4*pi*eps*r^2)",
+                q1_tr * q2_tr * inv_denom_tr,
+                q1_va * q2_va * inv_denom_va,
+                q1_ex * q2_ex * inv_denom_ex,
+                sp.Symbol("q1") * sp.Symbol("q2") / denom_sym,
+            ))
+    return out
+
+
+def _rule_harmonic_static():
+    """R5: For paired_numbered variables like (d1,d2) or (r1,r2),
+    generate weighted harmonic mean and centre-of-mass forms.
+    Covers I_18_4, I_27_6."""
+    out = []
+    if "paired_numbered" not in _VAR_PATTERN_TAGS:
+        return out
+
+    # Find prefix families with exactly 2 elements.
+    for prefix, idxs in _BY_PREFIX.items():
+        if sorted(idxs) != [1, 2]:
+            continue
+        v1, v2 = f"{prefix}1", f"{prefix}2"
+        a_tr = train[v1].values
+        b_tr = train[v2].values
+        a_va = validation[v1].values
+        b_va = validation[v2].values
+        a_ex = extrapolation[v1].values
+        b_ex = extrapolation[v2].values
+        # Harmonic-like 1/(1/a + 1/b)
+        denom_tr = _safe_div(np.ones_like(a_tr), a_tr) + _safe_div(np.ones_like(b_tr), b_tr)
+        denom_va = _safe_div(np.ones_like(a_va), a_va) + _safe_div(np.ones_like(b_va), b_va)
+        denom_ex = _safe_div(np.ones_like(a_ex), a_ex) + _safe_div(np.ones_like(b_ex), b_ex)
+        h_tr = _safe_div(np.ones_like(denom_tr), denom_tr)
+        h_va = _safe_div(np.ones_like(denom_va), denom_va)
+        h_ex = _safe_div(np.ones_like(denom_ex), denom_ex)
+        sym = 1 / (1 / sp.Symbol(v1) + 1 / sp.Symbol(v2))
+        out.append((f"1/(1/{v1}+1/{v2})", h_tr, h_va, h_ex, sym))
+
+        # Centre-of-mass form (m1*r1 + m2*r2)/(m1+m2) when we have BOTH
+        # prefix=r AND prefix=m with same indices.
+        if prefix == "r" and sorted(_BY_PREFIX.get("m", [])) == [1, 2]:
+            m1_tr = train["m1"].values
+            m2_tr = train["m2"].values
+            m1_va = validation["m1"].values
+            m2_va = validation["m2"].values
+            m1_ex = extrapolation["m1"].values
+            m2_ex = extrapolation["m2"].values
+            num_tr = m1_tr * a_tr + m2_tr * b_tr
+            num_va = m1_va * a_va + m2_va * b_va
+            num_ex = m1_ex * a_ex + m2_ex * b_ex
+            dm_tr = m1_tr + m2_tr
+            dm_va = m1_va + m2_va
+            dm_ex = m1_ex + m2_ex
+            com_tr = _safe_div(num_tr, dm_tr)
+            com_va = _safe_div(num_va, dm_va)
+            com_ex = _safe_div(num_ex, dm_ex)
+            com_sym = (sp.Symbol("m1") * sp.Symbol("r1")
+                       + sp.Symbol("m2") * sp.Symbol("r2")) / (sp.Symbol("m1") + sp.Symbol("m2"))
+            out.append(("(m1*r1+m2*r2)/(m1+m2)", com_tr, com_va, com_ex, com_sym))
+    return out
+
+
 # Static candidates: precompute their predictions (which don't depend on the
 # chromosome at all) so per-eval we just LSM-fit each against the chromosome's
 # scale-context. Actually — since predictions don't depend on the chromosome,
@@ -888,20 +1233,32 @@ def _build_static_candidates():
     global _STATIC_RULE_CANDIDATES
     _STATIC_RULE_CANDIDATES = []
     builders = [
+        # E22 originals
         ("pairwise_xy_product", _rule_pairwise_xy_product_static),
         ("sum_sq_all", _rule_squared_sum_static),
         ("prefix_sum_sq", _rule_prefix_squared_sum_static),
+        # E23 additions
+        ("lorentz_factor", _rule_lorentz_factor_static),
+        ("euclidean_distance", _rule_euclidean_distance_static),
+        ("gaussian_density", _rule_gaussian_density_static),
+        ("coulomb_form", _rule_coulomb_form_static),
+        ("harmonic", _rule_harmonic_static),
     ]
     for family_name, fn in builders:
-        for label, rt, rv, re_, sym_expr in fn():
+        try:
+            generated = fn()
+        except Exception as e:
+            print(f"[E23 rules] family '{family_name}' raised {type(e).__name__}: {e} — skipping")
+            continue
+        for label, rt, rv, re_, sym_expr in generated:
             cand = _candidate_from_pred(len(_STATIC_RULE_CANDIDATES), rt, rv, re_)
             if cand is not None:
                 cand["rule_family"] = family_name
                 cand["rule_label"] = label
                 cand["sym_expr"] = sym_expr
                 _STATIC_RULE_CANDIDATES.append(cand)
-    print(f"[E22 rules] static candidate count: {len(_STATIC_RULE_CANDIDATES)}")
-    for c in _STATIC_RULE_CANDIDATES[:20]:
+    print(f"[E22/23 rules] static candidate count: {len(_STATIC_RULE_CANDIDATES)}")
+    for c in _STATIC_RULE_CANDIDATES[:30]:
         print(f"  [{c['rule_family']}/{c['rule_label']}] "
               f"a={c['a']:.4f} b={c['b']:.4e} 1-R²_va={c['metrics']['one_minus_r2_va']:.4e}")
 
