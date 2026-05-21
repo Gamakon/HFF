@@ -132,7 +132,12 @@ Each experiment block:
     1. PROMOTE 2: top-2 intake → champion's 2 worst slots.
     2. NO demote — champion is a write-only elite archive.
     3. INTAKE RESET: dedup, keep top 20%, fill 80% random.
-- **Hypothesis**: cross-class migration has been the main diversity-killer. By making each wrapper-class an isolated intake→champion pipeline with aggressive intake reset, every class gets to converge on its own neighbourhood without contamination. Champion holds the best of each class; HOF post-hoc picks across all 5 classes.
+- **Test**: I_15_3x. Same seed as E12b/c → **identical hof[0]** (val_R²=0.944, same `0.357·exp(...)` expression).
+- **Interpretation**: With a fixed seed, the isolated-wrapper change didn't perturb the deme that won — deme 6 (or whichever) reached the same local optimum independent of cross-broadcast existence. To see real signal from this change we need either (a) multi-seed runs or (b) different problems where the cross-broadcast was injecting a class-specific bias.
+
+### E14 — Post-hoc dedup pass every 5 gens (both intake + champion)
+- **Change vs E13**: every `DEDUP_FREQ=5` gens, scan EVERY deme; replace each duplicate `str(individual)` after the first with a fresh random chromosome. Wrapper-stamped + re-eval'd via shared post-migration path.
+- **Hypothesis**: clone bloat accumulates inside each deme between the larger migration ticks. Killing clones every 5 gens keeps the deme's effective diversity higher without disturbing fitness selection. Cheap.
 - **Test**: I_15_3x (canary), then 13-sample.
 - **Result**: **PENDING**.
 

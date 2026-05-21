@@ -267,6 +267,12 @@ MIGRATION_TOPOLOGY = "pump"
 # Cross-class broadcast (settings.migration_freq) stays at the slower
 # cadence so each intake has time to evolve between gauntlet shocks.
 MIGRATION_FREQ_INTRA = 15
+# Post-hoc duplicate killer cadence. Every DEDUP_FREQ gens, every deme
+# (intake + champion) is scanned for duplicate chromosomes (by str()).
+# Each duplicate after the first occurrence is replaced with a fresh
+# random chromosome. Cheap pressure against clone bloat without
+# disturbing the evolutionary signal.
+DEDUP_FREQ = 5
 # Disable the intra-class pump (promote champion + demote winner back).
 # The demote step is currently a plain full-clone — original "denoise"
 # was the fragmentation path which we deleted. Without fragmentation,
@@ -1068,6 +1074,27 @@ def _migrate_pump_intra(demes, gen=None):
         intake[:] = keepers + fresh
 
 
+def _dedup_all_demes(demes):
+    """Post-hoc duplicate killer. For every deme, replace each duplicate
+    chromosome (after the first occurrence by str()) with a fresh random
+    individual. Applied to BOTH intake and champion islands every
+    DEDUP_FREQ gens — cheap clone-bloat pressure that doesn't disturb
+    the regular evolutionary signal."""
+    total_killed = 0
+    for deme in demes:
+        if not deme:
+            continue
+        seen = set()
+        for i, ind in enumerate(deme):
+            key = str(ind)
+            if key in seen:
+                deme[i] = toolbox.individual()
+                total_killed += 1
+            else:
+                seen.add(key)
+    return total_killed
+
+
 def _migrate_pump_cross(demes):
     """Cross-class broadcast step — runs every settings.migration_freq.
 
@@ -1321,11 +1348,20 @@ else:
         # at FREQ (original behaviour).
         _fired_anything = False
         _fired_label = None
+        # Post-hoc dedup pass: every DEDUP_FREQ gens, kill duplicate
+        # chromosomes in EVERY deme (intake + champion). Replacements get
+        # wrapper-stamped + re-eval'd via the shared _fired_anything path.
+        if DEDUP_FREQ > 0 and gen > 0 and gen % DEDUP_FREQ == 0:
+            _killed = _dedup_all_demes(demes)
+            if _killed > 0:
+                _fired_anything = True
+                _fired_label = f"dedup (killed {_killed})"
         if MIGRATION_TOPOLOGY == "pump":
             if (not DISABLE_PUMP_INTRA) and gen > 0 and gen % MIGRATION_FREQ_INTRA == 0:
                 _migrate_pump_intra(demes, gen=gen)
                 _fired_anything = True
-                _fired_label = "intra (promote-2 + intake-reset)"
+                _fired_label = (f"{_fired_label} + intra (promote-2 + intake-reset)"
+                                if _fired_label else "intra (promote-2 + intake-reset)")
             if (not DISABLE_PUMP_CROSS) and gen > 30 and (gen % FREQ == 0 or gen > (target_gen - 10)):
                 _migrate_pump_cross(demes)
                 _fired_anything = True
