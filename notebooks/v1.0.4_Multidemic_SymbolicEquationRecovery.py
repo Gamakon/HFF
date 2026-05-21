@@ -951,10 +951,17 @@ def _rule_lorentz_factor_static():
             m_tr = train[m_name].values
             m_va = validation[m_name].values
             m_ex = extrapolation[m_name].values
+            # Relativistic mass: m·γ
             out.append((
                 f"{m_name}*gamma({vel})",
                 m_tr * gamma_tr, m_va * gamma_va, m_ex * gamma_ex,
                 sp.Symbol(m_name) * gamma_sym,
+            ))
+            # Relativistic momentum: m·v·γ (E25b)
+            out.append((
+                f"{m_name}*{vel}*gamma({vel})",
+                m_tr * v_tr * gamma_tr, m_va * v_va * gamma_va, m_ex * v_ex * gamma_ex,
+                sp.Symbol(m_name) * v_sym * gamma_sym,
             ))
         # 3) (x - vel·t) · gamma — Lorentz position transform — when x AND t present
         if "x" in problem.variables and "t" in problem.variables:
