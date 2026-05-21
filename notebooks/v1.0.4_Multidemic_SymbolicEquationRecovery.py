@@ -943,238 +943,6 @@ def _migrate_broadcast(demes):
             deme[slot] = arrival
 
 
-# Fragment lineage instrumentation. Each fragment carries a frag_id + the
-# parent's fitness at creation time. After re-eval we compare to find out
-# whether fragments meaningfully beat their (full-chromosome) source.
-_FRAG_LINEAGE = []   # list of dicts: {frag_id, parent_fit, wrapper, gen_created}
-_FRAG_COUNTER = [0]
-
-
-# ------------------------------------------------------------------ #
-# Sympy → karva fragmentation (denoise-winner step)
-#
-# Approach: simplify the winning chromosome via gep.simplify, decompose the
-# resulting sympy expression into its top-level Add (or Mul) parts, then
-# translate each part BACK into a fresh karva genome by overwriting all
-# n_genes of a freshly-built random chromosome (so avgval(c,c,…,c) = c).
-# LSM refits a, b on the fragment. A part that captures the truth solo
-# will hit val_R² ≈ 1.0 and rise back into the champion archive.
-#
-# Why all-same-genes: avgval(c, rand, rand, …) dilutes c with noise that LSM
-# can't fully reject (verified by 0/960 win-rate in v6). avgval(c,…,c) = c,
-# clean signal, LSM does its job.
-# ------------------------------------------------------------------ #
-
-# Map sympy node class → (pset function name, arity) for non-arithmetic ops.
-SYMPY_TO_PSET = {
-    sp.exp:  "protected_exp",
-    sp.log:  "protected_log",
-    sp.sin:  "sin",
-    sp.cos:  "cos",
-    sp.Abs:  "protected_sqrt",
-}
-_PSET_BY_NAME = {f.name: f for f in pset.functions}
-_TERMINAL_BY_NAME = {t.name: t for t in pset.terminals if t.name != "?"}
-_RNC_TERMINAL = next(t for t in pset.terminals if t.name == "?")
-
-
-class _TranslationError(Exception):
-    pass
-
-
-def _emit_sympy_node(expr):
-    """Sympy → ('var', name) | ('rnc', float) | ('func', name, [child_exprs])."""
-    if expr.is_Symbol:
-        if expr.name in _TERMINAL_BY_NAME:
-            return ("var", expr.name)
-        raise _TranslationError(f"Symbol {expr.name} not in pset")
-    if expr.is_Number:
-        return ("rnc", float(expr))
-    if expr.is_Add:
-        args = list(expr.args)
-        if len(args) == 1:
-            return _emit_sympy_node(args[0])
-        left = args[0]
-        right = sp.Add(*args[1:], evaluate=False) if len(args) > 2 else args[1]
-        return ("func", "add", [left, right])
-    if expr.is_Mul:
-        symbolic = [a for a in expr.args if not a.is_Number]
-        numeric = [a for a in expr.args if a.is_Number]
-        prod = 1
-        for n in numeric:
-            prod = prod * n
-        sign_negative = (prod < 0) if numeric else False
-        if not symbolic:
-            return ("rnc", float(expr))
-        if len(symbolic) == 1:
-            body_expr = symbolic[0]
-        else:
-            body_expr = sp.Mul(*symbolic, evaluate=False)
-        if sign_negative:
-            # Negate via sub(0, body) — sign must survive (can't pass through wrappers).
-            return ("func", "sub", [sp.Integer(0), body_expr])
-        return _emit_sympy_node(body_expr) if body_expr is not expr else ("func", "mul",
-            [symbolic[0],
-             sp.Mul(*symbolic[1:], evaluate=False) if len(symbolic) > 2 else symbolic[1]])
-    if expr.is_Pow:
-        base_, exponent = expr.args
-        if exponent == 2:
-            return ("func", "mul", [base_, base_])
-        if exponent == sp.Rational(1, 2):
-            return ("func", "protected_sqrt", [base_])
-        if exponent == -1:
-            return ("func", "protected_div_zero", [sp.Integer(1), base_])
-        return ("func", "protected_exp",
-                [sp.Mul(exponent, sp.log(sp.Abs(base_)), evaluate=False)])
-    for cls, fname in SYMPY_TO_PSET.items():
-        if isinstance(expr, cls):
-            if fname not in _PSET_BY_NAME:
-                raise _TranslationError(f"pset missing {fname}")
-            return ("func", fname, [expr.args[0]])
-    raise _TranslationError(f"Unhandled sympy node: {type(expr).__name__} {expr}")
-
-
-def _sympy_to_karva_head(expr, rnc_lo, rnc_hi, head_length):
-    """BFS-expand sympy expr → (head_symbols_list, rnc_array, rnc_indices_used).
-
-    head_symbols_list may be SHORTER than head_length; caller pads.
-    Constants are rounded to nearest int in [rnc_lo, rnc_hi] (LSM absorbs
-    magnitude loss for outer prefactors; inner constants lose some precision).
-    """
-    head_symbols = []
-    rnc_array = []
-    rnc_indices_used = []
-    queue = [expr]
-    while queue and len(head_symbols) < head_length:
-        cur = queue.pop(0)
-        kind = _emit_sympy_node(cur)
-        if kind[0] == "var":
-            head_symbols.append(_TERMINAL_BY_NAME[kind[1]])
-        elif kind[0] == "rnc":
-            head_symbols.append(_RNC_TERMINAL)
-            v = int(round(kind[1]))
-            v = max(rnc_lo, min(rnc_hi, v))
-            rnc_array.append(v)
-            rnc_indices_used.append(len(rnc_array) - 1)
-        else:
-            _, fname, children = kind
-            head_symbols.append(_PSET_BY_NAME[fname])
-            queue.extend(children)
-    if queue:
-        raise _TranslationError(f"Expression too large for head_length={head_length}")
-    return head_symbols, rnc_array, rnc_indices_used
-
-
-def _build_karva_gene(head_symbols, rnc_array, rnc_indices_used):
-    """Take a fresh random gene and overwrite its head + rnc_array + Dc."""
-    g = toolbox.gene_gen()
-    n_head = settings.head_length
-    rnc_len = settings.rnc_array_length
-
-    # Pad head_symbols up to n_head with random terminals.
-    padded = list(head_symbols)
-    while len(padded) < n_head:
-        # Use a random terminal from the existing gene's head (already random).
-        padded.append(g[len(padded)])
-    for i in range(n_head):
-        g[i] = padded[i]
-
-    # rnc_array: ours followed by random fill (the existing array is already random).
-    new_rnc = list(rnc_array)
-    while len(new_rnc) < rnc_len:
-        new_rnc.append(g._rnc_array[len(new_rnc)])
-    g._rnc_array = new_rnc[:rnc_len]
-
-    # Dc tail: overwrite first len(rnc_indices_used) slots.
-    dc_start = n_head + g.tail_length
-    for j, idx in enumerate(rnc_indices_used):
-        if dc_start + j < len(g):
-            g[dc_start + j] = idx
-    return g
-
-
-def _build_fragment_chromosome_from_part(part_expr, parent_wrapper_id):
-    """Translate one sympy part → a chromosome where EVERY gene is that part."""
-    head, rnc_arr, rnc_idx = _sympy_to_karva_head(
-        part_expr,
-        rnc_lo=settings.rnc_lo, rnc_hi=settings.rnc_hi,
-        head_length=settings.head_length,
-    )
-    genes = [_build_karva_gene(head, rnc_arr, rnc_idx)
-             for _ in range(settings.n_genes)]
-    if settings.n_genes > 1:
-        fragment = creator.Individual.from_genes(genes, linker=hgh.avgval)
-    else:
-        fragment = creator.Individual.from_genes(genes, linker=None)
-    fragment.fitness = creator.FitnessMin()
-    fragment.wrapper_id = parent_wrapper_id
-    return fragment
-
-
-_SIMPLIFY_CACHE = {}   # chromosome_str → (simplified_expr, expanded_parts)
-_SIMPLIFY_CACHE_MAX = 500   # cap to avoid unbounded growth
-
-
-def _decompose_winner_to_fragments(winner, gen=None):
-    """Return fragment chromosomes from the simplified+split winner. The
-    sympy simplify+expand+split is CACHED by chromosome string so the same
-    champion sitting in champion island for multiple intra cycles only
-    pays the sympy cost ONCE."""
-    parent_wrapper_id = int(getattr(winner, "wrapper_id", 0)) % N_WRAPPERS
-    parent_fit = float(winner.fitness.values[0]) if winner.fitness.valid else float("inf")
-
-    cache_key = str(winner)
-    if cache_key in _SIMPLIFY_CACHE:
-        parts = _SIMPLIFY_CACHE[cache_key]
-    else:
-        sym_map = hgh.custom_symbolic_function_map()
-        sym_map["protected_sqrt"] = lambda x: sp.sqrt(sp.Abs(x))
-        sym_map["protected_exp"]  = sp.exp
-        sym_map["protected_log"]  = lambda x: sp.log(sp.Abs(x))
-        try:
-            expr = gep.simplify(winner, symbolic_function_map=sym_map)
-        except Exception:
-            _SIMPLIFY_CACHE[cache_key] = []
-            return []
-        try:
-            expr = sp.expand(expr) if not expr.is_Atom else expr
-        except Exception:
-            pass
-        if expr.is_Add:
-            parts = list(expr.args)
-        elif expr.is_Mul:
-            parts = list(expr.args)
-        else:
-            parts = [expr]
-        # Drop pure numeric parts up front.
-        parts = [p for p in parts if not p.is_Number]
-        if len(_SIMPLIFY_CACHE) >= _SIMPLIFY_CACHE_MAX:
-            # Trim oldest half — dict preserves insertion order.
-            for k in list(_SIMPLIFY_CACHE.keys())[: _SIMPLIFY_CACHE_MAX // 2]:
-                del _SIMPLIFY_CACHE[k]
-        _SIMPLIFY_CACHE[cache_key] = parts
-
-    if not parts:
-        return []
-
-    fragments = []
-    for part in parts:
-        try:
-            frag = _build_fragment_chromosome_from_part(part, parent_wrapper_id)
-        except _TranslationError:
-            continue
-        except Exception:
-            continue
-        # Lineage stamp
-        _FRAG_COUNTER[0] += 1
-        frag._frag_id = _FRAG_COUNTER[0]
-        frag._parent_fit = parent_fit
-        frag._parent_wrapper = WRAPPER_NAMES[parent_wrapper_id]
-        frag._gen_created = gen
-        fragments.append(frag)
-    return fragments
-
-
 def _migrate_pump_intra(demes, gen=None):
     """Intra-class pump step — runs every MIGRATION_FREQ_INTRA generations.
 
@@ -1208,10 +976,9 @@ def _migrate_pump_intra(demes, gen=None):
         )
         champ[worst_slot] = promotee   # promotee already has valid fitness
 
-    # Step 2: DENOISE + DEMOTE 1 — best of each champion goes to its intake
-    # (full winner) PLUS its n_genes component fragments. They replace the
-    # intake's worst (1 + n_genes) chromosomes. Champion's best stays
-    # archived intact (we clone the winner before fragmenting).
+    # Step 2: DEMOTE 1 — full clone of each champion's best lands in its
+    # intake's worst slot. Champion's original stays archived intact.
+    # (Component fragmentation removed — never beat parent in practice.)
     for intake_idx, champ_idx in WRAPPER_ISLAND_PAIRS:
         champ = demes[champ_idx]
         intake = demes[intake_idx]
@@ -1221,32 +988,13 @@ def _migrate_pump_intra(demes, gen=None):
         if not valid_champs:
             continue
         best = tools.selBest(valid_champs, 1)[0]
-        # Full winner clone (so champion's original stays in place).
         winner_clone = toolbox.clone(best)
-        # Sympy decomposition: simplify the winner, split top-level Add/Mul,
-        # translate each part back into karva → fresh chromosome where every
-        # gene is the same part (avgval collapses cleanly). Untranslatable
-        # parts are dropped. Replaces the old gene-swap fragmentation that
-        # never beat parent (0/960 in v6 run).
-        # Gate: only decompose if the champion is genuinely good (val_R² ≥ 0.99).
-        # Sympy simplify on a deep multi-gene chromosome is single-threaded
-        # and can hang for minutes. If the winner isn't close to truth, its
-        # fragments are noise too — skip.
-        _best_val_r2 = 1.0 - best.metrics.get("one_minus_r2_va", float("inf")) \
-            if hasattr(best, "metrics") and best.metrics else -float("inf")
-        if _best_val_r2 >= 0.99:
-            fragments = _decompose_winner_to_fragments(best, gen=gen)
-        else:
-            fragments = []
-        arrivals = [winner_clone] + fragments
-        worst_idx = sorted(
+        worst_slot = max(
             range(len(intake)),
             key=lambda k_i: intake[k_i].fitness.values[0]
             if intake[k_i].fitness.valid else float("inf"),
-            reverse=True,
-        )[:len(arrivals)]
-        for slot, arrival in zip(worst_idx, arrivals):
-            intake[slot] = arrival
+        )
+        intake[worst_slot] = winner_clone
 
 
 def _migrate_pump_cross(demes):
@@ -1441,23 +1189,6 @@ else:
                 if _invalid:
                     _rr = list(toolbox.map(toolbox.evaluate, _invalid))
                     assign_fitness_batch(_invalid, _rr)
-            # Lineage capture: every fragment now has valid fitness — record
-            # (frag_fit, parent_fit) so we can tally fragment win-rate later.
-            for _deme in demes:
-                for _ind in _deme:
-                    if hasattr(_ind, "_frag_id") and _ind.fitness.valid:
-                        _FRAG_LINEAGE.append({
-                            "frag_id": _ind._frag_id,
-                            "wrapper": _ind._parent_wrapper,
-                            "parent_fit": _ind._parent_fit,
-                            "child_fit": float(_ind.fitness.values[0]),
-                            "gen_created": _ind._gen_created,
-                            "gen_evaluated": gen,
-                            "beat_parent": float(_ind.fitness.values[0]) < _ind._parent_fit,
-                        })
-                        # Strip lineage markers so this fragment doesn't get
-                        # double-counted in any future migration cycle.
-                        del _ind._frag_id, _ind._parent_fit, _ind._parent_wrapper, _ind._gen_created
             print(f"--------- pump migration: {_fired_label} ---------")
         gen += 1
 
@@ -1784,37 +1515,8 @@ experiment["hof_numerical_recoveries"] = n_numerical
 # ```
 
 # %%
-# Fragment lineage report — how often did denoise-winner fragments beat
-# their parent's fitness? Per-wrapper tally so we can see which wrapper
-# environments benefit most from fragmentation.
-if _FRAG_LINEAGE:
-    print("\n=== Fragment lineage (denoise-winner step) ===")
-    total = len(_FRAG_LINEAGE)
-    beat = sum(1 for r in _FRAG_LINEAGE if r["beat_parent"])
-    print(f"Total fragments evaluated : {total}")
-    print(f"Beat parent fitness       : {beat} ({100*beat/total:.1f}%)")
-    print(f"\nPer-wrapper breakdown:")
-    print(f"{'wrapper':<10s}  {'n_frags':>8s}  {'n_beat':>7s}  {'win_rate':>9s}  {'mean_improvement':>17s}")
-    for w in WRAPPER_NAMES:
-        rows = [r for r in _FRAG_LINEAGE if r["wrapper"] == w]
-        if not rows:
-            continue
-        nw = len(rows)
-        bw = sum(1 for r in rows if r["beat_parent"])
-        # mean improvement = mean(parent - child) for fragments that beat their parent
-        improvers = [r["parent_fit"] - r["child_fit"] for r in rows if r["beat_parent"]]
-        mi = sum(improvers) / len(improvers) if improvers else 0.0
-        print(f"{w:<10s}  {nw:>8d}  {bw:>7d}  {100*bw/nw:>8.1f}%  {mi:>17.6e}")
-    experiment["fragment_total"] = total
-    experiment["fragment_beat_parent"] = beat
-    experiment["fragment_win_rate"] = beat / total
-    experiment["fragment_lineage"] = _FRAG_LINEAGE  # full log if you want it
-else:
-    print("(no fragment lineage data — pump topology not active or no migrations fired)")
-
 import json
-print(json.dumps({k: v for k, v in experiment.items() if k != "fragment_lineage"},
-                 sort_keys=False, indent=4, default=str))
+print(json.dumps(experiment, sort_keys=False, indent=4, default=str))
 
 # %%
 # Clean pool shutdown — explicit close + join avoids the
