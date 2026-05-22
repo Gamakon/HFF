@@ -161,7 +161,17 @@ def detect_var_patterns(variables: Sequence[str]):
         m = re.match(r"^([a-zA-Z_]+)(\d+)$", v)
         if m:
             by_prefix[m.group(1)].append(int(m.group(2)))
-    pair_families = [k for k, idxs in by_prefix.items() if len(idxs) >= 2]
+    # Only count a prefix family as paired_numbered if the alpha prefix
+    # is in the physics-name allowlist. Defined below in the rule
+    # section; referenced by name to avoid a forward-decl. The detector
+    # is conservative: if the allowlist isn't loaded yet (during module
+    # import), fall back to the old behaviour.
+    allow = globals().get("PHYSICS_PREFIX_ALLOWLIST", None)
+    if allow is not None:
+        pair_families = [k for k, idxs in by_prefix.items()
+                         if len(idxs) >= 2 and k in allow]
+    else:
+        pair_families = [k for k, idxs in by_prefix.items() if len(idxs) >= 2]
     if pair_families:
         tags.add("paired_numbered")
     if "c" in vset and (vset & {"v", "u", "w"}):
@@ -307,12 +317,40 @@ def _rule_pairwise_xy_product_static(ctx):
     return out
 
 
+# Allowlist of alpha-prefix tokens that, when followed by a digit (e.g.
+# m1, r2, theta1, q3), are recognised as physics families and allowed
+# to fire the prefix-based rules (prefix_sum_sq, harmonic, reciprocal_diff).
+# Empirical scan of 93 PMLB datasets showed that *any* alpha-prefix+digit
+# pattern (oz1..oz6, In1..In10, attr1..attr36, x0..x123) triggered
+# false positives — physics-style prefixes are the only meaningful ones.
+PHYSICS_PREFIX_ALLOWLIST = frozenset({
+    "m", "r", "q", "v", "u", "w", "p",
+    "theta", "phi", "psi", "alpha", "beta", "gamma", "omega", "lambda",
+    "lambd", "sigma", "tau", "mu", "rho", "epsilon", "kappa",
+    "I", "E", "B", "F", "T", "k", "n", "d",
+    "x", "y", "z", "t",
+})
+
+# Above how many features does the data-only sum_sq_all rule become
+# garbage on wild data? Empirical: at 124 features (Tecator) it
+# dominated HFF on val with a meaningless aggregate. Cap at 8 — enough
+# for Feynman kinetic-energy shapes (v²+u²+w², 3 features) but blocks
+# wild high-dim datasets where the aggregate has no physical meaning.
+SUM_SQ_ALL_MAX_FEATURES = 8
+
+
 def _rule_squared_sum_static(ctx):
-    """R0b: Σ v_i² across every input variable."""
+    """R0b: Σ v_i² across every input variable.
+
+    Gated by SUM_SQ_ALL_MAX_FEATURES — only fires when the input dim is
+    small enough that an all-features aggregate is plausibly physical
+    (e.g. velocity components v² + u² + w²)."""
+    variables = ctx["variables"]
+    if len(variables) > SUM_SQ_ALL_MAX_FEATURES:
+        return []
     train = ctx["train"]
     validation = ctx["validation"]
     extrapolation = ctx["extrapolation"]
-    variables = ctx["variables"]
     raw_train = np.zeros(len(train), dtype=np.float64)
     raw_val = np.zeros(len(validation), dtype=np.float64)
     raw_extr = np.zeros(len(extrapolation), dtype=np.float64)
@@ -325,13 +363,20 @@ def _rule_squared_sum_static(ctx):
 
 
 def _rule_prefix_squared_sum_static(ctx):
-    """R0c: Σ v_i² per same-prefix family (≥2 elements)."""
+    """R0c: Σ v_i² per same-prefix family (≥2 elements).
+
+    Gated by PHYSICS_PREFIX_ALLOWLIST — only fires when the alpha prefix
+    is a recognised physics token (m, r, theta, ...). Prevents the
+    detector from firing on synthetic columns like oz1..oz6, In1..In10,
+    attr1..attr36, x0..x123 which carry no physics meaning."""
     out = []
     train = ctx["train"]
     validation = ctx["validation"]
     extrapolation = ctx["extrapolation"]
     for prefix, idxs in ctx["by_prefix"].items():
         if len(idxs) < 2:
+            continue
+        if prefix not in PHYSICS_PREFIX_ALLOWLIST:
             continue
         vars_in = [f"{prefix}{i}" for i in sorted(idxs)]
         raw_train = np.zeros(len(train), dtype=np.float64)
