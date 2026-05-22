@@ -239,19 +239,6 @@ class HFFSRConfig:
     adaptive_pop_intake_max: int = 500
     adaptive_grow_factor: float = 1.25
     adaptive_shrink_factor: float = 0.80
-    # E22 — karva→karva learned rewrites
-    # Corpus logging: write (parent, child, ΔHFF) pairs from the per-deme
-    # offspring step. mode="improvement" drops non-negative deltas.
-    corpus_log_path: Optional[str] = None
-    corpus_log_mode: str = "improvement"     # "improvement" | "all"
-    problem_id: str = "unknown"              # tagged on every corpus line
-    # Pump topology: source for new intake individuals.
-    rewrite_rules_path: Optional[str] = None
-    pump_mode: str = "random"                # "random" | "rewrite" | "alternating"
-    pump_rewrite_period: int = 10
-    pump_random_period: int = 10
-    rewrite_top_k_champions: int = 5
-    rewrite_max_rules_per_chrom: int = 3
 
 
 @dataclass
@@ -507,19 +494,6 @@ def _per_metric_mins(population, mode: str = "feynman"):
     return out
 
 
-def _json_dumps_corpus_line(parent, child, p_fit, c_fit, delta,
-                            problem_id, gen, *, n_genes, head_length) -> str:
-    """Fast JSONL formatter for the E22 corpus hot path."""
-    import json as _json
-    return _json.dumps({
-        "parent": parent, "child": child,
-        "p_fit": float(p_fit), "c_fit": float(c_fit),
-        "delta": float(delta),
-        "problem_id": str(problem_id), "gen": int(gen),
-        "n_genes": int(n_genes), "head_length": int(head_length),
-    })
-
-
 def _gep_apply_modification(population, op, pb):
     for i in range(len(population)):
         if random.random() < pb:
@@ -595,47 +569,6 @@ class HFFSREngine:
         self._pset = pset
         self._bundle = bundle
 
-        # E22 — karva corpus logger (optional).
-        self._corpus_logger = None
-        if cfg.corpus_log_path:
-            try:
-                from _karva_corpus import KarvaCorpusLogger  # local import
-                self._corpus_logger = KarvaCorpusLogger(
-                    cfg.corpus_log_path, mode=cfg.corpus_log_mode
-                )
-                if verbose:
-                    print(
-                        f"[engine] corpus logger: {cfg.corpus_log_path} "
-                        f"(mode={cfg.corpus_log_mode})"
-                    )
-            except Exception as e:
-                if verbose:
-                    print(f"[engine] corpus logger disabled: {e}")
-                self._corpus_logger = None
-
-        # E22 — karva rewriter rules + counters (optional).
-        self._ruleset = None
-        self._pump_calls = 0
-        self._pump_rewrite_fires = 0
-        self._pump_rewrite_fallbacks = 0
-        if cfg.rewrite_rules_path and cfg.pump_mode in ("rewrite", "alternating"):
-            try:
-                from _karva_rewriter import load_rules
-                self._ruleset = load_rules(
-                    cfg.rewrite_rules_path,
-                    head_length=cfg.head_length, n_genes=cfg.n_genes,
-                )
-                if verbose:
-                    print(
-                        f"[engine] rewrite ruleset: {cfg.rewrite_rules_path} "
-                        f"(n_rules={len(self._ruleset)}, hash={self._ruleset.rules_hash}, "
-                        f"mode={cfg.pump_mode})"
-                    )
-            except Exception as e:
-                if verbose:
-                    print(f"[engine] rewrite rules disabled: {e}")
-                self._ruleset = None
-
         # Build evolution state: demes, HOF, log.
         hof = tools.HallOfFame(cfg.champs)
         self._hof = hof
@@ -666,10 +599,6 @@ class HFFSREngine:
         _last_calibration_gen = 0
 
         _won_holdout = False
-        try:
-            from _karva_corpus import serialise_chromosome as _karva_ser
-        except Exception:
-            _karva_ser = None
 
         while gen <= target_gen:
             gen_start = time.perf_counter()
@@ -685,21 +614,6 @@ class HFFSREngine:
                 elites = tools.selBest(deme, k=cfg.num_elites)
                 offspring = tools.selTournament(deme, len(deme) - cfg.num_elites, tournsize=ts)
                 offspring = [toolbox.clone(ind) for ind in offspring]
-                # E22 corpus: snapshot parent karva + parent fitness BEFORE
-                # any mutation/crossover, aligned by offspring index.
-                parent_snapshot = None
-                if self._corpus_logger is not None and _karva_ser is not None:
-                    parent_snapshot = []
-                    for ind in offspring:
-                        try:
-                            p_fit = (float(ind.fitness.values[0])
-                                     if (ind.fitness is not None and ind.fitness.valid)
-                                     else None)
-                            parent_snapshot.append(
-                                (_karva_ser(ind), p_fit)
-                            )
-                        except Exception:
-                            parent_snapshot.append((None, None))
                 for op in toolbox.pbs:
                     if op.startswith("mut"):
                         offspring = _gep_apply_modification(offspring, getattr(toolbox, op), toolbox.pbs[op])
@@ -711,32 +625,6 @@ class HFFSREngine:
                 if invalid_ind:
                     raw_results = [evaluate_one(ind) for ind in invalid_ind]
                     _assign_fitness_batch(invalid_ind, raw_results, cfg)
-                # E22 corpus: now that children have fitnesses, log pairs.
-                if (self._corpus_logger is not None and parent_snapshot is not None
-                        and _karva_ser is not None):
-                    for child, (p_karva, p_fit) in zip(offspring, parent_snapshot):
-                        if p_karva is None or p_fit is None:
-                            continue
-                        if not (child.fitness is not None and child.fitness.valid):
-                            continue
-                        try:
-                            c_fit = float(child.fitness.values[0])
-                            c_karva = _karva_ser(child)
-                            if c_karva == p_karva:
-                                continue
-                            delta = c_fit - p_fit
-                            if cfg.corpus_log_mode == "improvement" and delta >= 0.0:
-                                continue
-                            self._corpus_logger._fh.write(
-                                _json_dumps_corpus_line(
-                                    p_karva, c_karva, p_fit, c_fit, delta,
-                                    cfg.problem_id, gen,
-                                    n_genes=len(child),
-                                    head_length=child[0].head_length,
-                                ) + "\n"
-                            )
-                        except Exception:
-                            continue
                 hof.update(deme)
 
             # Per-gen verbose summary across demes.
@@ -757,40 +645,6 @@ class HFFSREngine:
             if self._maybe_early_stop(demes, toolbox, hof, bundle, gen, verbose):
                 _won_holdout = True
                 break
-
-            # E22 — in-run re-mine + reload rules from the live corpus
-            # on the same drum beat as intra-migration. The corpus logger
-            # must be active and writing to a path we can re-read.
-            if (gen > 0 and gen % cfg.migration_freq_intra == 0
-                    and self._corpus_logger is not None
-                    and cfg.corpus_log_path
-                    and cfg.pump_mode in ("rewrite", "alternating")):
-                try:
-                    self._corpus_logger._fh.flush()
-                    from _mine_karva_rules import iter_pairs, mine_rules
-                    from _karva_rewriter import RuleSet
-                    mined = mine_rules(
-                        iter_pairs([cfg.corpus_log_path]),
-                        min_count=2, min_problems=1,
-                        max_input_tokens=8, require_improvement=True,
-                    )
-                    geom_rules = [r for r in mined
-                                  if r["head_length"] == cfg.head_length
-                                  and r["n_genes"] == cfg.n_genes]
-                    rs_rules = [{
-                        "in": tuple(r["in"]), "out": tuple(r["out"]),
-                        "count": r["count"], "mean_delta": r["mean_delta"],
-                        "impact": r["impact"],
-                    } for r in geom_rules]
-                    self._ruleset = RuleSet(
-                        rs_rules, head_length=cfg.head_length, n_genes=cfg.n_genes,
-                    )
-                    if verbose:
-                        print(f"[engine] gen {gen}: re-mined {len(rs_rules)} rules "
-                              f"(hash={self._ruleset.rules_hash})")
-                except Exception as e:
-                    if verbose:
-                        print(f"[engine] gen {gen}: re-mine failed: {e}")
 
             # Migration cycle (pump topology).
             if gen > 0 and gen % cfg.migration_freq_intra == 0:
@@ -817,11 +671,6 @@ class HFFSREngine:
             gen += 1
 
         self.fit_seconds_ = time.perf_counter() - fit_start
-        if self._corpus_logger is not None:
-            try:
-                self._corpus_logger.close()
-            except Exception:
-                pass
         self._extract_best(hof, bundle, toolbox, var_ranges, verbose=verbose)
         return self
 
@@ -932,67 +781,6 @@ class HFFSREngine:
         champ_idxs = [i for i, r in enumerate(roles) if r == "champion"]
         return list(zip(intake_idxs, champ_idxs))
 
-    def _pump_source(self, gen: int, champion_pool: list, toolbox):
-        """Return a thunk producing ONE new intake individual.
-
-        Either ``toolbox.individual()`` (random) or
-        ``_karva_rewriter.rewrite_one(parent, ...)`` where parent is a
-        random pick from the top-k champions. Falls back to random if
-        the rewriter returns None (no rule matched).
-        """
-        cfg = self.config
-        rs = self._ruleset
-        mode = cfg.pump_mode
-
-        if mode == "random" or rs is None or not champion_pool:
-            return toolbox.individual
-
-        # Decide whether THIS pump call uses rewriting or random.
-        use_rewrite = True
-        if mode == "alternating":
-            period = max(1, cfg.pump_rewrite_period + cfg.pump_random_period)
-            phase = (gen // max(1, cfg.pump_rewrite_period)) % 2
-            # phase 0 = rewrite half-cycle, phase 1 = random half-cycle
-            use_rewrite = (phase == 0)
-
-        if not use_rewrite:
-            return toolbox.individual
-
-        # Build the top-k pool from the champion_pool.
-        k = max(1, cfg.rewrite_top_k_champions)
-        valid_champs = [c for c in champion_pool
-                        if getattr(c, "fitness", None) is not None and c.fitness.valid]
-        if not valid_champs:
-            return toolbox.individual
-        top = tools.selBest(valid_champs, min(k, len(valid_champs)))
-
-        try:
-            from _karva_rewriter import rewrite_one as _rewrite_one
-        except Exception:
-            return toolbox.individual
-
-        Individual = type(top[0])
-        max_rules = cfg.rewrite_max_rules_per_chrom
-        rng = random  # module-level random; seeded once in fit()
-        pset = self._pset
-
-        def _make():
-            self._pump_calls += 1
-            parent = rng.choice(top)
-            child = _rewrite_one(
-                parent, rs, rng,
-                pset=pset, Individual=Individual,
-                wrapper_id_rand=lambda: random.randrange(N_WRAPPERS),
-                n_rules_max=max_rules,
-            )
-            if child is None:
-                self._pump_rewrite_fallbacks += 1
-                return toolbox.individual()
-            self._pump_rewrite_fires += 1
-            return child
-
-        return _make
-
     def _migrate_pump_intra(self, demes, toolbox, pairs, evaluate_one, *, gen: int = 0):
         cfg = self.config
         for intake_idx, champ_idx in pairs:
@@ -1026,13 +814,7 @@ class HFFSREngine:
             n_keep = max(1, int(round(target_size * 0.20)))
             keepers = dedup[:n_keep]
             n_fresh = target_size - len(keepers)
-            # Pump source: rewrite-based if rules loaded, else random.
-            champ_pool = tools.selBest(
-                [c for c in champ if getattr(c, "fitness", None) is not None and c.fitness.valid],
-                cfg.rewrite_top_k_champions,
-            ) if champ else []
-            src = self._pump_source(gen, champ_pool, toolbox)
-            fresh = [src() for _ in range(n_fresh)]
+            fresh = [toolbox.individual() for _ in range(n_fresh)]
             intake[:] = keepers + fresh
         for deme in demes:
             invalid = [ind for ind in deme if not ind.fitness.valid]
@@ -1053,12 +835,6 @@ class HFFSREngine:
             else:
                 top = list(valid) + list(champ[:cfg.k_migrants - len(valid)])
             pool_by_champ[champ_idx] = [toolbox.clone(ind) for ind in top]
-
-        # Union of all champion pools, used as the rewrite parent pool when
-        # pump_mode is 'rewrite' or 'alternating'.
-        full_champ_pool = []
-        for inds in pool_by_champ.values():
-            full_champ_pool.extend(inds)
 
         for intake_idx, own_champ_idx in pairs:
             intake = demes[intake_idx]
@@ -1089,9 +865,8 @@ class HFFSREngine:
                 if cloned.fitness.valid:
                     del cloned.fitness.values
                 arrivals.append(cloned)
-            src = self._pump_source(gen, full_champ_pool, toolbox)
             while len(arrivals) < n_to_fill:
-                arrivals.append(src())
+                arrivals.append(toolbox.individual())
             intake[:] = keepers + arrivals
         for deme in demes:
             invalid = [ind for ind in deme if not ind.fitness.valid]
@@ -1102,17 +877,10 @@ class HFFSREngine:
         cfg = self.config
         for deme in demes:
             seen = set()
-            # Champion pool for this deme = its own top-k valid by fitness.
-            champ_pool = tools.selBest(
-                [c for c in deme
-                 if getattr(c, "fitness", None) is not None and c.fitness.valid],
-                cfg.rewrite_top_k_champions,
-            )
-            src = self._pump_source(gen, champ_pool, toolbox)
             for i, ind in enumerate(deme):
                 key = str(ind)
                 if key in seen:
-                    deme[i] = src()
+                    deme[i] = toolbox.individual()
                 else:
                     seen.add(key)
         for deme in demes:
@@ -1171,13 +939,7 @@ class HFFSREngine:
             deme = demes[i]
             if new_size > len(deme):
                 # Grow: append fresh individuals (re-eval on next gen).
-                champ_pool = tools.selBest(
-                    [c for c in deme
-                     if getattr(c, "fitness", None) is not None and c.fitness.valid],
-                    self.config.rewrite_top_k_champions,
-                )
-                src = self._pump_source(_gen or gen, champ_pool, toolbox)
-                deme.extend(src() for _ in range(new_size - len(deme)))
+                deme.extend(toolbox.individual() for _ in range(new_size - len(deme)))
             else:
                 # Shrink: keep the best (n new_size by fitness).
                 deme.sort(key=lambda x: x.fitness.values[0]
