@@ -117,7 +117,10 @@ class HFFSymbolicRegressor(BaseEstimator, RegressorMixin):
         X_arr = np.asarray(X)
         if X_arr.ndim == 1:
             X_arr = X_arr.reshape(-1, 1)
-        cols = [f"x{i}" for i in range(X_arr.shape[1])]
+        # 'col_N' (embedded underscore) breaks any ^[a-zA-Z]+\d+$ regex
+        # that would otherwise treat the placeholder columns as a
+        # paired_numbered physics family.
+        cols = [f"col_{i}" for i in range(X_arr.shape[1])]
         return pd.DataFrame(X_arr, columns=cols)
 
     def _split(self, X: pd.DataFrame, y: np.ndarray):

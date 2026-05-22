@@ -328,38 +328,19 @@ PHYSICS_PREFIX_ALLOWLIST = frozenset({
     "theta", "phi", "psi", "alpha", "beta", "gamma", "omega", "lambda",
     "lambd", "sigma", "tau", "mu", "rho", "epsilon", "kappa",
     "I", "E", "B", "F", "T", "k", "n", "d",
-    "x", "y", "z", "t",
+    # NOTE: 'x', 'y', 'z', 't' deliberately EXCLUDED. The 'x_y_pairs' /
+    # 'x_y_z_triples' tags already cover legitimate coordinate use in
+    # Feynman; including them here would re-open the PMLB false-positive
+    # pipe (215_2dplanes, 344_mv, and any synthetic 'xN' columns).
 })
 
-# Above how many features does the data-only sum_sq_all rule become
-# garbage on wild data? Empirical: at 124 features (Tecator) it
-# dominated HFF on val with a meaningless aggregate. Cap at 8 — enough
-# for Feynman kinetic-energy shapes (v²+u²+w², 3 features) but blocks
-# wild high-dim datasets where the aggregate has no physical meaning.
-SUM_SQ_ALL_MAX_FEATURES = 8
-
-
-def _rule_squared_sum_static(ctx):
-    """R0b: Σ v_i² across every input variable.
-
-    Gated by SUM_SQ_ALL_MAX_FEATURES — only fires when the input dim is
-    small enough that an all-features aggregate is plausibly physical
-    (e.g. velocity components v² + u² + w²)."""
-    variables = ctx["variables"]
-    if len(variables) > SUM_SQ_ALL_MAX_FEATURES:
-        return []
-    train = ctx["train"]
-    validation = ctx["validation"]
-    extrapolation = ctx["extrapolation"]
-    raw_train = np.zeros(len(train), dtype=np.float64)
-    raw_val = np.zeros(len(validation), dtype=np.float64)
-    raw_extr = np.zeros(len(extrapolation), dtype=np.float64)
-    for v in variables:
-        raw_train += train[v].values ** 2
-        raw_val += validation[v].values ** 2
-        raw_extr += extrapolation[v].values ** 2
-    sym_expr = sum(sp.Symbol(v) ** 2 for v in variables)
-    return [("sum_sq", raw_train, raw_val, raw_extr, sym_expr)]
+# NOTE: _rule_squared_sum_static (sum of ALL features squared) used to
+# live here. It was removed because it produced harmful candidates on
+# wild data — Σ feature² across same-row but DIFFERENT-units columns
+# (salary², temperature²·month², etc.) is meaningless and only helped
+# when the input WAS a same-unit family. That legitimate case is
+# already covered by either kinetic_energy (fires on m + ≥2 of v/u/w)
+# or prefix_sum_sq (fires on same-prefix numbered families).
 
 
 def _rule_prefix_squared_sum_static(ctx):
@@ -1085,7 +1066,6 @@ def _rule_radiated_power_static(ctx):
 # Canonical registry. Order is preserved; new rules go at the end.
 RULE_BUILDERS: list[tuple[str, Callable]] = [
     ("pairwise_xy_product", _rule_pairwise_xy_product_static),
-    ("sum_sq_all",          _rule_squared_sum_static),
     ("prefix_sum_sq",       _rule_prefix_squared_sum_static),
     ("lorentz_factor",      _rule_lorentz_factor_static),
     ("euclidean_distance",  _rule_euclidean_distance_static),
@@ -1686,7 +1666,10 @@ class HFFSREngine:
             X_arr = np.asarray(X)
             if X_arr.ndim == 1:
                 X_arr = X_arr.reshape(-1, 1)
-            cols = [f"x{i}" for i in range(X_arr.shape[1])]
+            # Use 'col_N' so the embedded underscore breaks any
+            # regex of the form ^[a-zA-Z]+\d+$ that would otherwise
+            # cluster these as a paired_numbered physics family.
+            cols = [f"col_{i}" for i in range(X_arr.shape[1])]
             df = pd.DataFrame(X_arr, columns=cols)
         df = df.reset_index(drop=True)
         df["target"] = np.asarray(y).ravel()
