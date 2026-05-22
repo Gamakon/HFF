@@ -1,8 +1,19 @@
 """HFF Python API — column normalization and convenience wrappers over Rust."""
 
+import os
+
 import numpy as np
 
 from hff import hff_core
+
+
+# Opt-in GPU path. Set HFF_GPU=1 to route truenorth batches to the wgpu
+# compute pipeline (when the Rust core was built with --features gpu).
+# Falls back to CPU silently if the symbol or device is missing.
+_HFF_GPU_ENABLED = bool(os.environ.get("HFF_GPU"))
+_HFF_GPU_SYMBOL = getattr(
+    hff_core, "calculate_hyperspherical_fitness_hf1_enhanced_gpu", None
+)
 
 
 def calculate_fitness_hf1(
@@ -58,6 +69,14 @@ def calculate_fitness_hf1_enhanced(
         objectives = objectives.reshape(1, -1)
     if objectives.shape[0] == 0:
         return np.array([])
+    # GPU path — opt-in via HFF_GPU=1, only for truenorth (the GPU shader's
+    # only supported pole method today). Decrowding stays on CPU.
+    if (_HFF_GPU_ENABLED and _HFF_GPU_SYMBOL is not None
+            and north_pole_method == "truenorth" and not decrowding):
+        try:
+            return _HFF_GPU_SYMBOL(objectives, north_pole_method, normalize)
+        except Exception:
+            pass  # fall through to CPU on any error
     # The Rust core handles its own normalisation when `normalize=True` —
     # we no longer double-normalise in Python.
     return hff_core.calculate_hyperspherical_fitness_hf1_enhanced(

@@ -12,8 +12,6 @@ import from this module so they remain numerically in lockstep.
 Public API:
     - ``HFFSRConfig`` (dataclass): all knobs
     - ``HFFSREngine`` (class): ``fit(...)`` + ``predict(X)``
-    - ``RULE_BUILDERS`` (list[(name, callable)]): the canonical rule registry
-    - ``build_static_candidates(ctx)``: build all rule candidates for a problem
     - ``detect_var_patterns(variables)``: pattern tag detector
 """
 
@@ -71,11 +69,6 @@ def _w_sqrt_abs(x):
 WRAPPER_FUNCS: list[Callable] = [_w_identity, _w_log_abs, _w_sqrt_abs]
 WRAPPER_NAMES: list[str] = ["identity", "log_abs", "sqrt_abs"]
 N_WRAPPERS = len(WRAPPER_FUNCS)
-
-# Static rules pack their winning expression into wrapper_id ≥ this offset
-# so the post-run code can distinguish a chromosome-wrapper win from a
-# rule-library win.
-RULE_WRAPPER_ID_OFFSET = 100
 
 METRIC_NAMES = ["mse_tr", "mse_va", "mse_extrap",
                 "one_minus_r2_tr", "one_minus_r2_va", "one_minus_r2_extrap",
@@ -189,940 +182,6 @@ def detect_var_patterns(variables: Sequence[str]):
         tags.add("no_pattern")
     return tags, xs, ys, zs, dict(by_prefix)
 
-
-# ---------------------------------------------------------------------------
-# Per-candidate scoring helpers. Each rule builder returns
-# ``list[(label, raw_train, raw_val, raw_extr, sym_expr)]``.
-# These helpers fit LSM (a, b) and build the {wrapper_id, vec, a, b, metrics}
-# payload that joins the per-individual HFF batch.
-# ---------------------------------------------------------------------------
-
-def _safe_div(a, b):
-    """Element-wise division with zero protection."""
-    out = np.zeros_like(a, dtype=np.float64)
-    mask = np.abs(b) > 1e-12
-    out[mask] = a[mask] / b[mask]
-    return out
-
-
-def _vec_from_pred(ctx, pred_train, pred_val, pred_extr):
-    """Build the HFF objective vec from prediction arrays.
-
-    Mode-dependent:
-      - ``wild_regression``: 6D
-          [mse_tr, mse_va, 1-R²_tr, 1-R²_va, mae_tr, mae_va]
-      - ``feynman``: 9D — same six PLUS extrap entries
-          [mse_tr, mse_va, mse_extrap,
-           1-R²_tr, 1-R²_va, 1-R²_extrap,
-           mae_tr, mae_va, mae_extrap]
-
-    max_err is intentionally NOT in either vec — MSE + 1-R² + MAE cover
-    the ranking signal with three independent measures.
-    """
-    Y = ctx["Y"]
-    Y_val = ctx["Y_val"]
-    mode = ctx.get("mode", "feynman")
-    var_tr = float(np.var(Y))
-    var_va = float(np.var(Y_val))
-    mse_tr = float(np.mean((Y - pred_train) ** 2))
-    mse_va = float(np.mean((Y_val - pred_val) ** 2))
-    mae_tr = float(np.mean(np.abs(Y - pred_train)))
-    mae_va = float(np.mean(np.abs(Y_val - pred_val)))
-    one_minus_r2_tr = mse_tr / var_tr if var_tr > 0 else float("inf")
-    one_minus_r2_va = mse_va / var_va if var_va > 0 else float("inf")
-    if mode == "wild_regression":
-        return [mse_tr, mse_va, one_minus_r2_tr, one_minus_r2_va, mae_tr, mae_va]
-    # Feynman (default)
-    Y_extrap = ctx["Y_extrap"]
-    var_extrap = float(np.var(Y_extrap))
-    mse_extrap = float(np.mean((Y_extrap - pred_extr) ** 2))
-    mae_extrap = float(np.mean(np.abs(Y_extrap - pred_extr)))
-    one_minus_r2_extrap = mse_extrap / var_extrap if var_extrap > 0 else float("inf")
-    return [mse_tr, mse_va, mse_extrap,
-            one_minus_r2_tr, one_minus_r2_va, one_minus_r2_extrap,
-            mae_tr, mae_va, mae_extrap]
-
-
-def _lsm_fit(ctx, raw_train, raw_val, raw_extr):
-    """Fit (a, b) on train; return (a, b, pred_train, pred_val, pred_extr).
-    ``raw_extr`` may be None in wild-data modes; pred_extr is then None too."""
-    Y = ctx["Y"]
-    if raw_train is None or raw_val is None:
-        return None
-    if np.allclose(raw_train - raw_train.mean(), 0.0):
-        return None
-    Q = np.hstack((raw_train.reshape(-1, 1), np.ones((len(raw_train), 1))))
-    try:
-        (a, b), *_ = np.linalg.lstsq(Q, Y, rcond=None)
-    except np.linalg.LinAlgError:
-        return None
-    if not (np.isfinite(a) and np.isfinite(b)):
-        return None
-    pred_extr = (a * raw_extr + b) if raw_extr is not None else None
-    return (float(a), float(b),
-            a * raw_train + b, a * raw_val + b, pred_extr)
-
-
-def _candidate_from_pred(ctx, rule_idx, raw_train, raw_val, raw_extr):
-    """LSM-fit raw arrays + build candidate dict.  Returns None if non-finite.
-
-    For ``wild_regression`` mode, raw_extr can be None — rules ignore the
-    extrap arrays in that mode.
-    """
-    mode = ctx.get("mode", "feynman")
-    if raw_train is None or raw_val is None:
-        return None
-    if mode == "feynman" and raw_extr is None:
-        return None
-    if not (np.all(np.isfinite(raw_train)) and np.all(np.isfinite(raw_val))):
-        return None
-    if raw_extr is not None and not np.all(np.isfinite(raw_extr)):
-        return None
-    if ctx["enable_linear_scaling"]:
-        fit = _lsm_fit(ctx, raw_train, raw_val, raw_extr)
-        if fit is None:
-            return None
-        a, b, pred_train, pred_val, pred_extr = fit
-    else:
-        a, b = 1.0, 0.0
-        pred_train, pred_val, pred_extr = raw_train, raw_val, raw_extr
-    vec = _vec_from_pred(ctx, pred_train, pred_val, pred_extr)
-    if not all(np.isfinite(vec)):
-        return None
-    names = (WILD_REGRESSION_METRIC_NAMES if mode == "wild_regression"
-             else METRIC_NAMES)
-    return {
-        "wrapper_id": RULE_WRAPPER_ID_OFFSET + rule_idx,
-        "vec": vec,
-        "a": a,
-        "b": b,
-        "metrics": dict(zip(names, vec)),
-    }
-
-
-# ---------------------------------------------------------------------------
-# Rule library. Every builder takes ``ctx`` and returns a list of tuples
-# ``(label, raw_train, raw_val, raw_extr, sym_expr)`` — no module globals.
-# ``ctx`` keys consumed by rules: train/val/extrap (DataFrames), variables,
-# tags, xs/ys/zs, by_prefix.
-# ---------------------------------------------------------------------------
-
-def _rule_pairwise_xy_product_static(ctx):
-    """R0a: Σ x_i·y_i over every non-empty subset of (x_i, y_i) pairs."""
-    out = []
-    if "x_y_pairs" not in ctx["tags"]:
-        return out
-    train = ctx["train"]
-    validation = ctx["validation"]
-    extrapolation = ctx["extrapolation"]
-    pairs = list(zip(ctx["xs"], ctx["ys"]))
-    for k in range(1, len(pairs) + 1):
-        for combo in combinations(pairs, k):
-            label = "+".join(f"{a}*{b}" for a, b in combo)
-            raw_train = np.zeros(len(train), dtype=np.float64)
-            raw_val = np.zeros(len(validation), dtype=np.float64)
-            raw_extr = np.zeros(len(extrapolation), dtype=np.float64)
-            for a, b in combo:
-                raw_train += train[a].values * train[b].values
-                raw_val += validation[a].values * validation[b].values
-                raw_extr += extrapolation[a].values * extrapolation[b].values
-            sym_expr = sum(sp.Symbol(a) * sp.Symbol(b) for a, b in combo)
-            out.append((label, raw_train, raw_val, raw_extr, sym_expr))
-    return out
-
-
-# Allowlist of alpha-prefix tokens that, when followed by a digit (e.g.
-# m1, r2, theta1, q3), are recognised as physics families and allowed
-# to fire the prefix-based rules (prefix_sum_sq, harmonic, reciprocal_diff).
-# Empirical scan of 93 PMLB datasets showed that *any* alpha-prefix+digit
-# pattern (oz1..oz6, In1..In10, attr1..attr36, x0..x123) triggered
-# false positives — physics-style prefixes are the only meaningful ones.
-PHYSICS_PREFIX_ALLOWLIST = frozenset({
-    "m", "r", "q", "v", "u", "w", "p",
-    "theta", "phi", "psi", "alpha", "beta", "gamma", "omega", "lambda",
-    "lambd", "sigma", "tau", "mu", "rho", "epsilon", "kappa",
-    "I", "E", "B", "F", "T", "k", "n", "d",
-    # NOTE: 'x', 'y', 'z', 't' deliberately EXCLUDED. The 'x_y_pairs' /
-    # 'x_y_z_triples' tags already cover legitimate coordinate use in
-    # Feynman; including them here would re-open the PMLB false-positive
-    # pipe (215_2dplanes, 344_mv, and any synthetic 'xN' columns).
-})
-
-# NOTE: _rule_squared_sum_static (sum of ALL features squared) used to
-# live here. It was removed because it produced harmful candidates on
-# wild data — Σ feature² across same-row but DIFFERENT-units columns
-# (salary², temperature²·month², etc.) is meaningless and only helped
-# when the input WAS a same-unit family. That legitimate case is
-# already covered by either kinetic_energy (fires on m + ≥2 of v/u/w)
-# or prefix_sum_sq (fires on same-prefix numbered families).
-
-
-def _rule_prefix_squared_sum_static(ctx):
-    """R0c: Σ v_i² per same-prefix family (≥2 elements).
-
-    Gated by PHYSICS_PREFIX_ALLOWLIST — only fires when the alpha prefix
-    is a recognised physics token (m, r, theta, ...). Prevents the
-    detector from firing on synthetic columns like oz1..oz6, In1..In10,
-    attr1..attr36, x0..x123 which carry no physics meaning."""
-    out = []
-    train = ctx["train"]
-    validation = ctx["validation"]
-    extrapolation = ctx["extrapolation"]
-    for prefix, idxs in ctx["by_prefix"].items():
-        if len(idxs) < 2:
-            continue
-        if prefix not in PHYSICS_PREFIX_ALLOWLIST:
-            continue
-        vars_in = [f"{prefix}{i}" for i in sorted(idxs)]
-        raw_train = np.zeros(len(train), dtype=np.float64)
-        raw_val = np.zeros(len(validation), dtype=np.float64)
-        raw_extr = np.zeros(len(extrapolation), dtype=np.float64)
-        for v in vars_in:
-            raw_train += train[v].values ** 2
-            raw_val += validation[v].values ** 2
-            raw_extr += extrapolation[v].values ** 2
-        label = "+".join(f"{v}^2" for v in vars_in)
-        sym_expr = sum(sp.Symbol(v) ** 2 for v in vars_in)
-        out.append((label, raw_train, raw_val, raw_extr, sym_expr))
-    return out
-
-
-def _rule_lorentz_factor_static(ctx):
-    """R1: γ = 1/√(1−v²/c²) + m·γ + m·v·γ + (x−v·t)·γ variants."""
-    out = []
-    if "lorentz_pair" not in ctx["tags"]:
-        return out
-    train = ctx["train"]
-    validation = ctx["validation"]
-    extrapolation = ctx["extrapolation"]
-    variables = ctx["variables"]
-    vels = [v for v in ["v", "u", "w"] if v in variables]
-    if "c" not in variables or not vels:
-        return out
-
-    def lorentz_inv(arr_vel, arr_c):
-        ratio = (arr_vel ** 2) / np.maximum(arr_c ** 2, 1e-30)
-        ratio = np.minimum(ratio, 1.0 - 1e-12)
-        return 1.0 / np.sqrt(1.0 - ratio)
-
-    for vel in vels:
-        v_tr = train[vel].values
-        v_va = validation[vel].values
-        v_ex = extrapolation[vel].values
-        c_tr = train["c"].values
-        c_va = validation["c"].values
-        c_ex = extrapolation["c"].values
-        gamma_tr = lorentz_inv(v_tr, c_tr)
-        gamma_va = lorentz_inv(v_va, c_va)
-        gamma_ex = lorentz_inv(v_ex, c_ex)
-        c_sym = sp.Symbol("c")
-        v_sym = sp.Symbol(vel)
-        gamma_sym = 1 / sp.sqrt(1 - v_sym ** 2 / c_sym ** 2)
-        out.append((f"gamma({vel})", gamma_tr, gamma_va, gamma_ex, gamma_sym))
-        for m_name in variables:
-            if m_name in {vel, "c"} or m_name in ("v", "u", "w"):
-                continue
-            m_tr = train[m_name].values
-            m_va = validation[m_name].values
-            m_ex = extrapolation[m_name].values
-            out.append((
-                f"{m_name}*gamma({vel})",
-                m_tr * gamma_tr, m_va * gamma_va, m_ex * gamma_ex,
-                sp.Symbol(m_name) * gamma_sym,
-            ))
-            out.append((
-                f"{m_name}*{vel}*gamma({vel})",
-                m_tr * v_tr * gamma_tr, m_va * v_va * gamma_va, m_ex * v_ex * gamma_ex,
-                sp.Symbol(m_name) * v_sym * gamma_sym,
-            ))
-        if "x" in variables and "t" in variables:
-            x_tr = train["x"].values
-            x_va = validation["x"].values
-            x_ex = extrapolation["x"].values
-            t_tr = train["t"].values
-            t_va = validation["t"].values
-            t_ex = extrapolation["t"].values
-            out.append((
-                f"(x-{vel}*t)*gamma({vel})",
-                (x_tr - v_tr * t_tr) * gamma_tr,
-                (x_va - v_va * t_va) * gamma_va,
-                (x_ex - v_ex * t_ex) * gamma_ex,
-                (sp.Symbol("x") - v_sym * sp.Symbol("t")) * gamma_sym,
-            ))
-    return out
-
-
-def _rule_euclidean_distance_static(ctx):
-    """R2: Sum-of-pair-squares, sqrt(sum), and inverse-square variants."""
-    out = []
-    train = ctx["train"]
-    validation = ctx["validation"]
-    extrapolation = ctx["extrapolation"]
-    variables = ctx["variables"]
-    pairs = list(zip(ctx["xs"], ctx["ys"]))
-    triples = list(zip(ctx["xs"], ctx["ys"], ctx["zs"])) if "x_y_z_triples" in ctx["tags"] else []
-    if not pairs and not triples:
-        return out
-
-    if len(pairs) >= 2:
-        for (a_pair, b_pair) in combinations(pairs, 2):
-            (xa, ya), (xb, yb) = a_pair, b_pair
-            dx_tr = train[xa].values - train[xb].values
-            dx_va = validation[xa].values - validation[xb].values
-            dx_ex = extrapolation[xa].values - extrapolation[xb].values
-            dy_tr = train[ya].values - train[yb].values
-            dy_va = validation[ya].values - validation[yb].values
-            dy_ex = extrapolation[ya].values - extrapolation[yb].values
-            sq_tr = dx_tr ** 2 + dy_tr ** 2
-            sq_va = dx_va ** 2 + dy_va ** 2
-            sq_ex = dx_ex ** 2 + dy_ex ** 2
-            sym = ((sp.Symbol(xa) - sp.Symbol(xb)) ** 2
-                   + (sp.Symbol(ya) - sp.Symbol(yb)) ** 2)
-            out.append((f"({xa}-{xb})^2+({ya}-{yb})^2", sq_tr, sq_va, sq_ex, sym))
-            out.append((f"sqrt(({xa}-{xb})^2+({ya}-{yb})^2)",
-                        np.sqrt(sq_tr), np.sqrt(sq_va), np.sqrt(sq_ex),
-                        sp.sqrt(sym)))
-
-    if len(triples) >= 2:
-        for (a_t, b_t) in combinations(triples, 2):
-            (xa, ya, za), (xb, yb, zb) = a_t, b_t
-            dx_tr = train[xa].values - train[xb].values
-            dx_va = validation[xa].values - validation[xb].values
-            dx_ex = extrapolation[xa].values - extrapolation[xb].values
-            dy_tr = train[ya].values - train[yb].values
-            dy_va = validation[ya].values - validation[yb].values
-            dy_ex = extrapolation[ya].values - extrapolation[yb].values
-            dz_tr = train[za].values - train[zb].values
-            dz_va = validation[za].values - validation[zb].values
-            dz_ex = extrapolation[za].values - extrapolation[zb].values
-            sq_tr = dx_tr ** 2 + dy_tr ** 2 + dz_tr ** 2
-            sq_va = dx_va ** 2 + dy_va ** 2 + dz_va ** 2
-            sq_ex = dx_ex ** 2 + dy_ex ** 2 + dz_ex ** 2
-            sym = ((sp.Symbol(xa) - sp.Symbol(xb)) ** 2
-                   + (sp.Symbol(ya) - sp.Symbol(yb)) ** 2
-                   + (sp.Symbol(za) - sp.Symbol(zb)) ** 2)
-            out.append((f"||p{xa[1:]}-p{xb[1:]}||^2", sq_tr, sq_va, sq_ex, sym))
-            inv_tr = _safe_div(np.ones_like(sq_tr), sq_tr)
-            inv_va = _safe_div(np.ones_like(sq_va), sq_va)
-            inv_ex = _safe_div(np.ones_like(sq_ex), sq_ex)
-            out.append((f"1/||p{xa[1:]}-p{xb[1:]}||^2",
-                        inv_tr, inv_va, inv_ex, 1 / sym))
-            for mass_pref in ("m", "q"):
-                pref_vars = [f"{mass_pref}{i+1}" for i in range(len(triples))]
-                if all(v in variables for v in pref_vars[:2]):
-                    m1_tr = train[pref_vars[0]].values
-                    m2_tr = train[pref_vars[1]].values
-                    m1_va = validation[pref_vars[0]].values
-                    m2_va = validation[pref_vars[1]].values
-                    m1_ex = extrapolation[pref_vars[0]].values
-                    m2_ex = extrapolation[pref_vars[1]].values
-                    base_label = f"{pref_vars[0]}*{pref_vars[1]}/||p{xa[1:]}-p{xb[1:]}||^2"
-                    base_pred_tr = m1_tr * m2_tr * inv_tr
-                    base_pred_va = m1_va * m2_va * inv_va
-                    base_pred_ex = m1_ex * m2_ex * inv_ex
-                    base_sym = sp.Symbol(pref_vars[0]) * sp.Symbol(pref_vars[1]) / sym
-                    out.append((base_label, base_pred_tr, base_pred_va, base_pred_ex, base_sym))
-
-                    coord_vars = set()
-                    for triple in triples:
-                        coord_vars.update(triple)
-                    used = set(pref_vars) | coord_vars
-                    other_scalars = [v for v in variables if v not in used]
-                    for sv in other_scalars:
-                        sv_tr = train[sv].values
-                        sv_va = validation[sv].values
-                        sv_ex = extrapolation[sv].values
-                        out.append((
-                            f"{sv}*{base_label}",
-                            sv_tr * base_pred_tr,
-                            sv_va * base_pred_va,
-                            sv_ex * base_pred_ex,
-                            sp.Symbol(sv) * base_sym,
-                        ))
-    return out
-
-
-def _rule_gaussian_density_static(ctx):
-    """R3: N(var; mu, sigma) = exp(-((v-mu)/sigma)²/2) / (sigma·√(2π))."""
-    out = []
-    if "has_gaussian_input" not in ctx["tags"]:
-        return out
-    train = ctx["train"]
-    validation = ctx["validation"]
-    extrapolation = ctx["extrapolation"]
-    vset = set(ctx["variables"])
-    sqrt2pi = float(np.sqrt(2 * np.pi))
-
-    candidates = []
-    if "theta" in vset:
-        if "sigma" in vset:
-            candidates.append(("theta", None, "sigma"))
-            if "theta1" in vset:
-                candidates.append(("theta", "theta1", "sigma"))
-        else:
-            candidates.append(("theta", None, None))
-    if "theta2" in vset and "sigma" in vset:
-        candidates.append(("theta2", None, "sigma"))
-
-    for var_name, mu_name, sig_name in candidates:
-        v_tr = train[var_name].values
-        v_va = validation[var_name].values
-        v_ex = extrapolation[var_name].values
-        if mu_name is not None:
-            mu_tr = train[mu_name].values
-            mu_va = validation[mu_name].values
-            mu_ex = extrapolation[mu_name].values
-        else:
-            mu_tr = mu_va = mu_ex = 0.0
-        if sig_name is not None:
-            sig_tr = train[sig_name].values
-            sig_va = validation[sig_name].values
-            sig_ex = extrapolation[sig_name].values
-        else:
-            sig_tr = sig_va = sig_ex = 1.0
-
-        def gauss(v, mu, sig):
-            sig_safe = np.maximum(
-                np.abs(sig) if hasattr(sig, "__len__") else max(abs(sig), 1e-12),
-                1e-12,
-            )
-            z = (v - mu) / sig_safe
-            return np.exp(-0.5 * z * z) / (sig_safe * sqrt2pi)
-
-        raw_tr = gauss(v_tr, mu_tr, sig_tr)
-        raw_va = gauss(v_va, mu_va, sig_va)
-        raw_ex = gauss(v_ex, mu_ex, sig_ex)
-
-        v_sym = sp.Symbol(var_name)
-        mu_sym = sp.Symbol(mu_name) if mu_name else sp.Integer(0)
-        sig_sym = sp.Symbol(sig_name) if sig_name else sp.Integer(1)
-        sym = sp.exp(-((v_sym - mu_sym) / sig_sym) ** 2 / 2) / (sig_sym * sp.sqrt(2 * sp.pi))
-        label = f"N({var_name};{mu_name or '0'},{sig_name or '1'})"
-        out.append((label, raw_tr, raw_va, raw_ex, sym))
-
-    return out
-
-
-def _rule_coulomb_form_static(ctx):
-    """R4: q1·q2/(4π·ε·r²) and q1/(4π·ε·r²)."""
-    out = []
-    if "coulomb_form" not in ctx["tags"]:
-        return out
-    train = ctx["train"]
-    validation = ctx["validation"]
-    extrapolation = ctx["extrapolation"]
-    vset = set(ctx["variables"])
-    if "r" not in vset or "epsilon" not in vset:
-        return out
-
-    eps_tr = train["epsilon"].values
-    eps_va = validation["epsilon"].values
-    eps_ex = extrapolation["epsilon"].values
-    r_tr = train["r"].values
-    r_va = validation["r"].values
-    r_ex = extrapolation["r"].values
-
-    denom_tr = 4 * np.pi * eps_tr * r_tr ** 2
-    denom_va = 4 * np.pi * eps_va * r_va ** 2
-    denom_ex = 4 * np.pi * eps_ex * r_ex ** 2
-    inv_denom_tr = _safe_div(np.ones_like(denom_tr), denom_tr)
-    inv_denom_va = _safe_div(np.ones_like(denom_va), denom_va)
-    inv_denom_ex = _safe_div(np.ones_like(denom_ex), denom_ex)
-    denom_sym = 4 * sp.pi * sp.Symbol("epsilon") * sp.Symbol("r") ** 2
-
-    if "q1" in vset:
-        q1_tr = train["q1"].values
-        q1_va = validation["q1"].values
-        q1_ex = extrapolation["q1"].values
-        out.append((
-            "q1/(4*pi*eps*r^2)",
-            q1_tr * inv_denom_tr,
-            q1_va * inv_denom_va,
-            q1_ex * inv_denom_ex,
-            sp.Symbol("q1") / denom_sym,
-        ))
-        if "q2" in vset:
-            q2_tr = train["q2"].values
-            q2_va = validation["q2"].values
-            q2_ex = extrapolation["q2"].values
-            out.append((
-                "q1*q2/(4*pi*eps*r^2)",
-                q1_tr * q2_tr * inv_denom_tr,
-                q1_va * q2_va * inv_denom_va,
-                q1_ex * q2_ex * inv_denom_ex,
-                sp.Symbol("q1") * sp.Symbol("q2") / denom_sym,
-            ))
-    return out
-
-
-def _rule_harmonic_static(ctx):
-    """R5: 1/(1/a+1/b) and (m1·r1+m2·r2)/(m1+m2)."""
-    out = []
-    if "paired_numbered" not in ctx["tags"]:
-        return out
-    train = ctx["train"]
-    validation = ctx["validation"]
-    extrapolation = ctx["extrapolation"]
-    by_prefix = ctx["by_prefix"]
-
-    for prefix, idxs in by_prefix.items():
-        if sorted(idxs) != [1, 2]:
-            continue
-        v1, v2 = f"{prefix}1", f"{prefix}2"
-        a_tr = train[v1].values
-        b_tr = train[v2].values
-        a_va = validation[v1].values
-        b_va = validation[v2].values
-        a_ex = extrapolation[v1].values
-        b_ex = extrapolation[v2].values
-        denom_tr = _safe_div(np.ones_like(a_tr), a_tr) + _safe_div(np.ones_like(b_tr), b_tr)
-        denom_va = _safe_div(np.ones_like(a_va), a_va) + _safe_div(np.ones_like(b_va), b_va)
-        denom_ex = _safe_div(np.ones_like(a_ex), a_ex) + _safe_div(np.ones_like(b_ex), b_ex)
-        h_tr = _safe_div(np.ones_like(denom_tr), denom_tr)
-        h_va = _safe_div(np.ones_like(denom_va), denom_va)
-        h_ex = _safe_div(np.ones_like(denom_ex), denom_ex)
-        sym = 1 / (1 / sp.Symbol(v1) + 1 / sp.Symbol(v2))
-        out.append((f"1/(1/{v1}+1/{v2})", h_tr, h_va, h_ex, sym))
-
-        if prefix == "r" and sorted(by_prefix.get("m", [])) == [1, 2]:
-            m1_tr = train["m1"].values
-            m2_tr = train["m2"].values
-            m1_va = validation["m1"].values
-            m2_va = validation["m2"].values
-            m1_ex = extrapolation["m1"].values
-            m2_ex = extrapolation["m2"].values
-            num_tr = m1_tr * a_tr + m2_tr * b_tr
-            num_va = m1_va * a_va + m2_va * b_va
-            num_ex = m1_ex * a_ex + m2_ex * b_ex
-            dm_tr = m1_tr + m2_tr
-            dm_va = m1_va + m2_va
-            dm_ex = m1_ex + m2_ex
-            com_tr = _safe_div(num_tr, dm_tr)
-            com_va = _safe_div(num_va, dm_va)
-            com_ex = _safe_div(num_ex, dm_ex)
-            com_sym = (sp.Symbol("m1") * sp.Symbol("r1")
-                       + sp.Symbol("m2") * sp.Symbol("r2")) / (sp.Symbol("m1") + sp.Symbol("m2"))
-            out.append(("(m1*r1+m2*r2)/(m1+m2)", com_tr, com_va, com_ex, com_sym))
-    return out
-
-
-def _theta_like_vars(variables):
-    return sorted(v for v in variables if v == "theta" or re.match(r"^theta\d+$", v))
-
-
-def _rule_angle_diff_trig_static(ctx):
-    """R6: cos/sin of theta differences + sin(n·θ/2) variants + law of cosines."""
-    out = []
-    variables = ctx["variables"]
-    thetas = _theta_like_vars(variables)
-    if not thetas:
-        return out
-    train = ctx["train"]
-    validation = ctx["validation"]
-    extrapolation = ctx["extrapolation"]
-
-    for a, b in combinations(thetas, 2):
-        a_tr = train[a].values
-        a_va = validation[a].values
-        a_ex = extrapolation[a].values
-        b_tr = train[b].values
-        b_va = validation[b].values
-        b_ex = extrapolation[b].values
-        diff_tr = a_tr - b_tr
-        diff_va = a_va - b_va
-        diff_ex = a_ex - b_ex
-        a_sym = sp.Symbol(a)
-        b_sym = sp.Symbol(b)
-        out.append((f"cos({a}-{b})",
-                    np.cos(diff_tr), np.cos(diff_va), np.cos(diff_ex),
-                    sp.cos(a_sym - b_sym)))
-        out.append((f"sin({a}-{b})",
-                    np.sin(diff_tr), np.sin(diff_va), np.sin(diff_ex),
-                    sp.sin(a_sym - b_sym)))
-    for v in thetas:
-        v_tr = train[v].values
-        v_va = validation[v].values
-        v_ex = extrapolation[v].values
-        v_sym = sp.Symbol(v)
-        for n in (2, 3):
-            out.append((f"sin({n}*{v}/2)",
-                        np.sin(n * v_tr / 2), np.sin(n * v_va / 2), np.sin(n * v_ex / 2),
-                        sp.sin(n * v_sym / 2)))
-            out.append((f"sin({n}*{v}/2)^2",
-                        np.sin(n * v_tr / 2) ** 2, np.sin(n * v_va / 2) ** 2,
-                        np.sin(n * v_ex / 2) ** 2,
-                        sp.sin(n * v_sym / 2) ** 2))
-    if "x1" in variables and "x2" in variables and len(thetas) >= 2:
-        x1_tr = train["x1"].values
-        x2_tr = train["x2"].values
-        x1_va = validation["x1"].values
-        x2_va = validation["x2"].values
-        x1_ex = extrapolation["x1"].values
-        x2_ex = extrapolation["x2"].values
-        for ta, tb in combinations(thetas, 2):
-            a_tr = train[ta].values
-            a_va = validation[ta].values
-            a_ex = extrapolation[ta].values
-            b_tr = train[tb].values
-            b_va = validation[tb].values
-            b_ex = extrapolation[tb].values
-            cdiff_tr = np.cos(a_tr - b_tr)
-            cdiff_va = np.cos(a_va - b_va)
-            cdiff_ex = np.cos(a_ex - b_ex)
-            arg_tr = x1_tr ** 2 + x2_tr ** 2 - 2 * x1_tr * x2_tr * cdiff_tr
-            arg_va = x1_va ** 2 + x2_va ** 2 - 2 * x1_va * x2_va * cdiff_va
-            arg_ex = x1_ex ** 2 + x2_ex ** 2 - 2 * x1_ex * x2_ex * cdiff_ex
-            arg_tr = np.maximum(arg_tr, 0.0)
-            arg_va = np.maximum(arg_va, 0.0)
-            arg_ex = np.maximum(arg_ex, 0.0)
-            sym = sp.sqrt(sp.Symbol("x1") ** 2 + sp.Symbol("x2") ** 2
-                          - 2 * sp.Symbol("x1") * sp.Symbol("x2")
-                          * sp.cos(sp.Symbol(ta) - sp.Symbol(tb)))
-            out.append((f"sqrt(x1^2+x2^2-2x1x2cos({ta}-{tb}))",
-                        np.sqrt(arg_tr), np.sqrt(arg_va), np.sqrt(arg_ex), sym))
-    return out
-
-
-def _rule_arcsin_arccos_static(ctx):
-    """R7: arcsin(λ/(n·d)), arcsin(n·sin(θ))."""
-    out = []
-    train = ctx["train"]
-    validation = ctx["validation"]
-    extrapolation = ctx["extrapolation"]
-    vs = set(ctx["variables"])
-
-    lam_name = None
-    for cand in ("lambd", "lambda"):
-        if cand in vs:
-            lam_name = cand
-            break
-    if lam_name and "n" in vs and "d" in vs:
-        lam_tr = train[lam_name].values
-        lam_va = validation[lam_name].values
-        lam_ex = extrapolation[lam_name].values
-        n_tr = train["n"].values
-        n_va = validation["n"].values
-        n_ex = extrapolation["n"].values
-        d_tr = train["d"].values
-        d_va = validation["d"].values
-        d_ex = extrapolation["d"].values
-        ratio_tr = _safe_div(lam_tr, n_tr * d_tr)
-        ratio_va = _safe_div(lam_va, n_va * d_va)
-        ratio_ex = _safe_div(lam_ex, n_ex * d_ex)
-        clipped_tr = np.clip(ratio_tr, -0.9999, 0.9999)
-        clipped_va = np.clip(ratio_va, -0.9999, 0.9999)
-        clipped_ex = np.clip(ratio_ex, -0.9999, 0.9999)
-        sym = sp.asin(sp.Symbol(lam_name) / (sp.Symbol("n") * sp.Symbol("d")))
-        out.append((f"arcsin({lam_name}/(n*d))",
-                    np.arcsin(clipped_tr), np.arcsin(clipped_va), np.arcsin(clipped_ex),
-                    sym))
-
-    if "n" in vs and "theta2" in vs:
-        n_tr = train["n"].values
-        n_va = validation["n"].values
-        n_ex = extrapolation["n"].values
-        t_tr = train["theta2"].values
-        t_va = validation["theta2"].values
-        t_ex = extrapolation["theta2"].values
-        arg_tr = np.clip(n_tr * np.sin(t_tr), -0.9999, 0.9999)
-        arg_va = np.clip(n_va * np.sin(t_va), -0.9999, 0.9999)
-        arg_ex = np.clip(n_ex * np.sin(t_ex), -0.9999, 0.9999)
-        sym = sp.asin(sp.Symbol("n") * sp.sin(sp.Symbol("theta2")))
-        out.append(("arcsin(n*sin(theta2))",
-                    np.arcsin(arg_tr), np.arcsin(arg_va), np.arcsin(arg_ex), sym))
-    if "n" in vs and "theta" in vs:
-        n_tr = train["n"].values
-        n_va = validation["n"].values
-        n_ex = extrapolation["n"].values
-        t_tr = train["theta"].values
-        t_va = validation["theta"].values
-        t_ex = extrapolation["theta"].values
-        arg_tr = np.clip(n_tr * np.sin(t_tr), -0.9999, 0.9999)
-        arg_va = np.clip(n_va * np.sin(t_va), -0.9999, 0.9999)
-        arg_ex = np.clip(n_ex * np.sin(t_ex), -0.9999, 0.9999)
-        sym = sp.asin(sp.Symbol("n") * sp.sin(sp.Symbol("theta")))
-        out.append(("arcsin(n*sin(theta))",
-                    np.arcsin(arg_tr), np.arcsin(arg_va), np.arcsin(arg_ex), sym))
-    return out
-
-
-def _rule_doppler_ratio_static(ctx):
-    """R8: 1/(1±v/c), ω₀/(1−v/c), (1+v/c)·ω₀·γ."""
-    out = []
-    vs = set(ctx["variables"])
-    if "c" not in vs or not (vs & {"v", "u", "w"}):
-        return out
-    train = ctx["train"]
-    validation = ctx["validation"]
-    extrapolation = ctx["extrapolation"]
-    c_tr = train["c"].values
-    c_va = validation["c"].values
-    c_ex = extrapolation["c"].values
-
-    for vel in ("v", "u", "w"):
-        if vel not in vs:
-            continue
-        v_tr = train[vel].values
-        v_va = validation[vel].values
-        v_ex = extrapolation[vel].values
-        ratio_tr = _safe_div(v_tr, c_tr)
-        ratio_va = _safe_div(v_va, c_va)
-        ratio_ex = _safe_div(v_ex, c_ex)
-
-        denom_tr = 1.0 - ratio_tr
-        denom_va = 1.0 - ratio_va
-        denom_ex = 1.0 - ratio_ex
-        inv_minus_tr = _safe_div(np.ones_like(denom_tr), denom_tr)
-        inv_minus_va = _safe_div(np.ones_like(denom_va), denom_va)
-        inv_minus_ex = _safe_div(np.ones_like(denom_ex), denom_ex)
-        denom_p_tr = 1.0 + ratio_tr
-        denom_p_va = 1.0 + ratio_va
-        denom_p_ex = 1.0 + ratio_ex
-        inv_plus_tr = _safe_div(np.ones_like(denom_p_tr), denom_p_tr)
-        inv_plus_va = _safe_div(np.ones_like(denom_p_va), denom_p_va)
-        inv_plus_ex = _safe_div(np.ones_like(denom_p_ex), denom_p_ex)
-
-        c_sym = sp.Symbol("c")
-        v_sym = sp.Symbol(vel)
-        ratio_sym = v_sym / c_sym
-
-        out.append((f"1/(1-{vel}/c)",
-                    inv_minus_tr, inv_minus_va, inv_minus_ex,
-                    1 / (1 - ratio_sym)))
-        out.append((f"1/(1+{vel}/c)",
-                    inv_plus_tr, inv_plus_va, inv_plus_ex,
-                    1 / (1 + ratio_sym)))
-
-        if "omega_0" in vs:
-            w_tr = train["omega_0"].values
-            w_va = validation["omega_0"].values
-            w_ex = extrapolation["omega_0"].values
-            out.append((f"omega_0/(1-{vel}/c)",
-                        w_tr * inv_minus_tr, w_va * inv_minus_va, w_ex * inv_minus_ex,
-                        sp.Symbol("omega_0") / (1 - ratio_sym)))
-            gamma_tr = 1.0 / np.sqrt(np.maximum(1.0 - ratio_tr ** 2, 1e-30))
-            gamma_va = 1.0 / np.sqrt(np.maximum(1.0 - ratio_va ** 2, 1e-30))
-            gamma_ex = 1.0 / np.sqrt(np.maximum(1.0 - ratio_ex ** 2, 1e-30))
-            out.append((f"(1+{vel}/c)*omega_0*gamma({vel})",
-                        (1 + ratio_tr) * w_tr * gamma_tr,
-                        (1 + ratio_va) * w_va * gamma_va,
-                        (1 + ratio_ex) * w_ex * gamma_ex,
-                        (1 + ratio_sym) * sp.Symbol("omega_0") / sp.sqrt(1 - ratio_sym ** 2)))
-    return out
-
-
-def _rule_reciprocal_diff_static(ctx):
-    """R9: 1/r2 − 1/r1, m1·m2·(1/r2 − 1/r1)."""
-    out = []
-    if "paired_numbered" not in ctx["tags"]:
-        return out
-    by_prefix = ctx["by_prefix"]
-    r_idxs = sorted(by_prefix.get("r", []))
-    if r_idxs != [1, 2]:
-        return out
-    train = ctx["train"]
-    validation = ctx["validation"]
-    extrapolation = ctx["extrapolation"]
-    r1_tr = train["r1"].values
-    r2_tr = train["r2"].values
-    r1_va = validation["r1"].values
-    r2_va = validation["r2"].values
-    r1_ex = extrapolation["r1"].values
-    r2_ex = extrapolation["r2"].values
-    inv_diff_tr = _safe_div(np.ones_like(r2_tr), r2_tr) - _safe_div(np.ones_like(r1_tr), r1_tr)
-    inv_diff_va = _safe_div(np.ones_like(r2_va), r2_va) - _safe_div(np.ones_like(r1_va), r1_va)
-    inv_diff_ex = _safe_div(np.ones_like(r2_ex), r2_ex) - _safe_div(np.ones_like(r1_ex), r1_ex)
-    sym = 1 / sp.Symbol("r2") - 1 / sp.Symbol("r1")
-    out.append(("1/r2-1/r1", inv_diff_tr, inv_diff_va, inv_diff_ex, sym))
-    if sorted(by_prefix.get("m", [])) == [1, 2]:
-        m1_tr = train["m1"].values
-        m2_tr = train["m2"].values
-        m1_va = validation["m1"].values
-        m2_va = validation["m2"].values
-        m1_ex = extrapolation["m1"].values
-        m2_ex = extrapolation["m2"].values
-        out.append((
-            "m1*m2*(1/r2-1/r1)",
-            m1_tr * m2_tr * inv_diff_tr,
-            m1_va * m2_va * inv_diff_va,
-            m1_ex * m2_ex * inv_diff_ex,
-            sp.Symbol("m1") * sp.Symbol("m2") * sym,
-        ))
-    return out
-
-
-def _rule_sum_with_product_static(ctx):
-    """R10: Ef + B·v·sin(θ) and q·(Ef + B·v·sin(θ))."""
-    out = []
-    vs = set(ctx["variables"])
-    if not (vs >= {"Ef", "B", "v", "theta"}):
-        return out
-    train = ctx["train"]
-    validation = ctx["validation"]
-    extrapolation = ctx["extrapolation"]
-    Ef_tr = train["Ef"].values
-    B_tr = train["B"].values
-    v_tr = train["v"].values
-    th_tr = train["theta"].values
-    Ef_va = validation["Ef"].values
-    B_va = validation["B"].values
-    v_va = validation["v"].values
-    th_va = validation["theta"].values
-    Ef_ex = extrapolation["Ef"].values
-    B_ex = extrapolation["B"].values
-    v_ex = extrapolation["v"].values
-    th_ex = extrapolation["theta"].values
-    inner_tr = Ef_tr + B_tr * v_tr * np.sin(th_tr)
-    inner_va = Ef_va + B_va * v_va * np.sin(th_va)
-    inner_ex = Ef_ex + B_ex * v_ex * np.sin(th_ex)
-    inner_sym = sp.Symbol("Ef") + sp.Symbol("B") * sp.Symbol("v") * sp.sin(sp.Symbol("theta"))
-    out.append(("Ef+B*v*sin(theta)", inner_tr, inner_va, inner_ex, inner_sym))
-    if "q" in vs:
-        q_tr = train["q"].values
-        q_va = validation["q"].values
-        q_ex = extrapolation["q"].values
-        out.append((
-            "q*(Ef+B*v*sin(theta))",
-            q_tr * inner_tr, q_va * inner_va, q_ex * inner_ex,
-            sp.Symbol("q") * inner_sym,
-        ))
-    return out
-
-
-def _rule_kinetic_energy_static(ctx):
-    """R11: m·(v²+u²+w²)/2 and m·x²·(ω²+ω₀²)/4."""
-    out = []
-    vs = set(ctx["variables"])
-    train = ctx["train"]
-    validation = ctx["validation"]
-    extrapolation = ctx["extrapolation"]
-
-    if "m" in vs:
-        velocity_vars = [v for v in ("v", "u", "w") if v in vs]
-        if len(velocity_vars) >= 2:
-            sq_tr = np.zeros(len(train), dtype=np.float64)
-            sq_va = np.zeros(len(validation), dtype=np.float64)
-            sq_ex = np.zeros(len(extrapolation), dtype=np.float64)
-            sym_inner = sp.Integer(0)
-            for vv in velocity_vars:
-                sq_tr += train[vv].values ** 2
-                sq_va += validation[vv].values ** 2
-                sq_ex += extrapolation[vv].values ** 2
-                sym_inner = sym_inner + sp.Symbol(vv) ** 2
-            m_tr = train["m"].values
-            m_va = validation["m"].values
-            m_ex = extrapolation["m"].values
-            out.append((
-                f"m*({'+'.join(v+'^2' for v in velocity_vars)})/2",
-                0.5 * m_tr * sq_tr, 0.5 * m_va * sq_va, 0.5 * m_ex * sq_ex,
-                sp.Rational(1, 2) * sp.Symbol("m") * sym_inner,
-            ))
-
-    if vs >= {"m", "x", "omega", "omega_0"}:
-        m_tr = train["m"].values
-        m_va = validation["m"].values
-        m_ex = extrapolation["m"].values
-        x_tr = train["x"].values
-        x_va = validation["x"].values
-        x_ex = extrapolation["x"].values
-        om_tr = train["omega"].values
-        om_va = validation["omega"].values
-        om_ex = extrapolation["omega"].values
-        om0_tr = train["omega_0"].values
-        om0_va = validation["omega_0"].values
-        om0_ex = extrapolation["omega_0"].values
-        val_tr = 0.25 * m_tr * x_tr ** 2 * (om_tr ** 2 + om0_tr ** 2)
-        val_va = 0.25 * m_va * x_va ** 2 * (om_va ** 2 + om0_va ** 2)
-        val_ex = 0.25 * m_ex * x_ex ** 2 * (om_ex ** 2 + om0_ex ** 2)
-        sym = (sp.Rational(1, 4) * sp.Symbol("m") * sp.Symbol("x") ** 2
-               * (sp.Symbol("omega") ** 2 + sp.Symbol("omega_0") ** 2))
-        out.append(("m*x^2*(omega^2+omega_0^2)/4", val_tr, val_va, val_ex, sym))
-
-    return out
-
-
-def _rule_radiated_power_static(ctx):
-    """R12: q²·a² / (6π·ε·c³)."""
-    out = []
-    vs = set(ctx["variables"])
-    if not (vs >= {"q", "a", "epsilon", "c"}):
-        return out
-    train = ctx["train"]
-    validation = ctx["validation"]
-    extrapolation = ctx["extrapolation"]
-    q_tr = train["q"].values
-    q_va = validation["q"].values
-    q_ex = extrapolation["q"].values
-    a_tr = train["a"].values
-    a_va = validation["a"].values
-    a_ex = extrapolation["a"].values
-    eps_tr = train["epsilon"].values
-    eps_va = validation["epsilon"].values
-    eps_ex = extrapolation["epsilon"].values
-    c_tr = train["c"].values
-    c_va = validation["c"].values
-    c_ex = extrapolation["c"].values
-    denom_tr = 6 * np.pi * eps_tr * c_tr ** 3
-    denom_va = 6 * np.pi * eps_va * c_va ** 3
-    denom_ex = 6 * np.pi * eps_ex * c_ex ** 3
-    inv_tr = _safe_div(np.ones_like(denom_tr), denom_tr)
-    inv_va = _safe_div(np.ones_like(denom_va), denom_va)
-    inv_ex = _safe_div(np.ones_like(denom_ex), denom_ex)
-    val_tr = q_tr ** 2 * a_tr ** 2 * inv_tr
-    val_va = q_va ** 2 * a_va ** 2 * inv_va
-    val_ex = q_ex ** 2 * a_ex ** 2 * inv_ex
-    sym = (sp.Symbol("q") ** 2 * sp.Symbol("a") ** 2
-           / (6 * sp.pi * sp.Symbol("epsilon") * sp.Symbol("c") ** 3))
-    out.append(("q^2*a^2/(6*pi*eps*c^3)", val_tr, val_va, val_ex, sym))
-    return out
-
-
-# Canonical registry. Order is preserved; new rules go at the end.
-RULE_BUILDERS: list[tuple[str, Callable]] = [
-    ("pairwise_xy_product", _rule_pairwise_xy_product_static),
-    ("prefix_sum_sq",       _rule_prefix_squared_sum_static),
-    ("lorentz_factor",      _rule_lorentz_factor_static),
-    ("euclidean_distance",  _rule_euclidean_distance_static),
-    ("gaussian_density",    _rule_gaussian_density_static),
-    ("coulomb_form",        _rule_coulomb_form_static),
-    ("harmonic",            _rule_harmonic_static),
-    ("angle_diff_trig",     _rule_angle_diff_trig_static),
-    ("arcsin_arccos",       _rule_arcsin_arccos_static),
-    ("doppler_ratio",       _rule_doppler_ratio_static),
-    ("reciprocal_diff",     _rule_reciprocal_diff_static),
-    ("sum_with_product",    _rule_sum_with_product_static),
-    ("kinetic_energy",      _rule_kinetic_energy_static),
-    ("radiated_power",      _rule_radiated_power_static),
-]
-
-
-def build_static_candidates(ctx, rule_builders=None, verbose=True):
-    """Run every registered rule builder, return the list of candidate dicts.
-
-    Each candidate dict carries {wrapper_id, vec, a, b, metrics, sym_expr,
-    rule_family, rule_label} ready to join the per-individual HFF batch.
-    """
-    if rule_builders is None:
-        rule_builders = RULE_BUILDERS
-    out: list[dict] = []
-    for family_name, fn in rule_builders:
-        try:
-            generated = fn(ctx)
-        except Exception as e:
-            if verbose:
-                print(f"[rules] family '{family_name}' raised "
-                      f"{type(e).__name__}: {e} — skipping")
-            continue
-        for label, rt, rv, re_, sym_expr in generated:
-            cand = _candidate_from_pred(ctx, len(out), rt, rv, re_)
-            if cand is not None:
-                cand["rule_family"] = family_name
-                cand["rule_label"] = label
-                cand["sym_expr"] = sym_expr
-                out.append(cand)
-    if verbose:
-        print(f"[rules] static candidate count: {len(out)}")
-    return out
 
 
 # ---------------------------------------------------------------------------
@@ -1292,9 +351,10 @@ def _build_toolbox(bundle: _Bundle):
     return toolbox, pset
 
 
-def _compute_raw_metrics(individual, toolbox, bundle: _Bundle, static_rule_candidates):
-    """Per-individual fitness eval — every wrapper slot PLUS the static
-    rule candidates. Vec construction depends on ``cfg.mode``."""
+def _compute_raw_metrics(individual, toolbox, bundle: _Bundle):
+    """Per-individual fitness eval — score the chromosome under every
+    wrapper slot, return the candidate list. Vec construction depends on
+    ``cfg.mode``."""
     cfg = bundle.config
     train = bundle.train
     validation = bundle.validation
@@ -1377,8 +437,6 @@ def _compute_raw_metrics(individual, toolbox, bundle: _Bundle, static_rule_candi
 
     if not candidates:
         return None
-    for c in static_rule_candidates:
-        candidates.append(c)
     return {"candidates": candidates}
 
 
@@ -1429,9 +487,6 @@ def _assign_fitness_batch(population, raw_results, cfg: HFFSRConfig):
         ind.a = payload["a"]
         ind.b = payload["b"]
         ind.wrapper_id = int(payload["wrapper_id"])
-        ind.rule_sym_expr = payload.get("sym_expr", None)
-        ind.rule_label = payload.get("rule_label", None)
-        ind.rule_family = payload.get("rule_family", None)
 
 
 def _per_metric_mins(population, mode: str = "feynman"):
@@ -1500,13 +555,9 @@ class HFFSREngine:
         self.b_ = 0.0
         self.wrapper_id_ = 0
         self.wrapper_name_ = "identity"
-        self.won_via_rule_ = False
-        self.rule_label_ = None
-        self.rule_family_ = None
-        # End-phase HFF pick state. Every candidate in the pool
-        # (chromosome × N_WRAPPERS + every static rule) is scored by
-        # HFF on a 3D holdout-only vec; the lowest HFF wins. Table is
-        # full ranked pool for inspection.
+        # End-phase HFF pick state. Every (chromosome × N_WRAPPERS) is
+        # scored by HFF on a 3D holdout-only vec; the lowest HFF wins.
+        # Table is full ranked pool for inspection.
         self.discovered_source_: str = ""
         self.hff_holdout_: Optional[float] = None
         self.holdout_pick_table_: list[dict] = []
@@ -1562,8 +613,11 @@ class HFFSREngine:
                     print(f"[engine] corpus logger disabled: {e}")
                 self._corpus_logger = None
 
-        # E22 — karva rewriter rules (optional).
+        # E22 — karva rewriter rules + counters (optional).
         self._ruleset = None
+        self._pump_calls = 0
+        self._pump_rewrite_fires = 0
+        self._pump_rewrite_fallbacks = 0
         if cfg.rewrite_rules_path and cfg.pump_mode in ("rewrite", "alternating"):
             try:
                 from _karva_rewriter import load_rules
@@ -1582,11 +636,6 @@ class HFFSREngine:
                     print(f"[engine] rewrite rules disabled: {e}")
                 self._ruleset = None
 
-        # Pre-compute static rule candidates ONCE.
-        ctx = _build_ctx(bundle)
-        static_rule_candidates = build_static_candidates(ctx, verbose=verbose)
-        self._static_rule_candidates = static_rule_candidates
-
         # Build evolution state: demes, HOF, log.
         hof = tools.HallOfFame(cfg.champs)
         self._hof = hof
@@ -1595,7 +644,7 @@ class HFFSREngine:
         demes = [toolbox.population(n=pop_sizes[i]) for i in range(cfg.num_islands)]
 
         def evaluate_one(ind):
-            return _compute_raw_metrics(ind, toolbox, bundle, static_rule_candidates)
+            return _compute_raw_metrics(ind, toolbox, bundle)
         toolbox.register("evaluate", evaluate_one)
 
         # Gen 0 evaluation.
@@ -1690,10 +739,58 @@ class HFFSREngine:
                             continue
                 hof.update(deme)
 
+            # Per-gen verbose summary across demes.
+            if verbose:
+                gen_dt = time.perf_counter() - gen_start
+                best_fits = []
+                for d in demes:
+                    valid = [i.fitness.values[0] for i in d
+                             if i.fitness is not None and i.fitness.valid]
+                    if valid:
+                        best_fits.append(min(valid))
+                if best_fits:
+                    print(f"[gen {gen:4d}] best_hff/deme={[f'{x:.4g}' for x in best_fits]} "
+                          f"hof[0]={hof[0].fitness.values[0]:.4g} "
+                          f"dt={gen_dt:.1f}s")
+
             # Early-stop check (holdout-gated).
             if self._maybe_early_stop(demes, toolbox, hof, bundle, gen, verbose):
                 _won_holdout = True
                 break
+
+            # E22 — in-run re-mine + reload rules from the live corpus
+            # on the same drum beat as intra-migration. The corpus logger
+            # must be active and writing to a path we can re-read.
+            if (gen > 0 and gen % cfg.migration_freq_intra == 0
+                    and self._corpus_logger is not None
+                    and cfg.corpus_log_path
+                    and cfg.pump_mode in ("rewrite", "alternating")):
+                try:
+                    self._corpus_logger._fh.flush()
+                    from _mine_karva_rules import iter_pairs, mine_rules
+                    from _karva_rewriter import RuleSet
+                    mined = mine_rules(
+                        iter_pairs([cfg.corpus_log_path]),
+                        min_count=2, min_problems=1,
+                        max_input_tokens=8, require_improvement=True,
+                    )
+                    geom_rules = [r for r in mined
+                                  if r["head_length"] == cfg.head_length
+                                  and r["n_genes"] == cfg.n_genes]
+                    rs_rules = [{
+                        "in": tuple(r["in"]), "out": tuple(r["out"]),
+                        "count": r["count"], "mean_delta": r["mean_delta"],
+                        "impact": r["impact"],
+                    } for r in geom_rules]
+                    self._ruleset = RuleSet(
+                        rs_rules, head_length=cfg.head_length, n_genes=cfg.n_genes,
+                    )
+                    if verbose:
+                        print(f"[engine] gen {gen}: re-mined {len(rs_rules)} rules "
+                              f"(hash={self._ruleset.rules_hash})")
+                except Exception as e:
+                    if verbose:
+                        print(f"[engine] gen {gen}: re-mine failed: {e}")
 
             # Migration cycle (pump topology).
             if gen > 0 and gen % cfg.migration_freq_intra == 0:
@@ -1880,6 +977,7 @@ class HFFSREngine:
         pset = self._pset
 
         def _make():
+            self._pump_calls += 1
             parent = rng.choice(top)
             child = _rewrite_one(
                 parent, rs, rng,
@@ -1888,7 +986,9 @@ class HFFSREngine:
                 n_rules_max=max_rules,
             )
             if child is None:
+                self._pump_rewrite_fallbacks += 1
                 return toolbox.individual()
+            self._pump_rewrite_fires += 1
             return child
 
         return _make
@@ -2264,25 +1364,7 @@ class HFFSREngine:
                     "expr_pre_snap": composed,
                     "a": a, "b": b,
                     "wrapper_id": w_id,
-                    "rule_family": None, "rule_label": None,
                 })
-
-        # (2) every static rule candidate that fired during training.
-        for c in self._static_rule_candidates:
-            sym = c.get("sym_expr")
-            if sym is None:
-                continue
-            a = float(c.get("a", 1.0))
-            b = float(c.get("b", 0.0))
-            composed = sp.Float(a) * sym + sp.Float(b)
-            pool.append({
-                "source": f"rule.{c.get('rule_family')}/{c.get('rule_label')}",
-                "expr_pre_snap": composed,
-                "a": a, "b": b,
-                "wrapper_id": RULE_WRAPPER_ID_OFFSET,
-                "rule_family": c.get("rule_family"),
-                "rule_label": c.get("rule_label"),
-            })
 
         # Snap each pool member + build the holdout HFF vec for each.
         for entry in pool:
@@ -2317,11 +1399,7 @@ class HFFSREngine:
             self.a_ = winner["a"]
             self.b_ = winner["b"]
             self.wrapper_id_ = winner["wrapper_id"]
-            self.wrapper_name_ = (WRAPPER_NAMES[winner["wrapper_id"]]
-                                  if winner["wrapper_id"] < N_WRAPPERS else "rule")
-            self.won_via_rule_ = winner["source"].startswith("rule.")
-            self.rule_family_ = winner["rule_family"]
-            self.rule_label_ = winner["rule_label"]
+            self.wrapper_name_ = WRAPPER_NAMES[winner["wrapper_id"]]
             self.holdout_pick_table_ = [
                 {"source": e["source"],
                  "hff_holdout": e["hff_holdout"],

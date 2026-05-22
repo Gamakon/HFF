@@ -70,9 +70,17 @@ class RuleSet:
         return len(self.rules)
 
     def sample_rule(self, rng: random.Random) -> Optional[dict]:
+        """Mixed sampler: half impact-weighted, half uniform.
+
+        The impact-weighted half exploits rules with strong evidence; the
+        uniform half explores long-tail rules that haven't fired often
+        but may matter on new problems. Coin-flip per draw.
+        """
         if not self.rules:
             return None
-        return rng.choices(self.rules, weights=self._impacts, k=1)[0]
+        if rng.random() < 0.5:
+            return rng.choices(self.rules, weights=self._impacts, k=1)[0]
+        return rng.choice(self.rules)
 
 
 def _find_matches(tokens: List[str], pattern: Tuple[str, ...]) -> List[int]:
