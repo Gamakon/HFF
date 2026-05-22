@@ -1462,13 +1462,6 @@ class HFFSREngine:
         self.won_via_rule_ = False
         self.rule_label_ = None
         self.rule_family_ = None
-        # Re-pick at HOF: every candidate (3 chromosome wrappers + every
-        # rule) gets scored on holdout R²; the one with the highest R²
-        # is the discovered expression. self.holdout_pick_table_ is the
-        # full ranked list for inspection / paper writing.
-        self.holdout_pick_table_: list[dict] = []
-        self.discovered_source_: str = ""   # 'chromosome' or 'rule:<family>/<label>'
-        self.holdout_r2_: Optional[float] = None
         self._lambdified = None
         self._lambdified_var_order: list[str] = []
         self.fit_seconds_: float = 0.0
@@ -1949,175 +1942,74 @@ class HFFSREngine:
                 pass
 
     def _extract_best(self, hof, bundle, toolbox, var_ranges, verbose):
-        """Pick the discovered expression by **holdout R²** across one
-        flat pool of candidates:
-
-          - the HOF[0] chromosome under each of N_WRAPPERS wrappers
-            (each LSM-fit with its own a, b)
-          - every static rule candidate (each with its own a, b from the
-            per-eval HFF batch)
-
-        Score each on the holdout split, pick argmax R². No separate
-        "chromosome best" vs "rule best" buckets — they all compete in
-        a single pool of size (N_WRAPPERS + len(static_rule_candidates)).
-        """
+        """Sympify hof[0], compose with LSM, snap constants, set
+        ``self.discovered_expr_`` and the cached lambdify variable order."""
         if not hof:
             self.discovered_expr_ = sp.Integer(0)
             self._lambdified_var_order = bundle.variables[:]
             return
+        best = hof[0]
+        wraw = int(getattr(best, "wrapper_id", 0))
+        won_via_rule = wraw >= RULE_WRAPPER_ID_OFFSET
+        self.won_via_rule_ = won_via_rule
+        if won_via_rule:
+            rule_sym = getattr(best, "rule_sym_expr", None)
+            self.rule_label_ = getattr(best, "rule_label", None)
+            self.rule_family_ = getattr(best, "rule_family", None)
+            wid = 0
+            wname = "identity"
+        else:
+            wid = wraw % N_WRAPPERS
+            wname = WRAPPER_NAMES[wid]
+        self.wrapper_id_ = wid
+        self.wrapper_name_ = wname
+        self.a_ = float(getattr(best, "a", 1.0))
+        self.b_ = float(getattr(best, "b", 0.0))
 
         sym_map = hgh.custom_symbolic_function_map()
         sym_map["protected_sqrt"] = lambda x: sp.sqrt(sp.Abs(x))
         sym_map["protected_exp"] = sp.exp
         sym_map["protected_log"] = lambda x: sp.log(sp.Abs(x))
+
+        raw_gene_sym = gep.simplify(best, symbolic_function_map=sym_map)
         wrapper_sym_map = {
             "identity": lambda e: e,
             "log_abs":  lambda e: sp.log(sp.Abs(e)),
             "sqrt_abs": lambda e: sp.sqrt(sp.Abs(e)),
         }
-        # Where to score (holdout > val > train fallback chain).
-        if bundle.holdout is not None:
-            score_df = bundle.holdout
-        elif bundle.validation is not None:
-            score_df = bundle.validation
+        wrapped_gene_sym = wrapper_sym_map[wname](raw_gene_sym)
+
+        if won_via_rule:
+            rule_sym = getattr(best, "rule_sym_expr", None)
+            if rule_sym is None:
+                composed = sp.Float(self.a_) * wrapped_gene_sym + sp.Float(self.b_)
+            else:
+                composed = sp.Float(self.a_) * rule_sym + sp.Float(self.b_)
+        elif self.config.enable_linear_scaling:
+            composed = sp.Float(self.a_) * wrapped_gene_sym + sp.Float(self.b_)
         else:
-            score_df = bundle.train
-        score_y = score_df["target"].values
-        score_var = float(np.var(score_y)) if len(score_y) > 1 else 1.0
+            composed = wrapped_gene_sym
 
-        def holdout_r2(expr) -> Optional[float]:
-            """Lambdify expr, evaluate on score_df, return R² or None."""
-            try:
-                fn = sp.lambdify(
-                    [sp.Symbol(v) for v in bundle.variables],
-                    expr, modules=["numpy"],
-                )
-                pred = np.asarray(fn(*[score_df[v].values for v in bundle.variables]),
-                                  dtype=np.float64)
-                if pred.shape == () or pred.shape[0] != len(score_y):
-                    return None
-                if not np.all(np.isfinite(pred)):
-                    return None
-                mse = float(np.mean((score_y - pred) ** 2))
-                return 1.0 - mse / score_var if score_var > 0 else None
-            except Exception:
-                return None
-
-        # Build the flat candidate pool.
-        pool: list[dict] = []
-        best = hof[0]
-        # (1) chromosome × N_WRAPPERS
-        try:
-            raw_gene_sym = gep.simplify(best, symbolic_function_map=sym_map)
-        except Exception:
-            raw_gene_sym = None
-        raw_train = hgh.compile_and_predict(best, bundle.train,
-                                            bundle.variables, self._toolbox)
-        Y_tr = bundle.Y
-        if raw_gene_sym is not None and raw_train is not None:
-            for w_id in range(N_WRAPPERS):
-                wname = WRAPPER_NAMES[w_id]
-                wrapped_train = apply_wrapper(raw_train, w_id)
-                if wrapped_train is None:
-                    continue
-                if self.config.enable_linear_scaling:
-                    scale = hgh.apply_linear_scaling(wrapped_train, Y_tr)
-                    if scale is None:
-                        continue
-                    a, b = float(scale[0]), float(scale[1])
-                else:
-                    a, b = 1.0, 0.0
-                wrapped_sym = wrapper_sym_map[wname](raw_gene_sym)
-                composed = (sp.Float(a) * wrapped_sym + sp.Float(b)
-                            if self.config.enable_linear_scaling else wrapped_sym)
-                pool.append({
-                    "source": f"chromosome.{wname}",
-                    "expr_pre_snap": composed,
-                    "a": a, "b": b,
-                    "wrapper_id": w_id,
-                    "rule_family": None, "rule_label": None,
-                })
-
-        # (2) every static rule candidate
-        for c in self._static_rule_candidates:
-            sym = c.get("sym_expr")
-            if sym is None:
-                continue
-            a = float(c.get("a", 1.0))
-            b = float(c.get("b", 0.0))
-            composed = sp.Float(a) * sym + sp.Float(b)
-            pool.append({
-                "source": f"rule.{c.get('rule_family')}/{c.get('rule_label')}",
-                "expr_pre_snap": composed,
-                "a": a, "b": b,
-                "wrapper_id": RULE_WRAPPER_ID_OFFSET,
-                "rule_family": c.get("rule_family"),
-                "rule_label": c.get("rule_label"),
-            })
-
-        # Snap + rewrite + score each pool member.
-        for entry in pool:
-            snapped = self._snap_with_timeout(entry["expr_pre_snap"], bundle, var_ranges)
-            snapped = self._maybe_feynman_rewrite(snapped, bundle, var_ranges)
-            entry["expr"] = snapped
-            entry["holdout_r2"] = holdout_r2(snapped)
-
-        # Pick the argmax by holdout R²; tie-break by simpler expression
-        # (fewer nodes), then by source (chromosome before rule for ties).
-        scorable = [e for e in pool if e["holdout_r2"] is not None]
-        if scorable:
-            def _complexity(e):
-                try:
-                    return sum(1 for _ in sp.preorder_traversal(e["expr"]))
-                except Exception:
-                    return 10_000
-            scorable.sort(key=lambda e: (-e["holdout_r2"], _complexity(e),
-                                         0 if e["source"].startswith("chromosome") else 1))
-            winner = scorable[0]
-            self.discovered_expr_ = winner["expr"]
-            self.discovered_source_ = winner["source"]
-            self.holdout_r2_ = winner["holdout_r2"]
-            self.a_ = winner["a"]
-            self.b_ = winner["b"]
-            self.wrapper_id_ = winner["wrapper_id"]
-            self.wrapper_name_ = (WRAPPER_NAMES[winner["wrapper_id"]]
-                                  if winner["wrapper_id"] < N_WRAPPERS else "rule")
-            self.won_via_rule_ = winner["source"].startswith("rule.")
-            self.rule_family_ = winner["rule_family"]
-            self.rule_label_ = winner["rule_label"]
-            self.holdout_pick_table_ = [
-                {"source": e["source"], "holdout_r2": e["holdout_r2"],
-                 "expr": str(e["expr"])[:200]}
-                for e in scorable
-            ]
-        else:
-            # Nothing scored: fall back to a literal zero.
-            self.discovered_expr_ = sp.Integer(0)
-            self.discovered_source_ = "fallback"
-            self.holdout_r2_ = None
-
-        self._lambdified_var_order = bundle.variables[:]
-        if verbose:
-            print(f"[engine] discovered ({self.discovered_source_}, "
-                  f"holdout_r2={self.holdout_r2_}): {self.discovered_expr_}")
-            for entry in scorable[:5]:
-                marker = "←" if entry["source"] == self.discovered_source_ else " "
-                r2_s = f"{entry['holdout_r2']:.6f}"
-                print(f"  {marker} {entry['source']:<40} R²={r2_s} "
-                      f"{str(entry['expr'])[:80]}")
-
-    def _maybe_feynman_rewrite(self, expr, bundle, var_ranges):
+        # Snap constants (with SIGALRM guard).
+        snapped = self._snap_with_timeout(composed, bundle, var_ranges)
+        # Optional Feynman-shape rewrite.
         try:
             rewritten, rule = hgh.feynman_shape_rewrite(
-                expr,
+                snapped,
                 library=dict(__import__("equation_problems").KNOWN_CONSTANTS),
                 rel_tol=self.config.snap_rel_tol,
                 var_ranges=var_ranges or {},
                 problem_vars=bundle.variables,
             )
-            return rewritten if rule is not None else expr
+            if rule is not None:
+                snapped = rewritten
         except Exception:
-            return expr
+            pass
+
+        self.discovered_expr_ = snapped
+        self._lambdified_var_order = bundle.variables[:]
+        if verbose:
+            print(f"[engine] discovered: {snapped}")
 
     def _snap_with_timeout(self, expr, bundle, var_ranges):
         """Run hgh.snap_levels with a SIGALRM guard, return the best level by
