@@ -77,14 +77,19 @@ N_WRAPPERS = len(WRAPPER_FUNCS)
 # rule-library win.
 RULE_WRAPPER_ID_OFFSET = 100
 
-METRIC_NAMES = ["mse_tr", "mse_va", "max_err", "mse_extrap",
-                "one_minus_r2_tr", "one_minus_r2_va"]
+METRIC_NAMES = ["mse_tr", "mse_va", "mse_extrap",
+                "one_minus_r2_tr", "one_minus_r2_va", "one_minus_r2_extrap",
+                "mae_tr", "mae_va", "mae_extrap"]
 N_OBJECTIVES = len(METRIC_NAMES)
 
-# Wild-data mode uses a different vec: train+val MSE/MAE + max_err only.
-# See feedback_wild_data_hff_vec.md and the plan §"Wild-data HFF
-# objective vec".
-WILD_REGRESSION_METRIC_NAMES = ["mse_tr", "mse_va", "mae_tr", "mae_va", "max_err"]
+# Wild-data mode uses train + val only (no extrap — extrap requires
+# truth, which wild data doesn't have).
+WILD_REGRESSION_METRIC_NAMES = ["mse_tr", "mse_va",
+                                "one_minus_r2_tr", "one_minus_r2_va",
+                                "mae_tr", "mae_va"]
+
+# End-phase HFF vec — both modes — computed on holdout rows only.
+END_PHASE_METRIC_NAMES = ["mse_ho", "one_minus_r2_ho", "mae_ho"]
 
 FAILED_METRIC_VALUE = 1.0e9
 FAILED_FITNESS = 1.0e9
@@ -204,29 +209,38 @@ def _vec_from_pred(ctx, pred_train, pred_val, pred_extr):
     """Build the HFF objective vec from prediction arrays.
 
     Mode-dependent:
-      - ``feynman``: 6-vec with extrap_MSE + 1-R² terms (default)
-      - ``wild_regression``: 5-vec [mse_tr, mse_va, mae_tr, mae_va, max_err]
+      - ``wild_regression``: 6D
+          [mse_tr, mse_va, 1-R²_tr, 1-R²_va, mae_tr, mae_va]
+      - ``feynman``: 9D — same six PLUS extrap entries
+          [mse_tr, mse_va, mse_extrap,
+           1-R²_tr, 1-R²_va, 1-R²_extrap,
+           mae_tr, mae_va, mae_extrap]
+
+    max_err is intentionally NOT in either vec — MSE + 1-R² + MAE cover
+    the ranking signal with three independent measures.
     """
     Y = ctx["Y"]
     Y_val = ctx["Y_val"]
     mode = ctx.get("mode", "feynman")
-    mse_tr = float(np.mean((Y - pred_train) ** 2))
-    mse_va = float(np.mean((Y_val - pred_val) ** 2))
-    max_err = float(np.max(np.abs(Y_val - pred_val)))
-    if mode == "wild_regression":
-        mae_tr = float(np.mean(np.abs(Y - pred_train)))
-        mae_va = float(np.mean(np.abs(Y_val - pred_val)))
-        return [mse_tr, mse_va, mae_tr, mae_va, max_err]
-    # Feynman (default)
-    Y_extrap = ctx["Y_extrap"]
     var_tr = float(np.var(Y))
     var_va = float(np.var(Y_val))
-    mse_extrap = float(np.mean((Y_extrap - pred_extr) ** 2))
+    mse_tr = float(np.mean((Y - pred_train) ** 2))
+    mse_va = float(np.mean((Y_val - pred_val) ** 2))
+    mae_tr = float(np.mean(np.abs(Y - pred_train)))
+    mae_va = float(np.mean(np.abs(Y_val - pred_val)))
     one_minus_r2_tr = mse_tr / var_tr if var_tr > 0 else float("inf")
     one_minus_r2_va = mse_va / var_va if var_va > 0 else float("inf")
-    if ctx["include_val"]:
-        return [mse_tr, mse_va, max_err, mse_extrap, one_minus_r2_tr, one_minus_r2_va]
-    return [mse_tr, one_minus_r2_tr]
+    if mode == "wild_regression":
+        return [mse_tr, mse_va, one_minus_r2_tr, one_minus_r2_va, mae_tr, mae_va]
+    # Feynman (default)
+    Y_extrap = ctx["Y_extrap"]
+    var_extrap = float(np.var(Y_extrap))
+    mse_extrap = float(np.mean((Y_extrap - pred_extr) ** 2))
+    mae_extrap = float(np.mean(np.abs(Y_extrap - pred_extr)))
+    one_minus_r2_extrap = mse_extrap / var_extrap if var_extrap > 0 else float("inf")
+    return [mse_tr, mse_va, mse_extrap,
+            one_minus_r2_tr, one_minus_r2_va, one_minus_r2_extrap,
+            mae_tr, mae_va, mae_extrap]
 
 
 def _lsm_fit(ctx, raw_train, raw_val, raw_extr):
@@ -1319,23 +1333,24 @@ def _compute_raw_metrics(individual, toolbox, bundle: _Bundle, static_rule_candi
 
         mse_tr = float(np.mean((Y - pred_train) ** 2))
         mse_va = float(np.mean((Y_val - pred_val) ** 2))
-        max_err = float(np.max(np.abs(Y_val - pred_val)))
+        mae_tr = float(np.mean(np.abs(Y - pred_train)))
+        mae_va = float(np.mean(np.abs(Y_val - pred_val)))
+        one_minus_r2_tr = mse_tr / var_tr if var_tr > 0 else float("inf")
+        one_minus_r2_va = mse_va / var_va if var_va > 0 else float("inf")
 
         if is_wild:
-            mae_tr = float(np.mean(np.abs(Y - pred_train)))
-            mae_va = float(np.mean(np.abs(Y_val - pred_val)))
-            vec = [mse_tr, mse_va, mae_tr, mae_va, max_err]
+            vec = [mse_tr, mse_va, one_minus_r2_tr, one_minus_r2_va, mae_tr, mae_va]
             names = WILD_REGRESSION_METRIC_NAMES
         else:
+            var_extrap = float(np.var(Y_extrap))
             mse_extrap = float(np.mean((Y_extrap - pred_extr) ** 2))
-            one_minus_r2_tr = mse_tr / var_tr if var_tr > 0 else float("inf")
-            one_minus_r2_va = mse_va / var_va if var_va > 0 else float("inf")
-            if cfg.include_val:
-                vec = [mse_tr, mse_va, max_err, mse_extrap, one_minus_r2_tr, one_minus_r2_va]
-                names = METRIC_NAMES
-            else:
-                vec = [mse_tr, one_minus_r2_tr]
-                names = ["mse_tr", "one_minus_r2_tr"]
+            mae_extrap = float(np.mean(np.abs(Y_extrap - pred_extr)))
+            one_minus_r2_extrap = (mse_extrap / var_extrap
+                                   if var_extrap > 0 else float("inf"))
+            vec = [mse_tr, mse_va, mse_extrap,
+                   one_minus_r2_tr, one_minus_r2_va, one_minus_r2_extrap,
+                   mae_tr, mae_va, mae_extrap]
+            names = METRIC_NAMES
         if not all(np.isfinite(vec)):
             continue
 
@@ -1955,17 +1970,17 @@ class HFFSREngine:
           - HOF[0] chromosome × N_WRAPPERS (each LSM-fit)
           - every static rule candidate (each with its per-eval LSM a, b)
 
-        End-phase HFF vec is 3D, computed on holdout rows only:
-          wild_regression: [mse_ho, mae_ho, max_err_ho]
-          feynman:         [mse_ho, max_err_ho, 1-R²_ho]
+        End-phase HFF vec is 3D for both modes, computed on holdout
+        rows only:
+          [mse_ho, 1-R²_ho, mae_ho]
 
         HFF normalises across the pool; lowest HFF distance wins.
         Exact-tie tiebreak (to last significant digit): shortest
         expression by node count.
 
-        Validation data is NOT used in end-phase selection. Extrap is
-        NOT used in end-phase selection (it's Feynman-truth-driven and
-        meaningless here).
+        Validation data is NOT in the end-phase vec — holdout is the
+        unseen check. Extrap is NOT in the end-phase vec — it's a
+        Feynman-truth-driven concept and meaningless without truth.
         """
         if not hof:
             self.discovered_expr_ = sp.Integer(0)
@@ -1991,7 +2006,6 @@ class HFFSREngine:
             ho_df = bundle.train
         ho_y = ho_df["target"].values
         ho_var = float(np.var(ho_y)) if len(ho_y) > 1 else 1.0
-        mode = self.config.mode
 
         def _holdout_vec(expr) -> Optional[list]:
             """Build the 3D end-phase HFF vec for ``expr`` on holdout
@@ -2010,12 +2024,8 @@ class HFFSREngine:
                 err = ho_y - pred
                 mse = float(np.mean(err ** 2))
                 mae = float(np.mean(np.abs(err)))
-                max_err = float(np.max(np.abs(err)))
-                if mode == "wild_regression":
-                    vec = [mse, mae, max_err]
-                else:
-                    one_minus_r2 = mse / ho_var if ho_var > 0 else float("inf")
-                    vec = [mse, max_err, one_minus_r2]
+                one_minus_r2 = mse / ho_var if ho_var > 0 else float("inf")
+                vec = [mse, one_minus_r2, mae]
                 if not all(np.isfinite(vec)):
                     return None
                 return vec
