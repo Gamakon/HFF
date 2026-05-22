@@ -2685,9 +2685,15 @@ if _feynman_rule is not None:
 # ## 4.2 Equation-recovery scoring (structural + numerical)
 
 # %%
-truth_expr = sp.sympify(problem.truth_expr, locals={
-    name: val for name, val in KNOWN_CONSTANTS.items()
-})
+# Build the locals dict for sympify: constants first, then problem
+# variables as Symbols. Without the variable Symbols, names like ``gamma``
+# / ``beta`` / ``Ei`` get resolved to their sympy function class
+# (FunctionClass) instead of a Symbol, blowing up parse_expr with
+# "unsupported operand type(s) for -: 'FunctionClass' and 'One'".
+_truth_locals = {name: val for name, val in KNOWN_CONSTANTS.items()}
+for _v in problem.variables:
+    _truth_locals[_v] = sp.Symbol(_v)
+truth_expr = sp.sympify(problem.truth_expr, locals=_truth_locals)
 
 import signal as _signal_main
 

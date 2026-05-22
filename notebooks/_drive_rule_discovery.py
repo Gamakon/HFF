@@ -43,7 +43,7 @@ import subprocess
 import sys
 from collections import defaultdict
 from dataclasses import dataclass, field
-from typing import Any, Optional
+from typing import Any, Iterable, Optional
 
 import sympy as sp
 
@@ -130,11 +130,15 @@ class FailureRecord:
         return d
 
 
-def _safe_sympify(expr_str: str) -> Optional[sp.Expr]:
+def _safe_sympify(expr_str: str, var_hints: Optional[Iterable[str]] = None) -> Optional[sp.Expr]:
+    """sympify a string, forcing each name in *var_hints* to be a Symbol so
+    common physics names (gamma, beta, kb) don't collide with sympy
+    function classes. Returns None on any parse failure."""
     if not expr_str or expr_str in ("None", "0"):
         return None
+    locals_dict = {n: sp.Symbol(n) for n in (var_hints or ())}
     try:
-        return sp.sympify(expr_str)
+        return sp.sympify(expr_str, locals=locals_dict)
     except Exception:
         return None
 
@@ -179,8 +183,11 @@ def audit_failures(rdir: str) -> list[FailureRecord]:
         pid = data.get("problem") or fname[:-5]
         truth_str = data.get("truth_expr") or ""
         discovered_str = data.get("discovered_expr") or ""
-        truth = _safe_sympify(truth_str)
-        discovered = _safe_sympify(discovered_str)
+        # Pull variable names from the registry so names like ``gamma``
+        # parse as Symbols, not as sympy function classes.
+        var_hints = list(eq.REGISTRY[pid].variables) if pid in eq.REGISTRY else []
+        truth = _safe_sympify(truth_str, var_hints=var_hints)
+        discovered = _safe_sympify(discovered_str, var_hints=var_hints)
         truth_vars = set(map(str, truth.free_symbols)) if truth is not None else set()
         discovered_vars = set(map(str, discovered.free_symbols)) if discovered is not None else set()
         sym_diff_simplifies = False
