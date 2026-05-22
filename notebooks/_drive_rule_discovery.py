@@ -416,6 +416,15 @@ def run_round(n: int, problem_set: str = "feynman", parallel: int = 3,
     """Execute one round end-to-end. Returns a summary dict."""
     rdir = sweep_round(n, problem_set=problem_set, parallel=parallel)
     exact, total = count_exact(rdir)
+    # Always generate the per-round audit report, even for baseline. This
+    # captures the recovery-checker false negatives + rule candidates so
+    # nothing is lost between sweep and propose.
+    try:
+        subprocess.run([sys.executable, "_make_failure_report.py",
+                        "--round", str(n)],
+                       cwd=_HERE, check=False)
+    except Exception as e:
+        print(f"[round R{n}] report generator failed: {e}")
     if baseline:
         print(f"[round R{n}] BASELINE complete: {exact}/{total} exact")
         return {"round": n, "baseline": True, "exact": exact, "total": total}
