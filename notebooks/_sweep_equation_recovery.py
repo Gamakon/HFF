@@ -67,9 +67,14 @@ def _select_problems(args) -> list[str]:
     return picked
 
 
-def run_one(problem_id: str, no_val: bool = False) -> dict:
+def run_one(problem_id: str, no_val: bool = False, audit_dir: str | None = None) -> dict:
     """Launch the notebook .py as a subprocess for *problem_id*. Returns
-    a dict with recovery results (or {'error': ...})."""
+    a dict with recovery results (or {'error': ...}).
+
+    If *audit_dir* is set, the parsed result dict is also written to
+    ``<audit_dir>/<problem_id>.json`` for downstream consumption by the
+    rule-discovery driver.
+    """
     t0 = time.perf_counter()
     env = os.environ.copy()
     env["HFF_HEADLESS"] = "1"          # belt-and-braces; isatty() should also be false
@@ -164,15 +169,26 @@ def run_one(problem_id: str, no_val: bool = False) -> dict:
             continue
 
     if parsed is None:
-        return {
+        result = {
             "problem": problem_id,
             "error": f"exit {proc.returncode}; no parseable experiment JSON in stdout",
             "stderr_tail": "\n".join(proc.stderr.strip().splitlines()[-15:]),
             "stdout_tail": "\n".join(stdout.strip().splitlines()[-15:]),
             "elapsed_s": elapsed,
         }
-    parsed["elapsed_s"] = elapsed
-    return parsed
+    else:
+        parsed["elapsed_s"] = elapsed
+        result = parsed
+
+    if audit_dir:
+        os.makedirs(audit_dir, exist_ok=True)
+        sidecar = os.path.join(audit_dir, f"{problem_id}.json")
+        try:
+            with open(sidecar, "w") as f:
+                json.dump(result, f, indent=2, default=str)
+        except Exception as e:
+            print(f"[audit] failed to write {sidecar}: {e}", file=sys.stderr)
+    return result
 
 
 def _format_row_lines(pid, result):
@@ -234,6 +250,9 @@ def main():
                         help="ABLATION: drop validation + extrapolation from fitness")
     parser.add_argument("--parallel", type=int, default=1,
                         help="number of problems to run concurrently (default 1)")
+    parser.add_argument("--audit-mode", type=str, default=None, metavar="DIR",
+                        help="write per-problem JSON sidecar into DIR for the "
+                             "rule-discovery driver to consume")
     args = parser.parse_args()
 
     problems = _select_problems(args)
@@ -247,12 +266,17 @@ def main():
     else:
         print(f"  selection: {problems[:6]} … {problems[-3:]}  ({len(problems)} total)\n")
 
+    audit_dir = args.audit_mode
+    if audit_dir:
+        os.makedirs(audit_dir, exist_ok=True)
+        print(f"[audit] writing per-problem sidecars to {audit_dir}/\n")
+
     rows = []
     if args.parallel <= 1:
         # Sequential path (preserved for back-compat).
         for pid in problems:
             print(f"=== {pid} ===", flush=True)
-            result = run_one(pid, no_val=args.no_val)
+            result = run_one(pid, no_val=args.no_val, audit_dir=audit_dir)
             for ln in _format_row_lines(pid, result)[1:]:
                 print(ln)
             rows.append(_result_to_row(pid, result))
@@ -264,7 +288,7 @@ def main():
         from concurrent.futures import ProcessPoolExecutor, as_completed
         completed = 0
         with ProcessPoolExecutor(max_workers=args.parallel) as ex:
-            futures = {ex.submit(run_one, pid, args.no_val): pid for pid in problems}
+            futures = {ex.submit(run_one, pid, args.no_val, audit_dir): pid for pid in problems}
             for fut in as_completed(futures):
                 pid = futures[fut]
                 completed += 1
