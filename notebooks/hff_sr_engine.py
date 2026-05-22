@@ -1462,6 +1462,13 @@ class HFFSREngine:
         self.won_via_rule_ = False
         self.rule_label_ = None
         self.rule_family_ = None
+        # End-phase HFF pick state. Every candidate in the pool
+        # (chromosome × N_WRAPPERS + every static rule) is scored by
+        # HFF on a 3D holdout-only vec; the lowest HFF wins. Table is
+        # full ranked pool for inspection.
+        self.discovered_source_: str = ""
+        self.hff_holdout_: Optional[float] = None
+        self.holdout_pick_table_: list[dict] = []
         self._lambdified = None
         self._lambdified_var_order: list[str] = []
         self.fit_seconds_: float = 0.0
@@ -1942,74 +1949,206 @@ class HFFSREngine:
                 pass
 
     def _extract_best(self, hof, bundle, toolbox, var_ranges, verbose):
-        """Sympify hof[0], compose with LSM, snap constants, set
-        ``self.discovered_expr_`` and the cached lambdify variable order."""
+        """Pick the discovered expression by **HFF on a holdout-only vec**
+        across one flat pool of candidates:
+
+          - HOF[0] chromosome × N_WRAPPERS (each LSM-fit)
+          - every static rule candidate (each with its per-eval LSM a, b)
+
+        End-phase HFF vec is 3D, computed on holdout rows only:
+          wild_regression: [mse_ho, mae_ho, max_err_ho]
+          feynman:         [mse_ho, max_err_ho, 1-R²_ho]
+
+        HFF normalises across the pool; lowest HFF distance wins.
+        Exact-tie tiebreak (to last significant digit): shortest
+        expression by node count.
+
+        Validation data is NOT used in end-phase selection. Extrap is
+        NOT used in end-phase selection (it's Feynman-truth-driven and
+        meaningless here).
+        """
         if not hof:
             self.discovered_expr_ = sp.Integer(0)
             self._lambdified_var_order = bundle.variables[:]
             return
-        best = hof[0]
-        wraw = int(getattr(best, "wrapper_id", 0))
-        won_via_rule = wraw >= RULE_WRAPPER_ID_OFFSET
-        self.won_via_rule_ = won_via_rule
-        if won_via_rule:
-            rule_sym = getattr(best, "rule_sym_expr", None)
-            self.rule_label_ = getattr(best, "rule_label", None)
-            self.rule_family_ = getattr(best, "rule_family", None)
-            wid = 0
-            wname = "identity"
-        else:
-            wid = wraw % N_WRAPPERS
-            wname = WRAPPER_NAMES[wid]
-        self.wrapper_id_ = wid
-        self.wrapper_name_ = wname
-        self.a_ = float(getattr(best, "a", 1.0))
-        self.b_ = float(getattr(best, "b", 0.0))
 
         sym_map = hgh.custom_symbolic_function_map()
         sym_map["protected_sqrt"] = lambda x: sp.sqrt(sp.Abs(x))
         sym_map["protected_exp"] = sp.exp
         sym_map["protected_log"] = lambda x: sp.log(sp.Abs(x))
-
-        raw_gene_sym = gep.simplify(best, symbolic_function_map=sym_map)
         wrapper_sym_map = {
             "identity": lambda e: e,
             "log_abs":  lambda e: sp.log(sp.Abs(e)),
             "sqrt_abs": lambda e: sp.sqrt(sp.Abs(e)),
         }
-        wrapped_gene_sym = wrapper_sym_map[wname](raw_gene_sym)
 
-        if won_via_rule:
-            rule_sym = getattr(best, "rule_sym_expr", None)
-            if rule_sym is None:
-                composed = sp.Float(self.a_) * wrapped_gene_sym + sp.Float(self.b_)
-            else:
-                composed = sp.Float(self.a_) * rule_sym + sp.Float(self.b_)
-        elif self.config.enable_linear_scaling:
-            composed = sp.Float(self.a_) * wrapped_gene_sym + sp.Float(self.b_)
+        # Holdout split — falls back to val then train if not provided.
+        if bundle.holdout is not None:
+            ho_df = bundle.holdout
+        elif bundle.validation is not None:
+            ho_df = bundle.validation
         else:
-            composed = wrapped_gene_sym
+            ho_df = bundle.train
+        ho_y = ho_df["target"].values
+        ho_var = float(np.var(ho_y)) if len(ho_y) > 1 else 1.0
+        mode = self.config.mode
 
-        # Snap constants (with SIGALRM guard).
-        snapped = self._snap_with_timeout(composed, bundle, var_ranges)
-        # Optional Feynman-shape rewrite.
+        def _holdout_vec(expr) -> Optional[list]:
+            """Build the 3D end-phase HFF vec for ``expr`` on holdout
+            rows. Returns None on lambdify / numeric failure."""
+            try:
+                fn = sp.lambdify(
+                    [sp.Symbol(v) for v in bundle.variables],
+                    expr, modules=["numpy"],
+                )
+                pred = np.asarray(fn(*[ho_df[v].values for v in bundle.variables]),
+                                  dtype=np.float64)
+                if pred.shape == () or pred.shape[0] != len(ho_y):
+                    return None
+                if not np.all(np.isfinite(pred)):
+                    return None
+                err = ho_y - pred
+                mse = float(np.mean(err ** 2))
+                mae = float(np.mean(np.abs(err)))
+                max_err = float(np.max(np.abs(err)))
+                if mode == "wild_regression":
+                    vec = [mse, mae, max_err]
+                else:
+                    one_minus_r2 = mse / ho_var if ho_var > 0 else float("inf")
+                    vec = [mse, max_err, one_minus_r2]
+                if not all(np.isfinite(vec)):
+                    return None
+                return vec
+            except Exception:
+                return None
+
+        # Build the flat candidate pool.
+        pool: list[dict] = []
+        best = hof[0]
+        # (1) chromosome × N_WRAPPERS — each LSM-fit on train.
+        try:
+            raw_gene_sym = gep.simplify(best, symbolic_function_map=sym_map)
+        except Exception:
+            raw_gene_sym = None
+        raw_train = hgh.compile_and_predict(best, bundle.train,
+                                            bundle.variables, self._toolbox)
+        Y_tr = bundle.Y
+        if raw_gene_sym is not None and raw_train is not None:
+            for w_id in range(N_WRAPPERS):
+                wname = WRAPPER_NAMES[w_id]
+                wrapped_train = apply_wrapper(raw_train, w_id)
+                if wrapped_train is None:
+                    continue
+                if self.config.enable_linear_scaling:
+                    scale = hgh.apply_linear_scaling(wrapped_train, Y_tr)
+                    if scale is None:
+                        continue
+                    a, b = float(scale[0]), float(scale[1])
+                else:
+                    a, b = 1.0, 0.0
+                wrapped_sym = wrapper_sym_map[wname](raw_gene_sym)
+                composed = (sp.Float(a) * wrapped_sym + sp.Float(b)
+                            if self.config.enable_linear_scaling else wrapped_sym)
+                pool.append({
+                    "source": f"chromosome.{wname}",
+                    "expr_pre_snap": composed,
+                    "a": a, "b": b,
+                    "wrapper_id": w_id,
+                    "rule_family": None, "rule_label": None,
+                })
+
+        # (2) every static rule candidate that fired during training.
+        for c in self._static_rule_candidates:
+            sym = c.get("sym_expr")
+            if sym is None:
+                continue
+            a = float(c.get("a", 1.0))
+            b = float(c.get("b", 0.0))
+            composed = sp.Float(a) * sym + sp.Float(b)
+            pool.append({
+                "source": f"rule.{c.get('rule_family')}/{c.get('rule_label')}",
+                "expr_pre_snap": composed,
+                "a": a, "b": b,
+                "wrapper_id": RULE_WRAPPER_ID_OFFSET,
+                "rule_family": c.get("rule_family"),
+                "rule_label": c.get("rule_label"),
+            })
+
+        # Snap each pool member + build the holdout HFF vec for each.
+        for entry in pool:
+            snapped = self._snap_with_timeout(entry["expr_pre_snap"], bundle, var_ranges)
+            snapped = self._maybe_feynman_rewrite(snapped, bundle, var_ranges)
+            entry["expr"] = snapped
+            entry["holdout_vec"] = _holdout_vec(snapped)
+
+        # Discard entries where the holdout vec didn't compute.
+        scorable = [e for e in pool if e["holdout_vec"] is not None]
+        if scorable:
+            F = np.array([e["holdout_vec"] for e in scorable], dtype=np.float64)
+            hff_scores = hff.calculate_fitness_hf1_enhanced(
+                F, normalize=True, north_pole_method=self.config.north_pole_method,
+            )
+            for e, s in zip(scorable, hff_scores):
+                e["hff_holdout"] = float(s)
+
+            def _complexity(e):
+                try:
+                    return sum(1 for _ in sp.preorder_traversal(e["expr"]))
+                except Exception:
+                    return 10_000
+
+            # Sort by HFF score ascending; exact-tie tiebreak (last
+            # significant digit) by complexity ascending.
+            scorable.sort(key=lambda e: (e["hff_holdout"], _complexity(e)))
+            winner = scorable[0]
+            self.discovered_expr_ = winner["expr"]
+            self.discovered_source_ = winner["source"]
+            self.hff_holdout_ = winner["hff_holdout"]
+            self.a_ = winner["a"]
+            self.b_ = winner["b"]
+            self.wrapper_id_ = winner["wrapper_id"]
+            self.wrapper_name_ = (WRAPPER_NAMES[winner["wrapper_id"]]
+                                  if winner["wrapper_id"] < N_WRAPPERS else "rule")
+            self.won_via_rule_ = winner["source"].startswith("rule.")
+            self.rule_family_ = winner["rule_family"]
+            self.rule_label_ = winner["rule_label"]
+            self.holdout_pick_table_ = [
+                {"source": e["source"],
+                 "hff_holdout": e["hff_holdout"],
+                 "holdout_vec": e["holdout_vec"],
+                 "complexity": _complexity(e),
+                 "expr": str(e["expr"])[:200]}
+                for e in scorable
+            ]
+        else:
+            self.discovered_expr_ = sp.Integer(0)
+            self.discovered_source_ = "fallback"
+            self.hff_holdout_ = None
+            self.holdout_pick_table_ = []
+
+        self._lambdified_var_order = bundle.variables[:]
+        if verbose:
+            print(f"[engine] discovered ({self.discovered_source_}, "
+                  f"hff_holdout={self.hff_holdout_}): {self.discovered_expr_}")
+            for entry in (self.holdout_pick_table_ or [])[:5]:
+                marker = "←" if entry["source"] == self.discovered_source_ else " "
+                print(f"  {marker} {entry['source']:<40} "
+                      f"hff={entry['hff_holdout']:.6f}  "
+                      f"vec={entry['holdout_vec']}  "
+                      f"{entry['expr'][:60]}")
+
+    def _maybe_feynman_rewrite(self, expr, bundle, var_ranges):
         try:
             rewritten, rule = hgh.feynman_shape_rewrite(
-                snapped,
+                expr,
                 library=dict(__import__("equation_problems").KNOWN_CONSTANTS),
                 rel_tol=self.config.snap_rel_tol,
                 var_ranges=var_ranges or {},
                 problem_vars=bundle.variables,
             )
-            if rule is not None:
-                snapped = rewritten
+            return rewritten if rule is not None else expr
         except Exception:
-            pass
-
-        self.discovered_expr_ = snapped
-        self._lambdified_var_order = bundle.variables[:]
-        if verbose:
-            print(f"[engine] discovered: {snapped}")
+            return expr
 
     def _snap_with_timeout(self, expr, bundle, var_ranges):
         """Run hgh.snap_levels with a SIGALRM guard, return the best level by
