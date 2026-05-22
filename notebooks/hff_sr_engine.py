@@ -457,7 +457,7 @@ def _assign_fitness_batch(population, raw_results, cfg: HFFSRConfig):
     F = np.array(F_rows, dtype=np.float64)
 
     fitness = hff.calculate_fitness_hf1_enhanced(
-        F, normalize=True, north_pole_method=cfg.north_pole_method
+        F, normalize=False, north_pole_method=cfg.north_pole_method
     )
 
     best_for_ind = {}
@@ -1159,7 +1159,7 @@ class HFFSREngine:
         if scorable:
             F = np.array([e["holdout_vec"] for e in scorable], dtype=np.float64)
             hff_scores = hff.calculate_fitness_hf1_enhanced(
-                F, normalize=True, north_pole_method=self.config.north_pole_method,
+                F, normalize=False, north_pole_method=self.config.north_pole_method,
             )
             for e, s in zip(scorable, hff_scores):
                 e["hff_holdout"] = float(s)
