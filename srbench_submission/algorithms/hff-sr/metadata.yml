@@ -1,0 +1,17 @@
+authors:
+  - Andrew Morgan, Gamakon Ltd.
+email: andrew@gamakon.ai
+name: HFF-SR
+description: |
+  Hyperspherical Fitness Symbolic Regression. GA (geppy / DEAP) with
+  per-eval wrapper search across {identity, log_abs, sqrt_abs}, batched
+  HFF "TrueNorth" hyperspherical ranking, and a deterministic rule
+  library (Lorentz, Coulomb, Gaussian, Euclidean, harmonic, kinetic
+  energy, radiated power, etc.). Multi-objective fitness vector includes
+  train + validation + extrapolation MSE / R^2 so geometric overfit
+  signals reach the selector. The engine is the same module used by the
+  v1.0.4 notebook and the closed-loop rule-discovery driver, so SRBench
+  results stay in lockstep with our Feynman ablations.
+url: https://github.com/Gamakon/HFF
+license: MIT
+type: deterministic
