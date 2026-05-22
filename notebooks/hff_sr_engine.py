@@ -1180,6 +1180,19 @@ class HFFSRConfig:
     adaptive_pop_intake_max: int = 500
     adaptive_grow_factor: float = 1.25
     adaptive_shrink_factor: float = 0.80
+    # E22 — karva→karva learned rewrites
+    # Corpus logging: write (parent, child, ΔHFF) pairs from the per-deme
+    # offspring step. mode="improvement" drops non-negative deltas.
+    corpus_log_path: Optional[str] = None
+    corpus_log_mode: str = "improvement"     # "improvement" | "all"
+    problem_id: str = "unknown"              # tagged on every corpus line
+    # Pump topology: source for new intake individuals.
+    rewrite_rules_path: Optional[str] = None
+    pump_mode: str = "random"                # "random" | "rewrite" | "alternating"
+    pump_rewrite_period: int = 10
+    pump_random_period: int = 10
+    rewrite_top_k_champions: int = 5
+    rewrite_max_rules_per_chrom: int = 3
 
 
 @dataclass
@@ -1439,6 +1452,19 @@ def _per_metric_mins(population, mode: str = "feynman"):
     return out
 
 
+def _json_dumps_corpus_line(parent, child, p_fit, c_fit, delta,
+                            problem_id, gen, *, n_genes, head_length) -> str:
+    """Fast JSONL formatter for the E22 corpus hot path."""
+    import json as _json
+    return _json.dumps({
+        "parent": parent, "child": child,
+        "p_fit": float(p_fit), "c_fit": float(c_fit),
+        "delta": float(delta),
+        "problem_id": str(problem_id), "gen": int(gen),
+        "n_genes": int(n_genes), "head_length": int(head_length),
+    })
+
+
 def _gep_apply_modification(population, op, pb):
     for i in range(len(population)):
         if random.random() < pb:
@@ -1518,6 +1544,24 @@ class HFFSREngine:
         self._pset = pset
         self._bundle = bundle
 
+        # E22 — karva corpus logger (optional).
+        self._corpus_logger = None
+        if cfg.corpus_log_path:
+            try:
+                from _karva_corpus import KarvaCorpusLogger  # local import
+                self._corpus_logger = KarvaCorpusLogger(
+                    cfg.corpus_log_path, mode=cfg.corpus_log_mode
+                )
+                if verbose:
+                    print(
+                        f"[engine] corpus logger: {cfg.corpus_log_path} "
+                        f"(mode={cfg.corpus_log_mode})"
+                    )
+            except Exception as e:
+                if verbose:
+                    print(f"[engine] corpus logger disabled: {e}")
+                self._corpus_logger = None
+
         # Pre-compute static rule candidates ONCE.
         ctx = _build_ctx(bundle)
         static_rule_candidates = build_static_candidates(ctx, verbose=verbose)
@@ -1553,6 +1597,11 @@ class HFFSREngine:
         _last_calibration_gen = 0
 
         _won_holdout = False
+        try:
+            from _karva_corpus import serialise_chromosome as _karva_ser
+        except Exception:
+            _karva_ser = None
+
         while gen <= target_gen:
             gen_start = time.perf_counter()
             if cfg.time_budget_s is not None:
@@ -1567,6 +1616,21 @@ class HFFSREngine:
                 elites = tools.selBest(deme, k=cfg.num_elites)
                 offspring = tools.selTournament(deme, len(deme) - cfg.num_elites, tournsize=ts)
                 offspring = [toolbox.clone(ind) for ind in offspring]
+                # E22 corpus: snapshot parent karva + parent fitness BEFORE
+                # any mutation/crossover, aligned by offspring index.
+                parent_snapshot = None
+                if self._corpus_logger is not None and _karva_ser is not None:
+                    parent_snapshot = []
+                    for ind in offspring:
+                        try:
+                            p_fit = (float(ind.fitness.values[0])
+                                     if (ind.fitness is not None and ind.fitness.valid)
+                                     else None)
+                            parent_snapshot.append(
+                                (_karva_ser(ind), p_fit)
+                            )
+                        except Exception:
+                            parent_snapshot.append((None, None))
                 for op in toolbox.pbs:
                     if op.startswith("mut"):
                         offspring = _gep_apply_modification(offspring, getattr(toolbox, op), toolbox.pbs[op])
@@ -1578,6 +1642,32 @@ class HFFSREngine:
                 if invalid_ind:
                     raw_results = [evaluate_one(ind) for ind in invalid_ind]
                     _assign_fitness_batch(invalid_ind, raw_results, cfg)
+                # E22 corpus: now that children have fitnesses, log pairs.
+                if (self._corpus_logger is not None and parent_snapshot is not None
+                        and _karva_ser is not None):
+                    for child, (p_karva, p_fit) in zip(offspring, parent_snapshot):
+                        if p_karva is None or p_fit is None:
+                            continue
+                        if not (child.fitness is not None and child.fitness.valid):
+                            continue
+                        try:
+                            c_fit = float(child.fitness.values[0])
+                            c_karva = _karva_ser(child)
+                            if c_karva == p_karva:
+                                continue
+                            delta = c_fit - p_fit
+                            if cfg.corpus_log_mode == "improvement" and delta >= 0.0:
+                                continue
+                            self._corpus_logger._fh.write(
+                                _json_dumps_corpus_line(
+                                    p_karva, c_karva, p_fit, c_fit, delta,
+                                    cfg.problem_id, gen,
+                                    n_genes=len(child),
+                                    head_length=child[0].head_length,
+                                ) + "\n"
+                            )
+                        except Exception:
+                            continue
                 hof.update(deme)
 
             # Early-stop check (holdout-gated).
@@ -1610,6 +1700,11 @@ class HFFSREngine:
             gen += 1
 
         self.fit_seconds_ = time.perf_counter() - fit_start
+        if self._corpus_logger is not None:
+            try:
+                self._corpus_logger.close()
+            except Exception:
+                pass
         self._extract_best(hof, bundle, toolbox, var_ranges, verbose=verbose)
         return self
 
