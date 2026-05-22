@@ -63,6 +63,14 @@ class HFFSymbolicRegressor(BaseEstimator, RegressorMixin):
         y_arr = np.asarray(y).ravel()
         X_tr, y_tr, X_va, y_va, X_ex, y_ex = self._split(X_df, y_arr)
 
+        # Rule library defaults ON for every dataset (Feynman, PMLB, wild).
+        # SR's value proposition is explainability, not raw R². If a
+        # Coulomb / Lorentz / Gaussian / Euclidean shape wins HFF on a
+        # black-box problem, that IS the discovery worth reporting; the
+        # analyst gets to keep or reject. Per-eval wrapper search + val-in-
+        # fitness already proved on WIDS that this generalises (holdout AUC
+        # > train AUC). Compute is not the gate — GPU backend handles the
+        # rule batch at rounding-error cost.
         config = HFFSRConfig(
             head_length=self.head_length,
             n_genes=self.n_genes,
