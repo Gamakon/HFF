@@ -100,7 +100,7 @@ class HFFSymbolicRegressor(BaseEstimator, RegressorMixin):
             X_val=X_va, y_val=y_va,
             X_extrap=None, y_extrap=None,
             holdout_X=X_ho, holdout_y=y_ho,
-            verbose=False,
+            verbose=bool(getattr(self, "_verbose_fit", False)),
         )
         self.is_fitted_ = True
         return self
