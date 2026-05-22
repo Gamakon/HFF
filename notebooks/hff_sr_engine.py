@@ -81,6 +81,11 @@ METRIC_NAMES = ["mse_tr", "mse_va", "max_err", "mse_extrap",
                 "one_minus_r2_tr", "one_minus_r2_va"]
 N_OBJECTIVES = len(METRIC_NAMES)
 
+# Wild-data mode uses a different vec: train+val MSE/MAE + max_err only.
+# See feedback_wild_data_hff_vec.md and the plan §"Wild-data HFF
+# objective vec".
+WILD_REGRESSION_METRIC_NAMES = ["mse_tr", "mse_va", "mae_tr", "mae_va", "max_err"]
+
 FAILED_METRIC_VALUE = 1.0e9
 FAILED_FITNESS = 1.0e9
 
@@ -186,15 +191,26 @@ def _safe_div(a, b):
 
 
 def _vec_from_pred(ctx, pred_train, pred_val, pred_extr):
-    """Build the 6-objective vec from prediction arrays."""
+    """Build the HFF objective vec from prediction arrays.
+
+    Mode-dependent:
+      - ``feynman``: 6-vec with extrap_MSE + 1-R² terms (default)
+      - ``wild_regression``: 5-vec [mse_tr, mse_va, mae_tr, mae_va, max_err]
+    """
     Y = ctx["Y"]
     Y_val = ctx["Y_val"]
-    Y_extrap = ctx["Y_extrap"]
-    var_tr = float(np.var(Y))
-    var_va = float(np.var(Y_val))
+    mode = ctx.get("mode", "feynman")
     mse_tr = float(np.mean((Y - pred_train) ** 2))
     mse_va = float(np.mean((Y_val - pred_val) ** 2))
     max_err = float(np.max(np.abs(Y_val - pred_val)))
+    if mode == "wild_regression":
+        mae_tr = float(np.mean(np.abs(Y - pred_train)))
+        mae_va = float(np.mean(np.abs(Y_val - pred_val)))
+        return [mse_tr, mse_va, mae_tr, mae_va, max_err]
+    # Feynman (default)
+    Y_extrap = ctx["Y_extrap"]
+    var_tr = float(np.var(Y))
+    var_va = float(np.var(Y_val))
     mse_extrap = float(np.mean((Y_extrap - pred_extr) ** 2))
     one_minus_r2_tr = mse_tr / var_tr if var_tr > 0 else float("inf")
     one_minus_r2_va = mse_va / var_va if var_va > 0 else float("inf")
@@ -204,9 +220,10 @@ def _vec_from_pred(ctx, pred_train, pred_val, pred_extr):
 
 
 def _lsm_fit(ctx, raw_train, raw_val, raw_extr):
-    """Fit (a, b) on train; return (a, b, pred_train, pred_val, pred_extr)."""
+    """Fit (a, b) on train; return (a, b, pred_train, pred_val, pred_extr).
+    ``raw_extr`` may be None in wild-data modes; pred_extr is then None too."""
     Y = ctx["Y"]
-    if raw_train is None or raw_val is None or raw_extr is None:
+    if raw_train is None or raw_val is None:
         return None
     if np.allclose(raw_train - raw_train.mean(), 0.0):
         return None
@@ -217,16 +234,25 @@ def _lsm_fit(ctx, raw_train, raw_val, raw_extr):
         return None
     if not (np.isfinite(a) and np.isfinite(b)):
         return None
+    pred_extr = (a * raw_extr + b) if raw_extr is not None else None
     return (float(a), float(b),
-            a * raw_train + b, a * raw_val + b, a * raw_extr + b)
+            a * raw_train + b, a * raw_val + b, pred_extr)
 
 
 def _candidate_from_pred(ctx, rule_idx, raw_train, raw_val, raw_extr):
-    """LSM-fit raw arrays + build candidate dict.  Returns None if non-finite."""
-    if raw_train is None or raw_val is None or raw_extr is None:
+    """LSM-fit raw arrays + build candidate dict.  Returns None if non-finite.
+
+    For ``wild_regression`` mode, raw_extr can be None — rules ignore the
+    extrap arrays in that mode.
+    """
+    mode = ctx.get("mode", "feynman")
+    if raw_train is None or raw_val is None:
         return None
-    if not (np.all(np.isfinite(raw_train)) and np.all(np.isfinite(raw_val))
-            and np.all(np.isfinite(raw_extr))):
+    if mode == "feynman" and raw_extr is None:
+        return None
+    if not (np.all(np.isfinite(raw_train)) and np.all(np.isfinite(raw_val))):
+        return None
+    if raw_extr is not None and not np.all(np.isfinite(raw_extr)):
         return None
     if ctx["enable_linear_scaling"]:
         fit = _lsm_fit(ctx, raw_train, raw_val, raw_extr)
@@ -239,12 +265,14 @@ def _candidate_from_pred(ctx, rule_idx, raw_train, raw_val, raw_extr):
     vec = _vec_from_pred(ctx, pred_train, pred_val, pred_extr)
     if not all(np.isfinite(vec)):
         return None
+    names = (WILD_REGRESSION_METRIC_NAMES if mode == "wild_regression"
+             else METRIC_NAMES)
     return {
         "wrapper_id": RULE_WRAPPER_ID_OFFSET + rule_idx,
         "vec": vec,
         "a": a,
         "b": b,
-        "metrics": dict(zip(METRIC_NAMES, vec)),
+        "metrics": dict(zip(names, vec)),
     }
 
 
@@ -1065,6 +1093,11 @@ def build_static_candidates(ctx, rule_builders=None, verbose=True):
 @dataclass
 class HFFSRConfig:
     """All evolution + extraction knobs.  Mirrors the notebook defaults."""
+    # Mode selects the HFF objective vec construction.
+    #  - "feynman": 6-vec with extrap (truth-driven domain split).
+    #  - "wild_regression": 5-vec [mse_tr, mse_va, mae_tr, mae_va, max_err],
+    #     no extrap, val-only early stop. Default for SRBench black-box.
+    mode: str = "feynman"
     # Genes
     head_length: int = 48
     n_genes: int = 3
@@ -1138,6 +1171,7 @@ def _build_ctx(bundle: _Bundle) -> dict:
         "by_prefix": bundle.by_prefix,
         "enable_linear_scaling": bundle.config.enable_linear_scaling,
         "include_val": bundle.config.include_val,
+        "mode": bundle.config.mode,
     }
 
 
@@ -1198,8 +1232,8 @@ def _build_toolbox(bundle: _Bundle):
 
 
 def _compute_raw_metrics(individual, toolbox, bundle: _Bundle, static_rule_candidates):
-    """Per-individual fitness eval — every wrapper × 6-objective slot
-    PLUS the static rule candidates."""
+    """Per-individual fitness eval — every wrapper slot PLUS the static
+    rule candidates. Vec construction depends on ``cfg.mode``."""
     cfg = bundle.config
     train = bundle.train
     validation = bundle.validation
@@ -1207,12 +1241,18 @@ def _compute_raw_metrics(individual, toolbox, bundle: _Bundle, static_rule_candi
     Y = bundle.Y
     Y_val = bundle.Y_val
     Y_extrap = bundle.Y_extrap
+    is_wild = cfg.mode == "wild_regression"
 
     raw_train = hgh.compile_and_predict(individual, train, bundle.variables, toolbox)
     raw_val = hgh.compile_and_predict(individual, validation, bundle.variables, toolbox)
-    raw_extr = hgh.compile_and_predict(individual, extrapolation, bundle.variables, toolbox)
-    if raw_train is None or raw_val is None or raw_extr is None:
+    if raw_train is None or raw_val is None:
         return None
+    if is_wild:
+        raw_extr = None
+    else:
+        raw_extr = hgh.compile_and_predict(individual, extrapolation, bundle.variables, toolbox)
+        if raw_extr is None:
+            return None
 
     var_tr = float(np.var(Y))
     var_va = float(np.var(Y_val))
@@ -1221,9 +1261,13 @@ def _compute_raw_metrics(individual, toolbox, bundle: _Bundle, static_rule_candi
     for w_id in range(N_WRAPPERS):
         wrapped_train = apply_wrapper(raw_train, w_id)
         wrapped_val = apply_wrapper(raw_val, w_id)
-        wrapped_extr = apply_wrapper(raw_extr, w_id)
-        if wrapped_train is None or wrapped_val is None or wrapped_extr is None:
+        if wrapped_train is None or wrapped_val is None:
             continue
+        wrapped_extr = None
+        if not is_wild:
+            wrapped_extr = apply_wrapper(raw_extr, w_id)
+            if wrapped_extr is None:
+                continue
 
         if cfg.enable_linear_scaling:
             scale = hgh.apply_linear_scaling(wrapped_train, Y)
@@ -1232,7 +1276,7 @@ def _compute_raw_metrics(individual, toolbox, bundle: _Bundle, static_rule_candi
             a, b = scale
             pred_train = a * wrapped_train + b
             pred_val = a * wrapped_val + b
-            pred_extr = a * wrapped_extr + b
+            pred_extr = (a * wrapped_extr + b) if wrapped_extr is not None else None
         else:
             a, b = 1.0, 0.0
             pred_train = wrapped_train
@@ -1242,14 +1286,22 @@ def _compute_raw_metrics(individual, toolbox, bundle: _Bundle, static_rule_candi
         mse_tr = float(np.mean((Y - pred_train) ** 2))
         mse_va = float(np.mean((Y_val - pred_val) ** 2))
         max_err = float(np.max(np.abs(Y_val - pred_val)))
-        mse_extrap = float(np.mean((Y_extrap - pred_extr) ** 2))
-        one_minus_r2_tr = mse_tr / var_tr if var_tr > 0 else float("inf")
-        one_minus_r2_va = mse_va / var_va if var_va > 0 else float("inf")
 
-        if cfg.include_val:
-            vec = [mse_tr, mse_va, max_err, mse_extrap, one_minus_r2_tr, one_minus_r2_va]
+        if is_wild:
+            mae_tr = float(np.mean(np.abs(Y - pred_train)))
+            mae_va = float(np.mean(np.abs(Y_val - pred_val)))
+            vec = [mse_tr, mse_va, mae_tr, mae_va, max_err]
+            names = WILD_REGRESSION_METRIC_NAMES
         else:
-            vec = [mse_tr, one_minus_r2_tr]
+            mse_extrap = float(np.mean((Y_extrap - pred_extr) ** 2))
+            one_minus_r2_tr = mse_tr / var_tr if var_tr > 0 else float("inf")
+            one_minus_r2_va = mse_va / var_va if var_va > 0 else float("inf")
+            if cfg.include_val:
+                vec = [mse_tr, mse_va, max_err, mse_extrap, one_minus_r2_tr, one_minus_r2_va]
+                names = METRIC_NAMES
+            else:
+                vec = [mse_tr, one_minus_r2_tr]
+                names = ["mse_tr", "one_minus_r2_tr"]
         if not all(np.isfinite(vec)):
             continue
 
@@ -1258,7 +1310,7 @@ def _compute_raw_metrics(individual, toolbox, bundle: _Bundle, static_rule_candi
             "vec": vec,
             "a": float(a),
             "b": float(b),
-            "metrics": dict(zip(METRIC_NAMES, vec)),
+            "metrics": dict(zip(names, vec)),
         })
 
     if not candidates:
@@ -1271,11 +1323,13 @@ def _compute_raw_metrics(individual, toolbox, bundle: _Bundle, static_rule_candi
 def _assign_fitness_batch(population, raw_results, cfg: HFFSRConfig):
     """Stack every candidate from every individual into a single HFF batch;
     per-individual pick the wrapper/rule row with the minimum HFF distance."""
+    failure_names = (WILD_REGRESSION_METRIC_NAMES if cfg.mode == "wild_regression"
+                     else METRIC_NAMES)
     for i, r in enumerate(raw_results):
         if r is None or not r.get("candidates"):
             ind = population[i]
             ind.fitness.values = (FAILED_FITNESS,)
-            ind.metrics = dict.fromkeys(METRIC_NAMES, FAILED_METRIC_VALUE)
+            ind.metrics = dict.fromkeys(failure_names, FAILED_METRIC_VALUE)
             ind.a = 1.0
             ind.b = 0.0
             ind.wrapper_id = 0
@@ -1318,9 +1372,10 @@ def _assign_fitness_batch(population, raw_results, cfg: HFFSRConfig):
         ind.rule_family = payload.get("rule_family", None)
 
 
-def _per_metric_mins(population):
+def _per_metric_mins(population, mode: str = "feynman"):
     """Per-deme reporting: metrics of the deme's single best-by-fitness ind."""
-    out = {name: float("inf") for name in METRIC_NAMES}
+    names = WILD_REGRESSION_METRIC_NAMES if mode == "wild_regression" else METRIC_NAMES
+    out = {name: float("inf") for name in names}
     valid = [ind for ind in population
              if getattr(ind, "fitness", None) is not None
              and ind.fitness.valid
@@ -1328,7 +1383,7 @@ def _per_metric_mins(population):
     if not valid:
         return out
     best = min(valid, key=lambda i: i.fitness.values[0])
-    for name in METRIC_NAMES:
+    for name in names:
         v = best.metrics.get(name)
         if v is not None and math.isfinite(v):
             out[name] = float(v)
@@ -1527,7 +1582,13 @@ class HFFSREngine:
         train_df = self._to_df(X_train, y_train)
         variables = [c for c in train_df.columns if c != "target"]
         val_df = self._to_df(X_val, y_val) if X_val is not None else train_df.copy()
-        extr_df = self._to_df(X_extrap, y_extrap) if X_extrap is not None else val_df.copy()
+        # In wild_regression mode there's no extrap split. Reuse val as a
+        # placeholder so DataFrame-typed access stays sane, but the engine
+        # never reads Y_extrap in wild mode (gated by cfg.mode).
+        if X_extrap is not None:
+            extr_df = self._to_df(X_extrap, y_extrap)
+        else:
+            extr_df = val_df.copy()
         holdout_df = self._to_df(holdout_X, holdout_y) if holdout_X is not None else None
         tags, xs, ys, zs, by_prefix = detect_var_patterns(variables)
         return _Bundle(

@@ -45,15 +45,18 @@ class HFFSymbolicRegressor(BaseEstimator, RegressorMixin):
                  n_genes: int = 3,
                  n_gen: int = 400,
                  max_time: float = 3600.0,
-                 val_fraction: float = 0.2,
-                 extrap_fraction: float = 0.1,
+                 # Wild-regression split: 60 train / 15 val / 25 holdout
+                 # (random). No extrap — wild data has no truth-driven
+                 # OOD slice. See plan §Wild-data HFF objective vec.
+                 val_fraction: float = 0.15,
+                 holdout_fraction: float = 0.25,
                  random_state: int = 5):
         self.head_length = head_length
         self.n_genes = n_genes
         self.n_gen = n_gen
         self.max_time = max_time
         self.val_fraction = val_fraction
-        self.extrap_fraction = extrap_fraction
+        self.holdout_fraction = holdout_fraction
         self.random_state = random_state
 
     # ------------------------------------------------------------------
@@ -61,7 +64,7 @@ class HFFSymbolicRegressor(BaseEstimator, RegressorMixin):
     def fit(self, X, y):
         X_df = self._coerce_df(X)
         y_arr = np.asarray(y).ravel()
-        X_tr, y_tr, X_va, y_va, X_ex, y_ex = self._split(X_df, y_arr)
+        X_tr, y_tr, X_va, y_va, X_ho, y_ho = self._split(X_df, y_arr)
 
         # Rule library defaults ON for every dataset (Feynman, PMLB, wild).
         # SR's value proposition is explainability, not raw R². If a
@@ -69,9 +72,14 @@ class HFFSymbolicRegressor(BaseEstimator, RegressorMixin):
         # black-box problem, that IS the discovery worth reporting; the
         # analyst gets to keep or reject. Per-eval wrapper search + val-in-
         # fitness already proved on WIDS that this generalises (holdout AUC
-        # > train AUC). Compute is not the gate — GPU backend handles the
-        # rule batch at rounding-error cost.
+        # > train AUC).
+        #
+        # mode="wild_regression" → 5-objective vec
+        # [mse_tr, mse_va, mae_tr, mae_va, max_err], no extrap, no
+        # complexity_norm (red herring per WIDS evidence). Random
+        # 60/15/25 splits.
         config = HFFSRConfig(
+            mode="wild_regression",
             head_length=self.head_length,
             n_genes=self.n_genes,
             n_gen=self.n_gen,
@@ -80,13 +88,11 @@ class HFFSymbolicRegressor(BaseEstimator, RegressorMixin):
             use_wide_primitives=True,
         )
         self._engine = HFFSREngine(config)
-        # Use val as holdout for early-stop (SRBench doesn't give us a
-        # separate holdout; the test split is owned by the harness).
         self._engine.fit(
             X_tr, y_tr,
             X_val=X_va, y_val=y_va,
-            X_extrap=X_ex, y_extrap=y_ex,
-            holdout_X=X_va, holdout_y=y_va,
+            X_extrap=None, y_extrap=None,
+            holdout_X=X_ho, holdout_y=y_ho,
             verbose=False,
         )
         self.is_fitted_ = True
@@ -108,39 +114,28 @@ class HFFSymbolicRegressor(BaseEstimator, RegressorMixin):
         return pd.DataFrame(X_arr, columns=cols)
 
     def _split(self, X: pd.DataFrame, y: np.ndarray):
-        """Internal train/val/extrap split.
+        """Random 60/15/25 train/val/holdout split.
 
-        Strategy: shuffle, peel off ``extrap_fraction`` from the tail of
-        the first principal axis (a cheap stand-in for the
-        ManifoldGridSampler that the v1.0.4 notebook uses on Feynman),
-        and ``val_fraction`` uniformly at random from the rest.
+        Returns ``(X_tr, y_tr, X_va, y_va, X_ho, y_ho)``.
+
+        No extrap. Wild-regression mode does not use one; the SRBench
+        harness owns the real test set. The holdout returned here is
+        used only for the engine's early-stop confirmation step.
         """
         rng = np.random.RandomState(self.random_state)
         n = len(X)
-        # Compute extrap mask via the column with largest variance.
-        if X.shape[1] >= 1:
-            var_col = X.columns[int(np.argmax(X.var().values))]
-            order = np.argsort(X[var_col].values)
-            extrap_n = max(1, int(round(self.extrap_fraction * n)))
-            extrap_idx = order[-extrap_n:]
-        else:
-            extrap_idx = np.array([], dtype=int)
+        idx = np.arange(n)
+        rng.shuffle(idx)
+        ho_n = max(1, int(round(self.holdout_fraction * n)))
+        va_n = max(1, int(round(self.val_fraction * n)))
+        ho_idx = idx[:ho_n]
+        va_idx = idx[ho_n:ho_n + va_n]
+        tr_idx = idx[ho_n + va_n:]
 
-        rest_mask = np.ones(n, dtype=bool)
-        rest_mask[extrap_idx] = False
-        rest_idx = np.where(rest_mask)[0]
-        rng.shuffle(rest_idx)
-        val_n = max(1, int(round(self.val_fraction * len(rest_idx))))
-        val_idx = rest_idx[:val_n]
-        train_idx = rest_idx[val_n:]
-
-        X_tr = X.iloc[train_idx].reset_index(drop=True)
-        X_va = X.iloc[val_idx].reset_index(drop=True)
-        X_ex = X.iloc[extrap_idx].reset_index(drop=True)
-        y_tr = y[train_idx]
-        y_va = y[val_idx]
-        y_ex = y[extrap_idx]
-        return X_tr, y_tr, X_va, y_va, X_ex, y_ex
+        X_tr = X.iloc[tr_idx].reset_index(drop=True)
+        X_va = X.iloc[va_idx].reset_index(drop=True)
+        X_ho = X.iloc[ho_idx].reset_index(drop=True)
+        return X_tr, y[tr_idx], X_va, y[va_idx], X_ho, y[ho_idx]
 
 
 # ----------------------------------------------------------------------
