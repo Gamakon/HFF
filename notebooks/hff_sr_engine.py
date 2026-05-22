@@ -1132,6 +1132,15 @@ class HFFSRConfig:
     random_state: int = 5
     # Time budget — engine checks this at the gen boundary and stops cleanly
     time_budget_s: Optional[float] = None
+    # Adaptive intake sizing (two-phase: hit n_gen first, then grow with
+    # leftover budget). Disabled by default; enable when a time_budget_s
+    # is set so the GA fills the budget instead of finishing early.
+    adaptive_intake: bool = False
+    adaptive_recalibrate_every: int = 25
+    adaptive_pop_intake_min: int = 50
+    adaptive_pop_intake_max: int = 500
+    adaptive_grow_factor: float = 1.25
+    adaptive_shrink_factor: float = 0.80
 
 
 @dataclass
@@ -1492,11 +1501,15 @@ class HFFSREngine:
         target_gen = cfg.n_gen
         gen = 1
         wrapper_island_pairs = self._wrapper_island_pairs(roles)
+        # Adaptive-intake bookkeeping: per-gen times since last recalibration.
+        gen_times: list[float] = []
+        _last_calibration_gen = 0
 
         _won_holdout = False
         while gen <= target_gen:
+            gen_start = time.perf_counter()
             if cfg.time_budget_s is not None:
-                if time.perf_counter() - fit_start > cfg.time_budget_s:
+                if gen_start - fit_start > cfg.time_budget_s:
                     if verbose:
                         print(f"[engine] time budget {cfg.time_budget_s}s reached at gen {gen}")
                     break
@@ -1532,6 +1545,20 @@ class HFFSREngine:
                 self._migrate_pump_cross(demes, toolbox, wrapper_island_pairs, evaluate_one)
             if cfg.dedup_freq > 0 and gen > 0 and gen % cfg.dedup_freq == 0:
                 self._dedup_all_demes(demes, toolbox, evaluate_one)
+
+            # Adaptive intake recalibration (two-phase: hit n_gen first,
+            # then grow with leftover budget).
+            gen_times.append(time.perf_counter() - gen_start)
+            if (cfg.adaptive_intake and cfg.time_budget_s is not None
+                    and gen - _last_calibration_gen >= cfg.adaptive_recalibrate_every
+                    and len(gen_times) >= 3):
+                self._adapt_intake_size(
+                    demes, roles, toolbox, gen, target_gen,
+                    elapsed=time.perf_counter() - fit_start,
+                    gen_times=gen_times, verbose=verbose,
+                )
+                gen_times = []
+                _last_calibration_gen = gen
 
             gen += 1
 
@@ -1749,6 +1776,68 @@ class HFFSREngine:
             invalid = [ind for ind in deme if not ind.fitness.valid]
             if invalid:
                 _assign_fitness_batch(invalid, [evaluate_one(i) for i in invalid], cfg)
+
+    def _adapt_intake_size(self, demes, roles, toolbox, gen, target_gen,
+                           elapsed: float, gen_times: list, verbose: bool):
+        """Two-phase adaptive intake resize.
+
+        Phase 1 (shrink if needed): if the projected wall to hit
+        ``target_gen`` exceeds ``time_budget_s``, shrink intake by
+        ``adaptive_shrink_factor`` to claw it back.
+
+        Phase 2 (grow with slack): once we're projected to hit
+        ``target_gen`` inside budget AND there's ≥ 25% budget slack,
+        grow intake by ``adaptive_grow_factor`` so the surplus time
+        funds more exploration.
+
+        Bounded by ``adaptive_pop_intake_{min,max}``. Champion deme size
+        is fixed; pump topology depends on it.
+        """
+        cfg = self.config
+        per_gen = float(np.mean(gen_times))
+        budget = float(cfg.time_budget_s)
+        remaining_budget = max(0.0, budget - elapsed)
+        gens_remaining = max(1, target_gen - gen)
+        projected_wall = per_gen * gens_remaining
+
+        # Find the intake deme(s). Champion stays fixed.
+        intake_indices = [i for i, r in enumerate(roles) if r == "intake"]
+        if not intake_indices:
+            return
+        cur_intake_size = max(len(demes[i]) for i in intake_indices)
+
+        new_size = cur_intake_size
+        action = None
+        # Phase 1: shrink if we'll miss n_gen.
+        if projected_wall > remaining_budget:
+            new_size = int(round(cur_intake_size * cfg.adaptive_shrink_factor))
+            action = "shrink"
+        # Phase 2: grow with slack. Require ≥ 25% slack to avoid
+        # thrashing near the budget edge.
+        elif projected_wall < remaining_budget * 0.75:
+            new_size = int(round(cur_intake_size * cfg.adaptive_grow_factor))
+            action = "grow"
+
+        new_size = max(cfg.adaptive_pop_intake_min,
+                       min(cfg.adaptive_pop_intake_max, new_size))
+        if new_size == cur_intake_size or action is None:
+            return
+
+        for i in intake_indices:
+            deme = demes[i]
+            if new_size > len(deme):
+                # Grow: append fresh individuals (re-eval on next gen).
+                deme.extend(toolbox.individual() for _ in range(new_size - len(deme)))
+            else:
+                # Shrink: keep the best (n new_size by fitness).
+                deme.sort(key=lambda x: x.fitness.values[0]
+                          if (x.fitness is not None and x.fitness.valid)
+                          else float("inf"))
+                del deme[new_size:]
+        if verbose:
+            print(f"[adaptive] gen {gen}: per_gen={per_gen:.2f}s, "
+                  f"remaining={remaining_budget:.0f}s, projected={projected_wall:.0f}s, "
+                  f"{action} intake {cur_intake_size}→{new_size}")
 
     def _maybe_early_stop(self, demes, toolbox, hof, bundle, gen, verbose) -> bool:
         """Check if any deme has an individual with val_R² ≥ threshold AND

@@ -86,6 +86,13 @@ class HFFSymbolicRegressor(BaseEstimator, RegressorMixin):
             time_budget_s=self.max_time,
             random_state=self.random_state,
             use_wide_primitives=True,
+            # Adaptive intake — shrink to hit n_gen, then grow with the
+            # slack so we fill the SRBench 3600s budget with the biggest
+            # population that still completes the target gens.
+            adaptive_intake=True,
+            adaptive_recalibrate_every=25,
+            adaptive_pop_intake_min=50,
+            adaptive_pop_intake_max=500,
         )
         self._engine = HFFSREngine(config)
         self._engine.fit(
