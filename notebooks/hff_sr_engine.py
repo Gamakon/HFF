@@ -1562,6 +1562,26 @@ class HFFSREngine:
                     print(f"[engine] corpus logger disabled: {e}")
                 self._corpus_logger = None
 
+        # E22 — karva rewriter rules (optional).
+        self._ruleset = None
+        if cfg.rewrite_rules_path and cfg.pump_mode in ("rewrite", "alternating"):
+            try:
+                from _karva_rewriter import load_rules
+                self._ruleset = load_rules(
+                    cfg.rewrite_rules_path,
+                    head_length=cfg.head_length, n_genes=cfg.n_genes,
+                )
+                if verbose:
+                    print(
+                        f"[engine] rewrite ruleset: {cfg.rewrite_rules_path} "
+                        f"(n_rules={len(self._ruleset)}, hash={self._ruleset.rules_hash}, "
+                        f"mode={cfg.pump_mode})"
+                    )
+            except Exception as e:
+                if verbose:
+                    print(f"[engine] rewrite rules disabled: {e}")
+                self._ruleset = None
+
         # Pre-compute static rule candidates ONCE.
         ctx = _build_ctx(bundle)
         static_rule_candidates = build_static_candidates(ctx, verbose=verbose)
@@ -1677,11 +1697,11 @@ class HFFSREngine:
 
             # Migration cycle (pump topology).
             if gen > 0 and gen % cfg.migration_freq_intra == 0:
-                self._migrate_pump_intra(demes, toolbox, wrapper_island_pairs, evaluate_one)
+                self._migrate_pump_intra(demes, toolbox, wrapper_island_pairs, evaluate_one, gen=gen)
             if gen > 30 and (gen % cfg.migration_freq == 0 or gen > target_gen - 10):
-                self._migrate_pump_cross(demes, toolbox, wrapper_island_pairs, evaluate_one)
+                self._migrate_pump_cross(demes, toolbox, wrapper_island_pairs, evaluate_one, gen=gen)
             if cfg.dedup_freq > 0 and gen > 0 and gen % cfg.dedup_freq == 0:
-                self._dedup_all_demes(demes, toolbox, evaluate_one)
+                self._dedup_all_demes(demes, toolbox, evaluate_one, gen=gen)
 
             # Adaptive intake recalibration (two-phase: hit n_gen first,
             # then grow with leftover budget).
@@ -1692,7 +1712,7 @@ class HFFSREngine:
                 self._adapt_intake_size(
                     demes, roles, toolbox, gen, target_gen,
                     elapsed=time.perf_counter() - fit_start,
-                    gen_times=gen_times, verbose=verbose,
+                    gen_times=gen_times, verbose=verbose, _gen=gen,
                 )
                 gen_times = []
                 _last_calibration_gen = gen
@@ -1815,7 +1835,65 @@ class HFFSREngine:
         champ_idxs = [i for i, r in enumerate(roles) if r == "champion"]
         return list(zip(intake_idxs, champ_idxs))
 
-    def _migrate_pump_intra(self, demes, toolbox, pairs, evaluate_one):
+    def _pump_source(self, gen: int, champion_pool: list, toolbox):
+        """Return a thunk producing ONE new intake individual.
+
+        Either ``toolbox.individual()`` (random) or
+        ``_karva_rewriter.rewrite_one(parent, ...)`` where parent is a
+        random pick from the top-k champions. Falls back to random if
+        the rewriter returns None (no rule matched).
+        """
+        cfg = self.config
+        rs = self._ruleset
+        mode = cfg.pump_mode
+
+        if mode == "random" or rs is None or not champion_pool:
+            return toolbox.individual
+
+        # Decide whether THIS pump call uses rewriting or random.
+        use_rewrite = True
+        if mode == "alternating":
+            period = max(1, cfg.pump_rewrite_period + cfg.pump_random_period)
+            phase = (gen // max(1, cfg.pump_rewrite_period)) % 2
+            # phase 0 = rewrite half-cycle, phase 1 = random half-cycle
+            use_rewrite = (phase == 0)
+
+        if not use_rewrite:
+            return toolbox.individual
+
+        # Build the top-k pool from the champion_pool.
+        k = max(1, cfg.rewrite_top_k_champions)
+        valid_champs = [c for c in champion_pool
+                        if getattr(c, "fitness", None) is not None and c.fitness.valid]
+        if not valid_champs:
+            return toolbox.individual
+        top = tools.selBest(valid_champs, min(k, len(valid_champs)))
+
+        try:
+            from _karva_rewriter import rewrite_one as _rewrite_one
+        except Exception:
+            return toolbox.individual
+
+        Individual = type(top[0])
+        max_rules = cfg.rewrite_max_rules_per_chrom
+        rng = random  # module-level random; seeded once in fit()
+        pset = self._pset
+
+        def _make():
+            parent = rng.choice(top)
+            child = _rewrite_one(
+                parent, rs, rng,
+                pset=pset, Individual=Individual,
+                wrapper_id_rand=lambda: random.randrange(N_WRAPPERS),
+                n_rules_max=max_rules,
+            )
+            if child is None:
+                return toolbox.individual()
+            return child
+
+        return _make
+
+    def _migrate_pump_intra(self, demes, toolbox, pairs, evaluate_one, *, gen: int = 0):
         cfg = self.config
         for intake_idx, champ_idx in pairs:
             intake = demes[intake_idx]
@@ -1848,14 +1926,20 @@ class HFFSREngine:
             n_keep = max(1, int(round(target_size * 0.20)))
             keepers = dedup[:n_keep]
             n_fresh = target_size - len(keepers)
-            fresh = [toolbox.individual() for _ in range(n_fresh)]
+            # Pump source: rewrite-based if rules loaded, else random.
+            champ_pool = tools.selBest(
+                [c for c in champ if getattr(c, "fitness", None) is not None and c.fitness.valid],
+                cfg.rewrite_top_k_champions,
+            ) if champ else []
+            src = self._pump_source(gen, champ_pool, toolbox)
+            fresh = [src() for _ in range(n_fresh)]
             intake[:] = keepers + fresh
         for deme in demes:
             invalid = [ind for ind in deme if not ind.fitness.valid]
             if invalid:
                 _assign_fitness_batch(invalid, [evaluate_one(i) for i in invalid], cfg)
 
-    def _migrate_pump_cross(self, demes, toolbox, pairs, evaluate_one):
+    def _migrate_pump_cross(self, demes, toolbox, pairs, evaluate_one, *, gen: int = 0):
         cfg = self.config
         pool_by_champ = {}
         for _, champ_idx in pairs:
@@ -1869,6 +1953,12 @@ class HFFSREngine:
             else:
                 top = list(valid) + list(champ[:cfg.k_migrants - len(valid)])
             pool_by_champ[champ_idx] = [toolbox.clone(ind) for ind in top]
+
+        # Union of all champion pools, used as the rewrite parent pool when
+        # pump_mode is 'rewrite' or 'alternating'.
+        full_champ_pool = []
+        for inds in pool_by_champ.values():
+            full_champ_pool.extend(inds)
 
         for intake_idx, own_champ_idx in pairs:
             intake = demes[intake_idx]
@@ -1899,22 +1989,30 @@ class HFFSREngine:
                 if cloned.fitness.valid:
                     del cloned.fitness.values
                 arrivals.append(cloned)
+            src = self._pump_source(gen, full_champ_pool, toolbox)
             while len(arrivals) < n_to_fill:
-                arrivals.append(toolbox.individual())
+                arrivals.append(src())
             intake[:] = keepers + arrivals
         for deme in demes:
             invalid = [ind for ind in deme if not ind.fitness.valid]
             if invalid:
                 _assign_fitness_batch(invalid, [evaluate_one(i) for i in invalid], cfg)
 
-    def _dedup_all_demes(self, demes, toolbox, evaluate_one):
+    def _dedup_all_demes(self, demes, toolbox, evaluate_one, *, gen: int = 0):
         cfg = self.config
         for deme in demes:
             seen = set()
+            # Champion pool for this deme = its own top-k valid by fitness.
+            champ_pool = tools.selBest(
+                [c for c in deme
+                 if getattr(c, "fitness", None) is not None and c.fitness.valid],
+                cfg.rewrite_top_k_champions,
+            )
+            src = self._pump_source(gen, champ_pool, toolbox)
             for i, ind in enumerate(deme):
                 key = str(ind)
                 if key in seen:
-                    deme[i] = toolbox.individual()
+                    deme[i] = src()
                 else:
                     seen.add(key)
         for deme in demes:
@@ -1923,7 +2021,8 @@ class HFFSREngine:
                 _assign_fitness_batch(invalid, [evaluate_one(i) for i in invalid], cfg)
 
     def _adapt_intake_size(self, demes, roles, toolbox, gen, target_gen,
-                           elapsed: float, gen_times: list, verbose: bool):
+                           elapsed: float, gen_times: list, verbose: bool,
+                           _gen: int = 0):
         """Two-phase adaptive intake resize.
 
         Phase 1 (shrink if needed): if the projected wall to hit
@@ -1972,7 +2071,13 @@ class HFFSREngine:
             deme = demes[i]
             if new_size > len(deme):
                 # Grow: append fresh individuals (re-eval on next gen).
-                deme.extend(toolbox.individual() for _ in range(new_size - len(deme)))
+                champ_pool = tools.selBest(
+                    [c for c in deme
+                     if getattr(c, "fitness", None) is not None and c.fitness.valid],
+                    self.config.rewrite_top_k_champions,
+                )
+                src = self._pump_source(_gen or gen, champ_pool, toolbox)
+                deme.extend(src() for _ in range(new_size - len(deme)))
             else:
                 # Shrink: keep the best (n new_size by fitness).
                 deme.sort(key=lambda x: x.fitness.values[0]
