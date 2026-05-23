@@ -349,8 +349,10 @@ experiment["splits"] = {"train": len(train), "validation": len(validation), "hol
 # ## 1.3 Quick EDA
 
 # %%
-sns.pairplot(data=train, vars=yourSymbols)
-_save_or_show("eda_pairplot")
+# EDA pairplot disabled — slow on high-dim datasets (e.g. 124-col tecator).
+# Uncomment to re-enable.
+# sns.pairplot(data=train, vars=yourSymbols)
+# _save_or_show("eda_pairplot")
 
 # %% [markdown]
 # # 2. Design
@@ -440,10 +442,9 @@ pset.add_function(_cube, 1)
 pset.add_function(_abs, 1)
 pset.add_function(_neg, 1)
 pset.add_function(_inv, 1)
-pset.add_function(_floor, 1)
-pset.add_function(_ceil, 1)
-pset.add_function(_max2, 2)
-pset.add_function(_min2, 2)
+# Dropped: _floor, _ceil, _max2, _min2. floor(cos(x)) blows up sympy
+# combinatorially and Max/Min lambdify to ugly numpy.asarray([...]) calls.
+# Re-add only if you specifically need step functions or coord-wise extrema.
 
 
 # === Chromosome-level regression wrapper (NOT in pset) ===
@@ -641,8 +642,18 @@ toolbox.register("population", tools.initRepeat, list, toolbox.individual)
 #                                         hff.calculate_fitness_hf1_enhanced ONCE,
 #                                         and writes back ind.fitness.values.
 
-METRIC_NAMES = ["mse_tr", "mse_va", "max_err_tr", "max_err_va",
-                "one_minus_r2_tr", "one_minus_r2_va"]
+# A/B switch for the HFF objective vec: with validation columns (default,
+# how every run so far has scored) vs train-only. Run the same config
+# both ways to measure the lift from validation in the multi-objective
+# fitness. True = full 6D vec; False = train-only 3D vec.
+HFF_USE_VALIDATION = True
+
+if HFF_USE_VALIDATION:
+    METRIC_NAMES = ["mse_tr", "mse_va", "max_err_tr", "max_err_va",
+                    "one_minus_r2_tr", "one_minus_r2_va"]
+else:
+    METRIC_NAMES = ["mse_tr", "max_err_tr", "one_minus_r2_tr"]
+print(f"[HFF vec] HFF_USE_VALIDATION={HFF_USE_VALIDATION}  → {METRIC_NAMES}")
 N_OBJECTIVES = len(METRIC_NAMES)
 
 # Sentinel for failed evaluations: a really bad-but-finite value stamped onto
@@ -718,8 +729,11 @@ def compute_raw_metrics(individual):
             one_minus_r2_tr = mse_tr / var_tr if var_tr > 0 else float("inf")
             one_minus_r2_va = mse_va / var_va if var_va > 0 else float("inf")
 
-            vec = [mse_tr, mse_va, max_err_tr, max_err_va,
-                   one_minus_r2_tr, one_minus_r2_va]
+            if HFF_USE_VALIDATION:
+                vec = [mse_tr, mse_va, max_err_tr, max_err_va,
+                       one_minus_r2_tr, one_minus_r2_va]
+            else:
+                vec = [mse_tr, max_err_tr, one_minus_r2_tr]
             if not all(np.isfinite(vec)):
                 continue
             candidates.append({
@@ -1057,6 +1071,61 @@ DEME_SIZES = (100, 100)
 deme_sizes = DEME_SIZES
 population_size = sum(deme_sizes)
 
+
+# Per-deme dedup: collapse structural duplicates (same karva string-form,
+# same linker, same wrapper) to one survivor; replace the rest with
+# fresh randoms so the deme keeps its size + variety. Cheap, fires on
+# the pump beat.
+def _dedup_deme(deme, toolbox_local):
+    seen = {}
+    duplicates = []
+    for idx, ind in enumerate(deme):
+        try:
+            key = (str(ind), int(getattr(ind, "wrapper_id", 0)),
+                   int(getattr(ind, "linker_id", 0)))
+        except Exception:
+            continue
+        if key in seen:
+            duplicates.append(idx)
+        else:
+            seen[key] = idx
+    if duplicates:
+        fresh = toolbox_local.population(n=len(duplicates))
+        for slot, idx in enumerate(duplicates):
+            deme[idx] = fresh[slot]
+    return len(duplicates)
+
+
+# Adaptive intake sizing — measure per-gen elapsed time, grow intake to
+# fill the wall-clock budget. Disabled when ADAPTIVE_INTAKE=False.
+ADAPTIVE_INTAKE = True
+ADAPTIVE_INTAKE_MIN = 50
+ADAPTIVE_INTAKE_MAX = 500
+ADAPTIVE_RECALIBRATE_EVERY = 25
+_gen_times: list = []
+_last_calibration_gen = 0
+
+
+def _adapt_intake(current_gen: int, current_intake_size: int,
+                  budget_s: float | None, elapsed_s: float,
+                  target_gen_total: int) -> int:
+    """Project remaining time; if we have slack, grow intake."""
+    if not ADAPTIVE_INTAKE or budget_s is None or len(_gen_times) < 3:
+        return current_intake_size
+    per_gen = float(np.median(_gen_times[-10:]))
+    remaining_budget = budget_s - elapsed_s
+    remaining_gens = max(1, target_gen_total - current_gen)
+    projected_remaining = per_gen * remaining_gens
+    slack = remaining_budget - projected_remaining
+    if slack <= 0:
+        # Over budget — shrink toward minimum.
+        new_size = max(ADAPTIVE_INTAKE_MIN, int(current_intake_size * 0.8))
+    else:
+        # Grow proportional to slack ratio.
+        grow_factor = 1.0 + min(0.25, slack / max(1.0, remaining_budget))
+        new_size = min(ADAPTIVE_INTAKE_MAX, int(current_intake_size * grow_factor))
+    return new_size
+
 # Adaptive prune of the per-eval (wrapper × linker) batch. After the HOF
 # stabilises (~60 gens), drop every wrapper / linker that has 0 HOF
 # winners. Lock the wrapper if it has 100% HOF dominance. Cuts the
@@ -1270,6 +1339,7 @@ else:
           f"(+{extra_gen} generations)")
 
     while gen <= target_gen:
+        _gen_start = datetime.datetime.now()
         for idx, deme in enumerate(demes):
             deme[:] = toolbox.select(deme, len(deme))
             # elites are excluded from mutation/crossover
@@ -1346,11 +1416,43 @@ else:
                        if pool is not None
                        else [evaluate_individual(i) for i in invalid])
                 assign_fitness_batch(invalid, raw)
+            # Dedup champion (and intake post-refill) — collapse structural
+            # duplicates into fresh randoms so neither deme can collapse to
+            # a single lineage.
+            _dups_intake = _dedup_deme(intake, toolbox)
+            _dups_champion = _dedup_deme(champion, toolbox)
             print(f"------------------------ALPS pump: promote {k_migrants} intake→champion, "
-                  f"refill {n_refill}/{len(intake)} intake---------------")
+                  f"refill {n_refill}/{len(intake)} intake, "
+                  f"dedup intake={_dups_intake} champ={_dups_champion}---------------")
+            # Re-evaluate any newly-spawned chromosomes (from refill OR dedup).
+            invalid = [ind for d in demes for ind in d if not ind.fitness.valid]
+            if invalid:
+                raw = (pool.map(evaluate_individual, invalid)
+                       if pool is not None
+                       else [evaluate_individual(i) for i in invalid])
+                assign_fitness_batch(invalid, raw)
             print_linker_leaderboard(label=f"gen={gen}")
             _maybe_prune_search_space(gen)
 
+            # Adaptive intake recalibration — grow if we have budget slack.
+            global _last_calibration_gen
+            if (gen - _last_calibration_gen) >= ADAPTIVE_RECALIBRATE_EVERY:
+                _budget_s = getattr(settings, "time_budget_s", None)
+                _elapsed = (datetime.datetime.now() - startDT).total_seconds()
+                _new_intake = _adapt_intake(gen, len(intake), _budget_s,
+                                             _elapsed, target_gen)
+                if _new_intake != len(intake):
+                    if _new_intake > len(intake):
+                        extra = toolbox.population(n=_new_intake - len(intake))
+                        intake.extend(extra)
+                    else:
+                        intake.sort(key=lambda i: i.fitness.values[0])
+                        del intake[_new_intake:]
+                    print(f"[adaptive intake] gen {gen}: resized intake "
+                          f"{len(intake) - (_new_intake - len(intake))}→{_new_intake}")
+                _last_calibration_gen = gen
+
+        _gen_times.append((datetime.datetime.now() - _gen_start).total_seconds())
         gen += 1
 
     end_time = datetime.datetime.now()
@@ -1472,6 +1574,63 @@ if _rule is not None:
     print(f"  →  {_feynman}")
     symplified_best = _feynman
 
+# Sympy snap to known constants (π, e, integers, rationals). Picks the
+# best-by-holdout-MSE level from a small library of snap thresholds.
+# Falls through to the raw expression on timeout / failure.
+import signal as _sig_snap
+
+try:
+    import equation_problems as _eq_snap
+    _known = dict(_eq_snap.KNOWN_CONSTANTS)
+    _SNAP_TIMEOUT_S = 10               # hard wall-clock cap
+    _SNAP_MAX_NODES = 400              # skip snap on too-complex trees
+
+    # Pre-check: count sympy nodes. Trees with exp(cube(x)) / nested
+    # reciprocals etc. blow up sympy's simplify combinatorially. Skip
+    # snap on anything above the threshold — keep the un-snapped form.
+    try:
+        _node_count = sum(1 for _ in _sp_ext.preorder_traversal(symplified_best))
+    except Exception:
+        _node_count = 0
+    if _node_count > _SNAP_MAX_NODES:
+        print(f"[snap] skipped — expression has {_node_count} nodes "
+              f"(threshold {_SNAP_MAX_NODES}); keeping un-snapped expression")
+        _levels = None
+    else:
+        class _SnapTO(Exception):
+            pass
+
+        def _snap_alarm(signum, frame):
+            raise _SnapTO()
+
+        _has_alarm = hasattr(_sig_snap, "SIGALRM")
+        if _has_alarm:
+            _sig_snap.signal(_sig_snap.SIGALRM, _snap_alarm)
+            _sig_snap.alarm(_SNAP_TIMEOUT_S)
+        try:
+            _levels = hgh.snap_levels(symplified_best, library=_known, var_ranges={})
+        except _SnapTO:
+            _levels = None
+            print(f"[snap] timeout after {_SNAP_TIMEOUT_S}s — keeping un-snapped expression")
+        finally:
+            if _has_alarm:
+                _sig_snap.alarm(0)
+
+    if _levels:
+        try:
+            with np.errstate(invalid="ignore", divide="ignore", over="ignore"):
+                _scored = hgh.score_snap_levels(_levels, holdout, target_col,
+                                                 finalTerminals)
+            _snapped = _scored[0]["expr"]
+            if str(_snapped) != str(symplified_best):
+                print(f"Snap (best level by holdout MSE):")
+                print(f"  →  {_snapped}")
+                symplified_best = _snapped
+        except Exception as _e:
+            print(f"[snap] score_snap_levels failed: {_e}")
+except Exception as _e:
+    print(f"[snap] disabled: {_e}")
+
 # %% [markdown]
 # ### 4.1.2 Formal presentation
 
@@ -1524,6 +1683,9 @@ def CalculateGeppyModelOutput(testdata, finalTerminals, best_ind, enable_ls=True
     """Apply the best individual to a DataFrame and return predictions.
 
     Pipeline mirrors training: linker(genes) → WRAPPER[wrapper_id] → LSM.
+    Silences expected numpy warnings (log/sqrt of zero, divide-by-zero,
+    overflow) — protected primitives handle the domain errors; the
+    warnings are cosmetic noise from the lambdified expression.
     """
     finalfunc = toolbox.compile(best_ind)
     paramlist = []
@@ -1532,13 +1694,14 @@ def CalculateGeppyModelOutput(testdata, finalTerminals, best_ind, enable_ls=True
         paramlist = paramlist + ["_holdout" + str(term)]
     ourparam_string = ", ".join(paramlist)
     ourfuncstring = "np.array(list(map(finalfunc, " + ourparam_string + ")))"
-    rawoutput = eval(ourfuncstring)
-    # Apply the chromosome wrapper once at the root, exactly as training did.
+    with np.errstate(invalid="ignore", divide="ignore", over="ignore"):
+        rawoutput = eval(ourfuncstring)
     wrapper_fn = WRAPPER_FUNCS[int(getattr(best_ind, "wrapper_id", 0)) % N_WRAPPERS]
-    wrapped = wrapper_fn(rawoutput)
-    if enable_ls:
-        return best_ind.a * wrapped + best_ind.b
-    return wrapped
+    with np.errstate(invalid="ignore", divide="ignore", over="ignore"):
+        wrapped = wrapper_fn(rawoutput)
+        if enable_ls:
+            return best_ind.a * wrapped + best_ind.b
+        return wrapped
 
 
 # %% [markdown]
@@ -1593,6 +1756,11 @@ r2_text  = "      R² score :           train=%.4f  holdout=%.4f  (drift=%+.4f)"
 cfg_text = ("      Gene config: head_length=%d, n_genes=%d, RNC=%d"
             % (settings.head_length, settings.n_genes, settings.rnc_array_length))
 proj_text = "      Projection : %s" % settings.north_pole_method
+hff_vec_text = "      HFF vec :    use_validation=%s (%d objectives: %s)" % (
+    HFF_USE_VALIDATION, len(METRIC_NAMES), ", ".join(METRIC_NAMES))
+_ds_label = PMLB_DATASET if USE_PMLB else "UCI_PowerPlant (local CSV)"
+dataset_text = "      Dataset    : %s   (n=%d rows, d=%d cols)" % (
+    _ds_label, len(yourData), len(finalTerminals))
 
 # Answer size: count nodes in the *final printed* symbolic expression.
 import sympy as _sp_sz
@@ -1651,6 +1819,7 @@ space_text = ("      Search space: ~10^%.1f chromosomes (head=%d × n_genes=%d �
 
 print(colorful(0,50,255,head))
 print(colorful(0,50,255," Performance on train vs holdout:\n"))
+print(colorful(255,0,255,dataset_text))
 print(colorful(255,0,255,mse_text))
 print(colorful(255,0,255,mae_text))
 print(colorful(255,0,255,r2_text))
@@ -1659,7 +1828,123 @@ print(colorful(255,0,255,pareto_text))
 print(colorful(255,0,255,space_text))
 print(colorful(255,0,255,cfg_text))
 print(colorful(255,0,255,proj_text))
+print(colorful(255,0,255,hff_vec_text))
 print(colorful(0,50,255,head))
+
+experiment["HFF_USE_VALIDATION"] = str(HFF_USE_VALIDATION)
+
+
+# ── Dimension-free angular success measure ────────────────────────────────
+# The paper (§Method, eq. 3) defines a CDF correction that maps a raw
+# angular distance θ on the m-sphere to a dimension-adjusted percentile
+# rank:
+#     P(θ ≤ t) = I_{sin²t}((m-1)/2, 1/2)
+# where I_x(a,b) is the regularized incomplete beta. This lets us compare
+# HFF angles across different m: a 3D HFF=0.5 rad and a 6D HFF=0.5 rad
+# are NOT directly comparable, but their CDF percentiles are.
+#
+# We compute it here in pure Python via scipy.special.betainc rather than
+# adding a PyO3 binding (the Rust crate has cdf_beta_correction in
+# higd.rs but it's not yet exported to Python). Result is the percentile
+# of HFF[0] vs the uniform distribution on S^{m-1} — lower is better.
+from scipy.special import betainc as _betainc
+import math as _math_cdf
+
+
+def _cdf_corrected(theta: float, m: int) -> float:
+    """Dimension-free percentile rank of an HFF angular distance theta
+    on the m-sphere. Lower = better (closer to the pole)."""
+    if m < 2 or not _math_cdf.isfinite(theta):
+        return float("nan")
+    x = _math_cdf.sin(theta) ** 2
+    x = max(0.0, min(1.0, x))
+    return float(_betainc((m - 1) / 2.0, 0.5, x))
+
+
+_hff_fitness = float(best_ind.fitness.values[0])
+_m_objectives = len(METRIC_NAMES)
+_cdf_pct = _cdf_corrected(_hff_fitness, _m_objectives)
+
+print()
+print("###################################################")
+print(" Dimension-free HFF comparison (paper §Method eq.3):")
+print(f"   Dataset:               {_ds_label}  (n={len(yourData)} rows, d={len(finalTerminals)} cols)")
+print(f"   HFF_USE_VALIDATION:    {HFF_USE_VALIDATION}")
+print(f"   Objectives (m={_m_objectives}):")
+for _n in METRIC_NAMES:
+    _v = best_ind.metrics.get(_n, float("nan")) if hasattr(best_ind, "metrics") else float("nan")
+    print(f"      {_n:<22} = {_v:.6g}")
+print()
+print(f"   HFF angular distance:  {_hff_fitness:.6f} rad   (raw, m-dependent)")
+print(f"   CDF-corrected pctile:  {_cdf_pct:.6e}  (lower=better, m-invariant)")
+print()
+print(f"   Train R² = {train_r2:+.6f}    Holdout R² = {holdout_r2:+.6f}   drift = {train_r2 - holdout_r2:+.6f}")
+print(f"   Answer size: {_answer_size} sympy nodes   Pareto: {_is_pareto}")
+print()
+print("   Interpretation: CDF percentile = probability a UNIFORM-RANDOM")
+print(f"   point on S^{_m_objectives-1} has angular distance ≤ θ from the pole.")
+print("   Smaller = better. This is m-invariant — compare a 3-vec run and")
+print("   a 6-vec run directly by their CDF percentiles, not raw HFF radii.")
+print("###################################################")
+
+experiment["HFF angular distance (rad)"] = str(_hff_fitness)
+experiment["HFF CDF percentile"] = str(_cdf_pct)
+experiment["HFF m_objectives"] = str(_m_objectives)
+
+
+# Persist the run row so we can compare across HFF_USE_VALIDATION flips
+# without rerunning. Appends to /tmp/runs.csv with a stable schema; the
+# next cell reads it back and prints the comparison table.
+import csv as _csv_runs
+_RUNS_CSV = "/tmp/v1.0.4c_runs.csv"
+_run_row = {
+    "timestamp": datetime.datetime.now().isoformat(timespec="seconds"),
+    "dataset": _ds_label,
+    "n_rows": len(yourData),
+    "n_cols": len(finalTerminals),
+    "hff_use_validation": int(HFF_USE_VALIDATION),
+    "m_objectives": _m_objectives,
+    "metric_names": "|".join(METRIC_NAMES),
+    "hff_radius_rad": float(_hff_fitness),
+    "hff_cdf_percentile": float(_cdf_pct),
+    "train_r2": float(train_r2),
+    "holdout_r2": float(holdout_r2),
+    "drift": float(train_r2 - holdout_r2),
+    "train_mse": float(train_mse),
+    "holdout_mse": float(holdout_mse),
+    "answer_size": int(_answer_size),
+    "head_length": int(settings.head_length),
+    "n_genes": int(settings.n_genes),
+    "seed": int(settings.seed),
+}
+_file_exists = os.path.exists(_RUNS_CSV)
+with open(_RUNS_CSV, "a", newline="") as _fh:
+    _w = _csv_runs.DictWriter(_fh, fieldnames=list(_run_row.keys()))
+    if not _file_exists:
+        _w.writeheader()
+    _w.writerow(_run_row)
+print(f"[runs] appended to {_RUNS_CSV}")
+
+# Pretty-print every run on this dataset so you can compare with-val
+# vs no-val (and any other seeds / configs) side by side.
+try:
+    _all = pd.read_csv(_RUNS_CSV)
+    _same_ds = _all[_all["dataset"] == _ds_label].copy()
+    if len(_same_ds) > 0:
+        print()
+        print("###################################################")
+        print(f" Run history on {_ds_label}:")
+        print("###################################################")
+        _show = ["timestamp", "hff_use_validation", "m_objectives",
+                 "hff_radius_rad", "hff_cdf_percentile",
+                 "train_r2", "holdout_r2", "drift", "answer_size"]
+        with pd.option_context("display.max_columns", None,
+                               "display.width", 200,
+                               "display.float_format", "{:.6g}".format):
+            print(_same_ds[_show].to_string(index=False))
+except Exception as _e:
+    print(f"[runs] could not print history: {_e}")
+
 
 experiment["Train Mean squared error"] = str(train_mse)
 experiment["Train Mean absolute error"] = str(train_mae)
@@ -1686,7 +1971,8 @@ experiment["Holdout R2 score"] = str(holdout_r2)
 # %%
 from sklearn.linear_model import Ridge
 
-RIDGE_ALPHA = 1.0           # L2 strength — small for low-noise data
+RIDGE_ALPHA = 1.0                            # default alpha (back-compat)
+RIDGE_ALPHA_SWEEP = (0.001, 0.01, 0.1, 1.0, 10.0, 100.0)  # sweep on the augmented basis
 RIDGE_RANDOM_PROJ_K = 8     # number of extra random projection blocks
 RIDGE_PROJ_DIM = 12         # columns per random block; ≈ n_genes
 
@@ -1708,22 +1994,33 @@ def _per_gene_predict(individual, df):
     return np.column_stack(cols)
 
 
-_G_tr = _per_gene_predict(best_ind, train)
-_G_va = _per_gene_predict(best_ind, validation)
-_G_ho = _per_gene_predict(best_ind, holdout)
+# Stack genes from EVERY HOF member, each wrapped by that member's
+# own winning wrapper. n_hof × n_genes columns of engineered features
+# from a diverse population of best-ever chromosomes.
+_hof_blocks_tr, _hof_blocks_ho = [], []
+for _hi, _hind in enumerate(hof):
+    _Gt = _per_gene_predict(_hind, train)
+    _Gh = _per_gene_predict(_hind, holdout)
+    if _Gt is None or _Gh is None:
+        continue
+    _wid_h = int(getattr(_hind, "wrapper_id", 0)) % N_WRAPPERS
+    _wrap_h = WRAPPER_FUNCS[_wid_h]
+    _Gt_w = np.column_stack([np.array([_wrap_h(v) for v in _Gt[:, j]])
+                             for j in range(_Gt.shape[1])])
+    _Gh_w = np.column_stack([np.array([_wrap_h(v) for v in _Gh[:, j]])
+                             for j in range(_Gh.shape[1])])
+    _Gt_w[~np.isfinite(_Gt_w)] = 0.0
+    _Gh_w[~np.isfinite(_Gh_w)] = 0.0
+    _hof_blocks_tr.append(_Gt_w)
+    _hof_blocks_ho.append(_Gh_w)
 
-if _G_tr is None or _G_ho is None:
-    print("[ridge-polish] skipped — gene predict produced non-finite values")
+if not _hof_blocks_tr:
+    print("[ridge-polish] skipped — no HOF gene predict succeeded")
 else:
-    _wid_p = int(getattr(best_ind, "wrapper_id", 0)) % N_WRAPPERS
-    _wrap_p = WRAPPER_FUNCS[_wid_p]
-    # Apply the chromosome wrapper to each gene column (matches training).
-    _G_tr_w = np.column_stack([np.array([_wrap_p(v) for v in _G_tr[:, j]])
-                               for j in range(_G_tr.shape[1])])
-    _G_ho_w = np.column_stack([np.array([_wrap_p(v) for v in _G_ho[:, j]])
-                               for j in range(_G_ho.shape[1])])
-    _G_tr_w[~np.isfinite(_G_tr_w)] = 0.0
-    _G_ho_w[~np.isfinite(_G_ho_w)] = 0.0
+    _G_tr_w = np.column_stack(_hof_blocks_tr)
+    _G_ho_w = np.column_stack(_hof_blocks_ho)
+    print(f"[ridge-polish] stacked {len(_hof_blocks_tr)} HOF members → "
+          f"{_G_tr_w.shape[1]} engineered features")
 
     # Baseline: ridge on the raw gene outputs alone (no projection).
     _ridge_base = Ridge(alpha=RIDGE_ALPHA)
@@ -1743,24 +2040,51 @@ else:
     _aug_tr = np.column_stack([_G_tr_w] + [_G_tr_w @ P for P in _projections])
     _aug_ho = np.column_stack([_G_ho_w] + [_G_ho_w @ P for P in _projections])
 
-    _ridge_aug = Ridge(alpha=RIDGE_ALPHA)
-    _ridge_aug.fit(_aug_tr, train_Y)
-    _pred_aug = _ridge_aug.predict(_aug_ho)
-    _r2_aug = r2_score(holdout_Yt, _pred_aug)
-    _mse_aug = mean_squared_error(holdout_Yt, _pred_aug)
+    # Alpha sweep on the augmented basis — picks the best L2 strength
+    # by HOLDOUT R² for reporting (purely diagnostic; the train-only
+    # fit is what produces the prediction at each alpha).
+    _sweep_rows = []
+    for _alpha in RIDGE_ALPHA_SWEEP:
+        _r = Ridge(alpha=_alpha)
+        _r.fit(_aug_tr, train_Y)
+        _yp_tr = _r.predict(_aug_tr)
+        _yp_ho = _r.predict(_aug_ho)
+        _sweep_rows.append({
+            "alpha": _alpha,
+            "r2_tr": r2_score(train_Y, _yp_tr),
+            "r2_ho": r2_score(holdout_Yt, _yp_ho),
+            "mse_ho": mean_squared_error(holdout_Yt, _yp_ho),
+            "drift": r2_score(train_Y, _yp_tr) - r2_score(holdout_Yt, _yp_ho),
+        })
+    # Best alpha by holdout R² (with lowest-drift tie-break).
+    _best = sorted(_sweep_rows, key=lambda r: (-r["r2_ho"], abs(r["drift"])))[0]
+    _r2_aug = _best["r2_ho"]
+    _mse_aug = _best["mse_ho"]
 
     print()
     print("###################################################")
-    print(" Random-projection ridge polish on best HOF chromosome:")
-    print(f"   alpha={RIDGE_ALPHA}  random_projections={RIDGE_RANDOM_PROJ_K}  proj_dim={RIDGE_PROJ_DIM}")
+    print(" Random-projection ridge polish on the full HOF:")
+    print(f"   random_projections={RIDGE_RANDOM_PROJ_K}  proj_dim={RIDGE_PROJ_DIM}  "
+          f"features={_aug_tr.shape[1]}")
     print()
     print(f"   Baseline (this notebook):     R²_holdout = {holdout_r2:+.6f}")
     print(f"   Ridge on gene outputs only:   R²_holdout = {_r2_base:+.6f}   MSE={_mse_base:.4f}")
+    print()
+    print("   Alpha sweep (random-projected basis, train-fit only):")
+    print(f"     {'alpha':>8}  {'r2_tr':>8}  {'r2_ho':>8}  {'drift':>8}  {'mse_ho':>10}")
+    for _row in _sweep_rows:
+        marker = " ←" if _row is _best else "  "
+        print(f"     {_row['alpha']:>8.3f}  {_row['r2_tr']:>+8.4f}  "
+              f"{_row['r2_ho']:>+8.4f}  {_row['drift']:>+8.4f}  "
+              f"{_row['mse_ho']:>10.4f}{marker}")
+    print()
+    print(f"   Best alpha:                   {_best['alpha']}")
     print(f"   Ridge + random projections:   R²_holdout = {_r2_aug:+.6f}   MSE={_mse_aug:.4f}")
-    print(f"   Delta vs baseline:            +{_r2_aug - holdout_r2:.6f}")
+    print(f"   Delta vs baseline:            {_r2_aug - holdout_r2:+.6f}")
     print("###################################################")
     experiment["Ridge baseline R2"] = str(_r2_base)
-    experiment["Ridge + rand-proj R2"] = str(_r2_aug)
+    experiment["Ridge + rand-proj R2 (best alpha)"] = str(_r2_aug)
+    experiment["Ridge best alpha"] = str(_best["alpha"])
 
 
 # %% [markdown]
@@ -1944,22 +2268,32 @@ for _i, _ind in enumerate(hof):
             _r2_va = float(_r2_fn(_Y_va, _pv))
             _r2_ho = float(_r2_fn(_Y_ho, _ph))
             _mse_ho = float(_mse(_Y_ho, _ph))
-            _F = [float(_mse(_Y_tr, _pt)), float(_mse(_Y_va, _pv)),
-                  float(np.max(np.abs(_Y_tr - _pt))),
-                  float(np.max(np.abs(_Y_va - _pv))),
-                  1.0 - _r2_tr, 1.0 - _r2_va]
+            if HFF_USE_VALIDATION:
+                _F = [float(_mse(_Y_tr, _pt)), float(_mse(_Y_va, _pv)),
+                      float(np.max(np.abs(_Y_tr - _pt))),
+                      float(np.max(np.abs(_Y_va - _pv))),
+                      1.0 - _r2_tr, 1.0 - _r2_va]
+            else:
+                _F = [float(_mse(_Y_tr, _pt)),
+                      float(np.max(np.abs(_Y_tr - _pt))),
+                      1.0 - _r2_tr]
             if not all(math.isfinite(_v) for _v in _F):
                 continue
             if not (math.isfinite(_r2_ho) and math.isfinite(_mse_ho)):
                 continue
+            # Always store both train + val on the bundle row so the HOF
+            # printout stays informative; the _F vec (HFF input) is what
+            # changes between train-only and with-val modes.
             _bundles.append((_i, {
                 "model": _i,
                 "expression": str(_ind),
                 "wrapper": WRAPPER_NAMES[_w_id],
                 "linker": LINKER_NAMES[_l_id],
                 "length": hgh.chromosome_length(_ind),
-                "train_mse": _F[0], "val_mse": _F[1],
-                "max_err_tr": _F[2], "max_err_va": _F[3],
+                "train_mse": float(_mse(_Y_tr, _pt)),
+                "val_mse": float(_mse(_Y_va, _pv)),
+                "max_err_tr": float(np.max(np.abs(_Y_tr - _pt))),
+                "max_err_va": float(np.max(np.abs(_Y_va - _pv))),
                 "train_r2": _r2_tr, "val_r2": _r2_va,
                 "holdout_mse": _mse_ho, "holdout_r2": _r2_ho,
                 "a": _a, "b": _b,

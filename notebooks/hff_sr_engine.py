@@ -94,12 +94,16 @@ METRIC_NAMES = ["mse_tr", "mse_va", "mse_extrap",
                 "one_minus_r2_tr", "one_minus_r2_va", "one_minus_r2_extrap",
                 "mae_tr", "mae_va", "mae_extrap"]
 N_OBJECTIVES = len(METRIC_NAMES)
+METRIC_NAMES_TRAIN_ONLY = ["mse_tr", "mse_extrap",
+                            "one_minus_r2_tr", "one_minus_r2_extrap",
+                            "mae_tr", "mae_extrap"]
 
 # Wild-data mode uses train + val only (no extrap — extrap requires
 # truth, which wild data doesn't have).
 WILD_REGRESSION_METRIC_NAMES = ["mse_tr", "mse_va",
                                 "one_minus_r2_tr", "one_minus_r2_va",
                                 "mae_tr", "mae_va"]
+WILD_REGRESSION_METRIC_NAMES_TRAIN_ONLY = ["mse_tr", "one_minus_r2_tr", "mae_tr"]
 
 # End-phase HFF vec — both modes — computed on holdout rows only.
 END_PHASE_METRIC_NAMES = ["mse_ho", "one_minus_r2_ho", "mae_ho"]
@@ -246,6 +250,10 @@ class HFFSRConfig:
     # Post-run
     snap_rel_tol: float = 1e-3
     early_stop_val_r2: float = 1.0 - 1e-9
+    # A/B switch — include validation columns in the HFF vec. True (default)
+    # = train + val pairs on every axis (current behaviour); False = train
+    # columns only. Lets us measure the lift validation gives to HFF.
+    use_validation_in_hff: bool = True
     # Reproducibility
     random_state: int = 5
     # Time budget — engine checks this at the gen boundary and stops cleanly
@@ -453,19 +461,31 @@ def _compute_raw_metrics(individual, toolbox, bundle: _Bundle):
             one_minus_r2_tr = mse_tr / var_tr if var_tr > 0 else float("inf")
             one_minus_r2_va = mse_va / var_va if var_va > 0 else float("inf")
 
+            use_val = cfg.use_validation_in_hff
             if is_wild:
-                vec = [mse_tr, mse_va, one_minus_r2_tr, one_minus_r2_va, mae_tr, mae_va]
-                names = WILD_REGRESSION_METRIC_NAMES
+                if use_val:
+                    vec = [mse_tr, mse_va, one_minus_r2_tr, one_minus_r2_va,
+                           mae_tr, mae_va]
+                    names = WILD_REGRESSION_METRIC_NAMES
+                else:
+                    vec = [mse_tr, one_minus_r2_tr, mae_tr]
+                    names = WILD_REGRESSION_METRIC_NAMES_TRAIN_ONLY
             else:
                 var_extrap = float(np.var(Y_extrap))
                 mse_extrap = float(np.mean((Y_extrap - pred_extr) ** 2))
                 mae_extrap = float(np.mean(np.abs(Y_extrap - pred_extr)))
                 one_minus_r2_extrap = (mse_extrap / var_extrap
                                        if var_extrap > 0 else float("inf"))
-                vec = [mse_tr, mse_va, mse_extrap,
-                       one_minus_r2_tr, one_minus_r2_va, one_minus_r2_extrap,
-                       mae_tr, mae_va, mae_extrap]
-                names = METRIC_NAMES
+                if use_val:
+                    vec = [mse_tr, mse_va, mse_extrap,
+                           one_minus_r2_tr, one_minus_r2_va, one_minus_r2_extrap,
+                           mae_tr, mae_va, mae_extrap]
+                    names = METRIC_NAMES
+                else:
+                    vec = [mse_tr, mse_extrap,
+                           one_minus_r2_tr, one_minus_r2_extrap,
+                           mae_tr, mae_extrap]
+                    names = METRIC_NAMES_TRAIN_ONLY
             if not all(np.isfinite(vec)):
                 continue
 
@@ -486,8 +506,12 @@ def _compute_raw_metrics(individual, toolbox, bundle: _Bundle):
 def _assign_fitness_batch(population, raw_results, cfg: HFFSRConfig):
     """Stack every candidate from every individual into a single HFF batch;
     per-individual pick the wrapper/rule row with the minimum HFF distance."""
-    failure_names = (WILD_REGRESSION_METRIC_NAMES if cfg.mode == "wild_regression"
-                     else METRIC_NAMES)
+    if cfg.mode == "wild_regression":
+        failure_names = (WILD_REGRESSION_METRIC_NAMES if cfg.use_validation_in_hff
+                         else WILD_REGRESSION_METRIC_NAMES_TRAIN_ONLY)
+    else:
+        failure_names = (METRIC_NAMES if cfg.use_validation_in_hff
+                         else METRIC_NAMES_TRAIN_ONLY)
     for i, r in enumerate(raw_results):
         if r is None or not r.get("candidates"):
             ind = population[i]
@@ -535,9 +559,13 @@ def _assign_fitness_batch(population, raw_results, cfg: HFFSRConfig):
         ind._linker = LINKER_FUNCS[ind.linker_id]
 
 
-def _per_metric_mins(population, mode: str = "feynman"):
+def _per_metric_mins(population, mode: str = "feynman", use_validation: bool = True):
     """Per-deme reporting: metrics of the deme's single best-by-fitness ind."""
-    names = WILD_REGRESSION_METRIC_NAMES if mode == "wild_regression" else METRIC_NAMES
+    if mode == "wild_regression":
+        names = (WILD_REGRESSION_METRIC_NAMES if use_validation
+                 else WILD_REGRESSION_METRIC_NAMES_TRAIN_ONLY)
+    else:
+        names = METRIC_NAMES if use_validation else METRIC_NAMES_TRAIN_ONLY
     out = {name: float("inf") for name in names}
     valid = [ind for ind in population
              if getattr(ind, "fitness", None) is not None
@@ -599,6 +627,15 @@ class HFFSREngine:
         self._lambdified = None
         self._lambdified_var_order: list[str] = []
         self.fit_seconds_: float = 0.0
+        # Dimension-free HFF reporting (paper §Method eq.3): the HFF
+        # angular distance is m-dependent, the CDF percentile is not.
+        # Use the percentile to compare runs across different vec sizes
+        # (e.g. use_validation_in_hff=True 6D vs False 3D).
+        self.hff_train_: Optional[float] = None
+        self.hff_cdf_percentile_: Optional[float] = None
+        self.m_objectives_: int = 0
+        self.metric_names_: list[str] = []
+        self.train_metrics_: dict = {}
 
     # -----------------------------------------------------------------
     # fit
@@ -648,8 +685,13 @@ class HFFSREngine:
             hof.update(deme)
 
         log = tools.Logbook()
-        metric_names = (WILD_REGRESSION_METRIC_NAMES if cfg.mode == "wild_regression"
-                        else METRIC_NAMES)
+        if cfg.mode == "wild_regression":
+            metric_names = (WILD_REGRESSION_METRIC_NAMES
+                            if cfg.use_validation_in_hff
+                            else WILD_REGRESSION_METRIC_NAMES_TRAIN_ONLY)
+        else:
+            metric_names = (METRIC_NAMES if cfg.use_validation_in_hff
+                            else METRIC_NAMES_TRAIN_ONLY)
         log.header = ("gen", "deme", "evals", "min fitness", *metric_names)
         if verbose:
             try:
@@ -699,7 +741,8 @@ class HFFSREngine:
                 valid_fits = [ind.fitness.values[0] for ind in deme
                               if ind.fitness is not None and ind.fitness.valid]
                 min_fit = float(min(valid_fits)) if valid_fits else float("inf")
-                metric_mins = _per_metric_mins(deme, mode=cfg.mode)
+                metric_mins = _per_metric_mins(deme, mode=cfg.mode,
+                                                use_validation=cfg.use_validation_in_hff)
                 log.record(gen=gen, deme=idx, evals=len(invalid_ind),
                            **{"min fitness": min_fit}, **metric_mins)
                 if verbose:
@@ -751,6 +794,40 @@ class HFFSREngine:
             gen += 1
 
         self.fit_seconds_ = time.perf_counter() - fit_start
+
+        # Capture dimension-free HFF metadata BEFORE _extract_best mutates
+        # state — hof[0]'s training-time HFF angle + CDF percentile let
+        # the SRBench wrapper compare runs across different vec sizes
+        # (use_validation_in_hff True/False).
+        try:
+            if len(hof) > 0 and hof[0].fitness.valid:
+                self.hff_train_ = float(hof[0].fitness.values[0])
+                if cfg.mode == "wild_regression":
+                    _mn = (WILD_REGRESSION_METRIC_NAMES
+                           if cfg.use_validation_in_hff
+                           else WILD_REGRESSION_METRIC_NAMES_TRAIN_ONLY)
+                else:
+                    _mn = (METRIC_NAMES if cfg.use_validation_in_hff
+                           else METRIC_NAMES_TRAIN_ONLY)
+                self.metric_names_ = list(_mn)
+                self.m_objectives_ = len(_mn)
+                self.train_metrics_ = dict(getattr(hof[0], "metrics", {}) or {})
+                # CDF correction via scipy: P(θ ≤ t) = I_{sin²t}((m-1)/2, 1/2)
+                try:
+                    from scipy.special import betainc as _betainc_cdf
+                    _x = max(0.0, min(1.0, math.sin(self.hff_train_) ** 2))
+                    self.hff_cdf_percentile_ = float(
+                        _betainc_cdf((self.m_objectives_ - 1) / 2.0, 0.5, _x)
+                    )
+                except Exception:
+                    self.hff_cdf_percentile_ = None
+                if verbose:
+                    print(f"[engine] HFF train angle = {self.hff_train_:.6f} rad "
+                          f"(m={self.m_objectives_}), CDF percentile = "
+                          f"{self.hff_cdf_percentile_:.6e}")
+        except Exception:
+            pass
+
         # Hard wall-clock guard on end-phase. _extract_best calls
         # gep.simplify + feynman_shape_rewrite which can spin forever on
         # complex expressions. Honour the SRBench-style remaining budget,
