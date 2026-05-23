@@ -1028,7 +1028,122 @@ class HFFSREngine:
             if verbose:
                 print(f"[engine] _extract_best raised {type(e).__name__}: {e} — falling back")
             self._extract_best_fallback(hof, bundle)
+
+        # Final summary block — matches the notebook's §4.2 reporting.
+        # Mirrors notebook layout so engine + notebook outputs are
+        # directly comparable. Always populates attributes; only prints
+        # when verbose.
+        self._build_final_summary(hof, bundle, X_train, y_train,
+                                  holdout_X, holdout_y, verbose=verbose)
         return self
+
+    def _build_final_summary(self, hof, bundle, X_train, y_train,
+                             holdout_X, holdout_y, *, verbose: bool = False):
+        """Compute + (optionally) print the summary the notebook prints
+        post-fit: dataset shape, MSE/MAE/R² train + holdout + drift,
+        answer size, pareto, search space, HFF radius + CDF percentile,
+        HFF vec config. Always persists to self for downstream callers."""
+        # Train / holdout metrics — predict via lambdified or fallback.
+        try:
+            y_pred_tr = np.asarray(self.predict(X_train))
+            mse_tr = float(np.mean((np.asarray(y_train) - y_pred_tr) ** 2))
+            mae_tr = float(np.mean(np.abs(np.asarray(y_train) - y_pred_tr)))
+            var_tr = float(np.var(np.asarray(y_train)))
+            r2_tr = 1.0 - mse_tr / var_tr if var_tr > 0 else float("nan")
+        except Exception:
+            mse_tr = mae_tr = r2_tr = float("nan")
+
+        if holdout_X is not None and holdout_y is not None:
+            try:
+                y_pred_ho = np.asarray(self.predict(holdout_X))
+                mse_ho = float(np.mean((np.asarray(holdout_y) - y_pred_ho) ** 2))
+                mae_ho = float(np.mean(np.abs(np.asarray(holdout_y) - y_pred_ho)))
+                var_ho = float(np.var(np.asarray(holdout_y)))
+                r2_ho = 1.0 - mse_ho / var_ho if var_ho > 0 else float("nan")
+            except Exception:
+                mse_ho = mae_ho = r2_ho = float("nan")
+        else:
+            mse_ho = mae_ho = r2_ho = float("nan")
+
+        # Answer size — sympy node count of discovered expression.
+        try:
+            answer_size = int(sum(1 for _ in sp.preorder_traversal(self.discovered_expr_)))
+        except Exception:
+            answer_size = -1
+
+        # Pareto membership — HOF[0] vs every valid HOF member on the
+        # training-time metric vec. Cheap; uses HOF only since the deme
+        # is no longer accessible here.
+        is_pareto = "?"
+        try:
+            if hof and len(hof) > 1 and getattr(hof[0], "metrics", None):
+                _b = list(hof[0].metrics.values())
+                _names = list(hof[0].metrics.keys())
+                _dominated = False
+                for ind in hof[1:]:
+                    m = getattr(ind, "metrics", None)
+                    if not m:
+                        continue
+                    _v = [m.get(k, float("inf")) for k in _names]
+                    if all(vi <= bi for vi, bi in zip(_v, _b)) and any(vi < bi for vi, bi in zip(_v, _b)):
+                        _dominated = True
+                        break
+                is_pareto = "no" if _dominated else "yes"
+        except Exception:
+            pass
+
+        # Search-space estimate, log10.
+        try:
+            cfg = self.config
+            search_log10 = float(cfg.n_genes * cfg.head_length * math.log10(20.0)
+                                 + cfg.rnc_array_length * 1.0
+                                 + math.log10(max(1, N_WRAPPERS * N_LINKERS)))
+        except Exception:
+            search_log10 = float("nan")
+
+        # Persist on self for programmatic access.
+        self.summary_ = {
+            "dataset": getattr(self, "dataset_name_", "?"),
+            "n_rows": int(len(y_train)) if y_train is not None else 0,
+            "n_cols": int(len(bundle.variables)),
+            "train_mse": mse_tr, "train_mae": mae_tr, "train_r2": r2_tr,
+            "holdout_mse": mse_ho, "holdout_mae": mae_ho, "holdout_r2": r2_ho,
+            "drift": r2_tr - r2_ho if not (math.isnan(r2_tr) or math.isnan(r2_ho)) else float("nan"),
+            "answer_size": answer_size,
+            "pareto": is_pareto,
+            "search_log10": search_log10,
+            "hff_radius_rad": self.hff_train_,
+            "hff_cdf_percentile": self.hff_cdf_percentile_,
+            "m_objectives": self.m_objectives_,
+            "metric_names": list(self.metric_names_),
+            "use_validation_in_hff": bool(self.config.use_validation_in_hff),
+            "wrapper": self.wrapper_name_,
+            "linker": self.linker_name_,
+            "fit_seconds": self.fit_seconds_,
+        }
+
+        if not verbose:
+            return
+
+        head = "\n###################################################"
+        print(head)
+        print(" Engine summary — train vs holdout:\n")
+        print(f"      Dataset    : {self.summary_['dataset']}  "
+              f"(n={self.summary_['n_rows']} rows, d={self.summary_['n_cols']} cols)")
+        print(f"      MSE        : train={mse_tr:.4f}  holdout={mse_ho:.4f}")
+        print(f"      MAE        : train={mae_tr:.4f}  holdout={mae_ho:.4f}")
+        print(f"      R²         : train={r2_tr:+.4f}  holdout={r2_ho:+.4f}  "
+              f"(drift={self.summary_['drift']:+.4f})")
+        print(f"      Answer size: {answer_size} sympy nodes")
+        print(f"      Pareto     : {is_pareto}")
+        print(f"      Search ~   : 10^{search_log10:.1f} chromosomes")
+        print(f"      Wrapper    : {self.wrapper_name_}    Linker: {self.linker_name_}")
+        print(f"      HFF        : radius={self.hff_train_}  "
+              f"CDF pctile={self.hff_cdf_percentile_}")
+        print(f"      HFF vec    : use_validation={self.config.use_validation_in_hff}  "
+              f"({self.m_objectives_} obj: {', '.join(self.metric_names_)})")
+        print(f"      Fit time   : {self.fit_seconds_:.1f}s")
+        print(head)
 
     # -----------------------------------------------------------------
     # Predict
