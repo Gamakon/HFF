@@ -1668,6 +1668,101 @@ experiment["Holdout Mean squared error"] = str(holdout_mse)
 experiment["Holdout Mean absolute error"] = str(holdout_mae)
 experiment["Holdout R2 score"] = str(holdout_r2)
 
+
+# %% [markdown]
+# ### 4.2.5 Random-projection ridge polish
+#
+# Take the best individual's per-gene outputs as engineered features
+# (12 columns), expand via K random linear projections (random Gaussian
+# matrices), stack them, and fit a single Ridge over the lot. The
+# random expansions multiply each gene by independent random vectors,
+# so common noise across projections damps under L2; useful signal
+# survives. Trained on train only — holdout is untouched until scoring.
+#
+# This is a strictly post-hoc polish on the already-selected HOF[0].
+# Evolution and HFF selection are unchanged. Reports R² for both the
+# plain Ridge (k=0, just gene outputs) and the random-projected variant.
+
+# %%
+from sklearn.linear_model import Ridge
+
+RIDGE_ALPHA = 1.0           # L2 strength — small for low-noise data
+RIDGE_RANDOM_PROJ_K = 8     # number of extra random projection blocks
+RIDGE_PROJ_DIM = 12         # columns per random block; ≈ n_genes
+
+
+def _per_gene_predict(individual, df):
+    """Compile each gene once, predict row-wise, return (n_rows, n_genes)."""
+    from geppy.tools.parser import _compile_gene
+    arrays = [df[t].values for t in finalTerminals]
+    cols = []
+    for g in individual:
+        fn = _compile_gene(g, pset)
+        try:
+            raw = np.array(list(map(fn, *arrays)), dtype=np.float64)
+        except Exception:
+            return None
+        if not np.all(np.isfinite(raw)):
+            return None
+        cols.append(raw)
+    return np.column_stack(cols)
+
+
+_G_tr = _per_gene_predict(best_ind, train)
+_G_va = _per_gene_predict(best_ind, validation)
+_G_ho = _per_gene_predict(best_ind, holdout)
+
+if _G_tr is None or _G_ho is None:
+    print("[ridge-polish] skipped — gene predict produced non-finite values")
+else:
+    _wid_p = int(getattr(best_ind, "wrapper_id", 0)) % N_WRAPPERS
+    _wrap_p = WRAPPER_FUNCS[_wid_p]
+    # Apply the chromosome wrapper to each gene column (matches training).
+    _G_tr_w = np.column_stack([np.array([_wrap_p(v) for v in _G_tr[:, j]])
+                               for j in range(_G_tr.shape[1])])
+    _G_ho_w = np.column_stack([np.array([_wrap_p(v) for v in _G_ho[:, j]])
+                               for j in range(_G_ho.shape[1])])
+    _G_tr_w[~np.isfinite(_G_tr_w)] = 0.0
+    _G_ho_w[~np.isfinite(_G_ho_w)] = 0.0
+
+    # Baseline: ridge on the raw gene outputs alone (no projection).
+    _ridge_base = Ridge(alpha=RIDGE_ALPHA)
+    _ridge_base.fit(_G_tr_w, train_Y)
+    _pred_base = _ridge_base.predict(_G_ho_w)
+    _r2_base = r2_score(holdout_Yt, _pred_base)
+    _mse_base = mean_squared_error(holdout_Yt, _pred_base)
+
+    # Random-projection augmentation. Each block multiplies the gene
+    # output matrix by an independent Gaussian (n_genes × proj_dim);
+    # K such blocks are concatenated. Same projections applied to
+    # both train and holdout so the ridge sees a consistent basis.
+    rng = np.random.RandomState(settings.seed)
+    n_genes_actual = _G_tr_w.shape[1]
+    _projections = [rng.randn(n_genes_actual, RIDGE_PROJ_DIM)
+                    for _ in range(RIDGE_RANDOM_PROJ_K)]
+    _aug_tr = np.column_stack([_G_tr_w] + [_G_tr_w @ P for P in _projections])
+    _aug_ho = np.column_stack([_G_ho_w] + [_G_ho_w @ P for P in _projections])
+
+    _ridge_aug = Ridge(alpha=RIDGE_ALPHA)
+    _ridge_aug.fit(_aug_tr, train_Y)
+    _pred_aug = _ridge_aug.predict(_aug_ho)
+    _r2_aug = r2_score(holdout_Yt, _pred_aug)
+    _mse_aug = mean_squared_error(holdout_Yt, _pred_aug)
+
+    print()
+    print("###################################################")
+    print(" Random-projection ridge polish on best HOF chromosome:")
+    print(f"   alpha={RIDGE_ALPHA}  random_projections={RIDGE_RANDOM_PROJ_K}  proj_dim={RIDGE_PROJ_DIM}")
+    print()
+    print(f"   Baseline (this notebook):     R²_holdout = {holdout_r2:+.6f}")
+    print(f"   Ridge on gene outputs only:   R²_holdout = {_r2_base:+.6f}   MSE={_mse_base:.4f}")
+    print(f"   Ridge + random projections:   R²_holdout = {_r2_aug:+.6f}   MSE={_mse_aug:.4f}")
+    print(f"   Delta vs baseline:            +{_r2_aug - holdout_r2:.6f}")
+    print("###################################################")
+    experiment["Ridge baseline R2"] = str(_r2_base)
+    experiment["Ridge + rand-proj R2"] = str(_r2_aug)
+
+
 # %% [markdown]
 # ### 4.2.4 Quick study of the holdout errors
 
