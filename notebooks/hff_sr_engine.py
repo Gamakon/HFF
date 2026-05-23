@@ -260,6 +260,14 @@ def protected_exp(x):
         return float("inf")
 
 
+# Extended primitives (geppy needs named identifiers, not lambdas).
+def _pset_square(x): return x * x
+def _pset_cube(x):   return x * x * x
+def _pset_abs(x):    return abs(x)
+def _pset_neg(x):    return -x
+def _pset_inv(x):    return 1.0 / x if x != 0 else 1.0
+
+
 # ---------------------------------------------------------------------------
 # Variable-pattern detector — emits tags that gate rule firing.
 # ---------------------------------------------------------------------------
@@ -437,12 +445,13 @@ def _build_toolbox(bundle: _Bundle):
         # Extended primitives (notebook v1.0.4c parity): tanh, square,
         # cube, abs, neg, inv. Skipping floor/ceil/max/min — they cause
         # sympy combinatorial explosion (notebook dropped them).
+        # Geppy needs real function identifiers, not lambdas.
         pset.add_function(math.tanh, 1)
-        pset.add_function(lambda x: x * x, 1)
-        pset.add_function(lambda x: x * x * x, 1)
-        pset.add_function(abs, 1)
-        pset.add_function(lambda x: -x, 1)
-        pset.add_function(lambda x: 1.0 / x if x != 0 else 1.0, 1)
+        pset.add_function(_pset_square, 1)
+        pset.add_function(_pset_cube, 1)
+        pset.add_function(_pset_abs, 1)
+        pset.add_function(_pset_neg, 1)
+        pset.add_function(_pset_inv, 1)
     pset.add_rnc_terminal()
 
     toolbox = gep.Toolbox()
@@ -1056,7 +1065,15 @@ class HFFSREngine:
                 self.discovered_expr_,
                 modules=["numpy"],
             )
-        return self._lambdified(*arrays)
+        out = self._lambdified(*arrays)
+        # If discovered_expr_ was a constant (no variable dependency),
+        # lambdify returns a 0-d scalar; broadcast to row count so
+        # downstream metric calls have matching shapes.
+        out = np.asarray(out, dtype=np.float64)
+        if out.ndim == 0:
+            n_rows = len(arrays[0]) if arrays else 1
+            out = np.full(n_rows, float(out))
+        return out
 
     def _coerce_X(self, X) -> pd.DataFrame:
         X = np.asarray(X)
@@ -1433,6 +1450,13 @@ class HFFSREngine:
         sym_map["protected_sqrt"] = lambda x: sp.sqrt(sp.Abs(x))
         sym_map["protected_exp"] = sp.exp
         sym_map["protected_log"] = lambda x: sp.log(sp.Abs(x))
+        # Sympy mappings for the extended primitive set.
+        sym_map["tanh"] = sp.tanh
+        sym_map["_pset_square"] = lambda x: x ** 2
+        sym_map["_pset_cube"] = lambda x: x ** 3
+        sym_map["_pset_abs"] = sp.Abs
+        sym_map["_pset_neg"] = lambda x: -x
+        sym_map["_pset_inv"] = lambda x: 1 / x
         wrapper_sym_map = {
             "identity": lambda e: e,
             "log_abs":  lambda e: sp.log(sp.Abs(e)),
