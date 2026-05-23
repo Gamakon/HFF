@@ -80,6 +80,10 @@ KNOWN_CONSTANTS = {
     "4pi_sq":       4 * sp.pi ** 2,
     "8pi":          8 * sp.pi,
     "2pi_over_sqg": 2 * sp.pi / sp.sqrt(sp.Float(9.80665)),
+    # Pendulum-form variant: when the engine factors c·π·√L instead of
+    # c·√L, the residual c = 2/√g ≈ 0.638660; snap needs to recognise
+    # it as 2/sqrt(g) so simplify can fold (0.6387 · π) → 2π/√g.
+    "2_over_sqg":   2 / sp.sqrt(sp.Float(9.80665)),
     "h_over_2pi":   6.62607015e-34 / (2 * sp.pi),    # ħ — reduced Planck
     "1_over_4pi_eps0": 8.9875517923e9,               # k_e in Coulomb form
 
