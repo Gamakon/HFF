@@ -10,6 +10,8 @@ Public API:
 from hff.core import (
     calculate_fitness_hf1,
     calculate_fitness_hf1_enhanced,
+    calculate_fitness_hf1_with_ranges,
+    calculate_fitness_hf1_fixed,
 )
 from hff.hff_core import (
     calculate_higd,
@@ -21,6 +23,8 @@ __version__ = "0.1.0"
 __all__ = [
     "calculate_fitness_hf1",
     "calculate_fitness_hf1_enhanced",
+    "calculate_fitness_hf1_with_ranges",
+    "calculate_fitness_hf1_fixed",
     "calculate_higd",
     "calculate_angular_igd",
 ]

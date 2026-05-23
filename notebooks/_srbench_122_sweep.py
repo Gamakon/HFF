@@ -32,7 +32,7 @@ SEED = 5
 TEST_FRACTION = 0.25
 TIME_BUDGET_PER = 600.0   # 10min per dataset
 N_GEN_CAP = 200
-MAX_PARALLEL = 6          # day-time: leave headroom on the laptop
+MAX_PARALLEL = max(1, (os.cpu_count() or 4) // 2)  # half the cores
 HARD_KILL_GRACE = 300.0   # +5min for extract/predict before SIGKILL
 REPORT_EVERY_S = 5 * 60   # rewrite progress every 5min
 
@@ -81,6 +81,44 @@ def _engine_config_snapshot() -> dict:
 
 
 CONFIG: dict = {}  # populated by main()
+
+
+def _zombie_killer(my_pid: int) -> int:
+    """Kill orphaned worker python processes (PPID=1) belonging to this user
+    that look like mp.spawn/resource_tracker leftovers. Returns count killed."""
+    import subprocess, signal as _sig
+    try:
+        out = subprocess.check_output(
+            ["ps", "-eo", "pid,ppid,user,command"], text=True
+        )
+    except Exception:
+        return 0
+    n = 0
+    me = os.getuid()
+    import pwd
+    my_user = pwd.getpwuid(me).pw_name
+    for line in out.splitlines()[1:]:
+        parts = line.strip().split(None, 3)
+        if len(parts) < 4:
+            continue
+        pid_s, ppid_s, user, cmd = parts
+        if user != my_user:
+            continue
+        try:
+            pid = int(pid_s); ppid = int(ppid_s)
+        except ValueError:
+            continue
+        if pid == my_pid or ppid == my_pid:
+            continue
+        if ppid != 1:
+            continue
+        if "multiprocessing.spawn" in cmd or "multiprocessing.resource_tracker" in cmd:
+            try:
+                os.kill(pid, _sig.SIGKILL)
+                n += 1
+            except ProcessLookupError:
+                pass
+    return n
 
 
 def _train_metrics(est, X, y):
@@ -285,6 +323,10 @@ def main():
                 finished_names.append(name)
         for name in finished_names:
             in_flight.pop(name, None)
+        if finished_names:
+            killed = _zombie_killer(os.getpid())
+            if killed:
+                print(f"[sweep] zombie killer reaped {killed} orphan workers", flush=True)
 
         # Periodic progress report.
         now = time.perf_counter()

@@ -84,6 +84,59 @@ def calculate_fitness_hf1_enhanced(
     )
 
 
+def calculate_fitness_hf1_with_ranges(
+    objectives: np.ndarray,
+    normalize: bool = True,
+    decrowding: bool = False,
+    north_pole_method: str = "balanced",
+) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
+    """Same as :func:`calculate_fitness_hf1_enhanced` but ALSO returns the
+    per-column ``(col_min, col_max)`` used for normalisation. Call this once
+    on generation 0 to capture the scale, then feed the ranges to
+    :func:`calculate_fitness_hf1_fixed` on subsequent generations so the
+    HFF pole stays stable across the run.
+
+    Returns:
+        ``(fitness, col_min, col_max)`` — fitness is length n_individuals,
+        col_min/col_max are length n_objectives.
+    """
+    objectives = np.asarray(objectives, dtype=np.float64)
+    if objectives.ndim == 1:
+        objectives = objectives.reshape(1, -1)
+    if objectives.shape[0] == 0:
+        m = objectives.shape[1]
+        return np.array([]), np.zeros(m), np.zeros(m)
+    return hff_core.calculate_hyperspherical_fitness_hf1_with_ranges(
+        objectives, decrowding, north_pole_method, normalize,
+    )
+
+
+def calculate_fitness_hf1_fixed(
+    objectives: np.ndarray,
+    col_min: np.ndarray,
+    col_max: np.ndarray,
+    decrowding: bool = False,
+    north_pole_method: str = "balanced",
+) -> np.ndarray:
+    """Score ``objectives`` using caller-supplied per-column min/max.
+    Use this on every generation > 0 with the ``(col_min, col_max)``
+    captured from :func:`calculate_fitness_hf1_with_ranges` on gen 0.
+
+    The pole stays geometrically meaningful as the population improves —
+    later good solutions can genuinely approach HFF=0.
+    """
+    objectives = np.asarray(objectives, dtype=np.float64)
+    col_min = np.asarray(col_min, dtype=np.float64)
+    col_max = np.asarray(col_max, dtype=np.float64)
+    if objectives.ndim == 1:
+        objectives = objectives.reshape(1, -1)
+    if objectives.shape[0] == 0:
+        return np.array([])
+    return hff_core.calculate_hyperspherical_fitness_hf1_fixed(
+        objectives, col_min, col_max, decrowding, north_pole_method,
+    )
+
+
 def _column_normalize(objectives: np.ndarray) -> np.ndarray:
     """Column-wise min-max normalization to [0, 1]."""
     if objectives.shape[0] <= 1:

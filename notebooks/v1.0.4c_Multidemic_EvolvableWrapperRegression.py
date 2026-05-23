@@ -231,16 +231,20 @@ settings = hgh.GeppySettings(
     val_frac=0.15,
     holdout_frac=0.25,
     # Genes
-    head_length=12,
-    n_genes=6,
+    head_length=48,
+    n_genes=12,
     rnc_array_length=10,
     # Evolution
     n_gen=200,
     population_size=200,
-    tournament_size=4,
+    tournament_size=7,
     num_elites=2,
-    num_islands=3,
-    migration_freq=40,
+    # E20 pump topology: 1 intake (large, exploration) + 1 champion
+    # (small, exploitation). Each generation: best from intake migrates
+    # into champion; worst champion eliminated. Sizes set in DEME_SIZES
+    # below (GeppySettings has a fixed schema so it lives outside it).
+    num_islands=2,
+    migration_freq=15,
     k_migrants=3,
     # HOF
     champs=30,
@@ -283,9 +287,29 @@ experiment = {
 
 # %%
 # CONFIGURE HERE
-yourDataDir = "data/"
-yourDictionary = pd.read_csv(yourDataDir + "UCI_PowerPlant_dictionary.csv")
-yourData = pd.read_csv(yourDataDir + "UCI_PowerPlant.csv")
+# Two paths: USE_PMLB=True (default) pulls a PMLB regression dataset by
+# name and auto-builds the dictionary; USE_PMLB=False uses the original
+# CSV + dictionary file pair.
+USE_PMLB = True
+PMLB_DATASET = "1028_SWD"
+
+if USE_PMLB:
+    import pmlb
+    yourData = pmlb.fetch_data(PMLB_DATASET, local_cache_dir="/tmp/pmlb_cache")
+    # PMLB convention: target column is named 'target'.
+    input_cols = [c for c in yourData.columns if c != "target"]
+    yourDictionary = pd.DataFrame({
+        "Field": input_cols + ["target"],
+        "Symbol": input_cols + ["target"],
+        "Type":  ["Input"] * len(input_cols) + ["Target"],
+    })
+    print(f"[PMLB] {PMLB_DATASET}: n={len(yourData)}, d={len(input_cols)}")
+else:
+    # Original CSV + dictionary path — UCI Combined Cycle Power Plant.
+    # yourDataDir = "data/"
+    # yourDictionary = pd.read_csv(yourDataDir + "UCI_PowerPlant_dictionary.csv")
+    # yourData = pd.read_csv(yourDataDir + "UCI_PowerPlant.csv")
+    raise RuntimeError("USE_PMLB=False: uncomment the CSV path above to use it")
 
 print(yourDictionary)
 yourData.describe()
@@ -360,7 +384,7 @@ pset.add_function(hgh.protected_div_zero, 2)
 # (see the mut_wrapper / cx_wrapper operators in 2.4). This is the right
 # scoping: a single wrapper applied once at the chromosome root, not a
 # function evolution can paste anywhere inside any gene.
-WRAPPER_NAMES = ["identity", "log_abs", "exp", "sqrt_abs", "square"]
+WRAPPER_NAMES = ["identity", "log_abs", "sqrt_abs"]
 N_WRAPPERS = len(WRAPPER_NAMES)
 
 
@@ -371,7 +395,43 @@ def _w_sqrt_abs(x):  return np.sqrt(np.abs(x))
 def _w_square(x):    return x * x
 
 
-WRAPPER_FUNCS = [_w_identity, _w_log_abs, _w_exp, _w_sqrt_abs, _w_square]
+WRAPPER_FUNCS = [_w_identity, _w_log_abs, _w_sqrt_abs]
+
+# Per-eval linker search. Every chromosome is scored under every
+# (linker × wrapper) combination so HFF picks the best linker too,
+# not just the best wrapper.
+LINKER_NAMES = ["avgval", "mulval", "addval"]
+LINKER_FUNCS = [hgh.avgval, hgh.mulval, hgh.addval]
+N_LINKERS = len(LINKER_FUNCS)
+
+
+def _link_genes(gene_outputs, linker_id):
+    """Apply LINKER_FUNCS[linker_id] over per-gene prediction arrays."""
+    try:
+        out = LINKER_FUNCS[int(linker_id) % N_LINKERS](*gene_outputs)
+    except Exception:
+        return None
+    out = np.asarray(out, dtype=np.float64)
+    if not np.all(np.isfinite(out)):
+        return None
+    return out
+
+
+def _predict_per_gene(individual, df):
+    """Compile each gene once, evaluate row-wise on df, return list of arrays."""
+    from geppy.tools.parser import _compile_gene
+    arrays = [df[t].values for t in finalTerminals]
+    out = []
+    for gene in individual:
+        try:
+            fn = _compile_gene(gene, pset)
+            raw = np.array(list(map(fn, *arrays)), dtype=np.float64)
+        except Exception:
+            return None
+        if not np.all(np.isfinite(raw)):
+            return None
+        out.append(raw)
+    return out
 
 # Optional richer ops — uncomment to enlarge the search space:
 # pset.add_function(hgh.safe_max, 2)
@@ -472,7 +532,8 @@ toolbox.register("population", tools.initRepeat, list, toolbox.individual)
 #                                         hff.calculate_fitness_hf1_enhanced ONCE,
 #                                         and writes back ind.fitness.values.
 
-METRIC_NAMES = ["mse_tr", "mse_va", "max_err", "one_minus_r2_tr", "one_minus_r2_va"]
+METRIC_NAMES = ["mse_tr", "mse_va", "max_err_tr", "max_err_va",
+                "one_minus_r2_tr", "one_minus_r2_va"]
 N_OBJECTIVES = len(METRIC_NAMES)
 
 # Sentinel for failed evaluations: a really bad-but-finite value stamped onto
@@ -484,72 +545,130 @@ FAILED_FITNESS = 1.0e9
 
 
 def compute_raw_metrics(individual):
-    """Phase 1: per-individual. Returns a bundle dict or None.
+    """Phase 1: per-individual. Returns ``{"candidates": [...]}`` or None.
 
-    Pipeline: gene_output = linker(genes)  →  wrapped = WRAPPER[wrapper_id](gene_output)
-              →  prediction = a · wrapped + b   (LSM)
+    E20 + linker enumeration: every chromosome is scored under EVERY
+    (linker × wrapper) combination. The HFF batch then sees every
+    (chromosome, linker, wrapper) row simultaneously and picks the
+    winning pair per individual via lowest angular distance.
 
-    The wrapper is applied ONCE at the chromosome root, between the linker
-    and LSM. ind.wrapper_id is the single integer that selects the
-    transform (set when the individual was built, mutated by mut_wrapper).
+    Pipeline (per candidate):
+      raw_per_gene = [compile_gene(g)(X) for g in individual]
+        → gene_output = LINKER[l_id](*raw_per_gene)
+        → wrapped     = WRAPPER[w_id](gene_output)
+        → prediction  = a · wrapped + b   (LSM-fit on wrapped_train)
 
-    IMPORTANT: this runs inside the multiprocess worker — any mutations
-    to `individual` are LOST when the worker returns. We return wrapper_id
-    in the bundle so the parent can stamp it back onto its copy.
+    IMPORTANT: this runs inside the multiprocess worker — mutations
+    to `individual` are LOST. The chosen (wrapper_id, linker_id) are
+    returned in the winning candidate so the parent can stamp them back.
     """
-    raw_train = hgh.compile_and_predict(individual, train, finalTerminals, toolbox)
-    raw_val = hgh.compile_and_predict(individual, validation, finalTerminals, toolbox)
-    if raw_train is None or raw_val is None:
+    genes_train = _predict_per_gene(individual, train)
+    genes_val = _predict_per_gene(individual, validation)
+    if genes_train is None or genes_val is None:
         return None
-
-    wrapper_id = int(getattr(individual, "wrapper_id", 0)) % N_WRAPPERS
-    wrapper_fn = WRAPPER_FUNCS[wrapper_id]
-    try:
-        wrapped_train = wrapper_fn(raw_train)
-        wrapped_val = wrapper_fn(raw_val)
-    except (ValueError, OverflowError, FloatingPointError):
-        return None
-    if not (np.all(np.isfinite(wrapped_train)) and np.all(np.isfinite(wrapped_val))):
-        return None
-
-    if settings.enable_linear_scaling:
-        scale = hgh.apply_linear_scaling(wrapped_train, Y)
-        if scale is None:
-            return None
-        a, b = scale
-        pred_train = a * wrapped_train + b
-        pred_val = a * wrapped_val + b
-    else:
-        a, b = 1.0, 0.0
-        pred_train = wrapped_train
-        pred_val = wrapped_val
 
     Y_val = validation[target_col].values
-
-    mse_tr = float(np.mean((Y - pred_train) ** 2))
-    mse_va = float(np.mean((Y_val - pred_val) ** 2))
-    max_err = float(np.max(np.abs(Y_val - pred_val)))
-    # R² as (1 - R²) so it joins the other "lower is better" axes cleanly.
-    # Guard against zero-variance targets (degenerate; would div-by-0).
     var_tr = float(np.var(Y))
     var_va = float(np.var(Y_val))
-    one_minus_r2_tr = mse_tr / var_tr if var_tr > 0 else float("inf")
-    one_minus_r2_va = mse_va / var_va if var_va > 0 else float("inf")
 
-    vec = [mse_tr, mse_va, max_err, one_minus_r2_tr, one_minus_r2_va]
-    if not all(np.isfinite(vec)):
+    candidates = []
+    for l_id in range(N_LINKERS):
+        raw_train = _link_genes(genes_train, l_id)
+        raw_val = _link_genes(genes_val, l_id)
+        if raw_train is None or raw_val is None:
+            continue
+        for w_id in range(N_WRAPPERS):
+            wrapper_fn = WRAPPER_FUNCS[w_id]
+            try:
+                wrapped_train = wrapper_fn(raw_train)
+                wrapped_val = wrapper_fn(raw_val)
+            except (ValueError, OverflowError, FloatingPointError):
+                continue
+            if not (np.all(np.isfinite(wrapped_train))
+                    and np.all(np.isfinite(wrapped_val))):
+                continue
+
+            if settings.enable_linear_scaling:
+                scale = hgh.apply_linear_scaling(wrapped_train, Y)
+                if scale is None:
+                    continue
+                a, b = scale
+                pred_train = a * wrapped_train + b
+                pred_val = a * wrapped_val + b
+            else:
+                a, b = 1.0, 0.0
+                pred_train = wrapped_train
+                pred_val = wrapped_val
+
+            mse_tr = float(np.mean((Y - pred_train) ** 2))
+            mse_va = float(np.mean((Y_val - pred_val) ** 2))
+            max_err_tr = float(np.max(np.abs(Y - pred_train)))
+            max_err_va = float(np.max(np.abs(Y_val - pred_val)))
+            one_minus_r2_tr = mse_tr / var_tr if var_tr > 0 else float("inf")
+            one_minus_r2_va = mse_va / var_va if var_va > 0 else float("inf")
+
+            vec = [mse_tr, mse_va, max_err_tr, max_err_va,
+                   one_minus_r2_tr, one_minus_r2_va]
+            if not all(np.isfinite(vec)):
+                continue
+            candidates.append({
+                "a": float(a),
+                "b": float(b),
+                "wrapper_id": w_id,
+                "linker_id": l_id,
+                "metrics": dict(zip(METRIC_NAMES, vec)),
+                "vec": vec,
+            })
+
+    if not candidates:
         return None
-    return {
-        "a": float(a),
-        "b": float(b),
-        "wrapper_id": wrapper_id,
-        "metrics": dict(zip(METRIC_NAMES, vec)),
-        "vec": vec,
-    }
+    return {"candidates": candidates}
 
 
 def evaluate_individual(individual):
     return compute_raw_metrics(individual)
+
+
+# Linker/wrapper telemetry: every per-eval candidate row is appended to a
+# CSV so we can mine which linker × wrapper combos genuinely win across a
+# run. Also accumulates an in-memory leaderboard (winners per linker)
+# that gets printed at each migration.
+import csv as _csv
+LINKER_LOG_PATH = "/tmp/E22_linker_telemetry.csv"
+_LINKER_LOG_FH = None
+_LINKER_LOG_WRITER = None
+_LINKER_WIN_COUNTS = {name: 0 for name in LINKER_NAMES}
+_WRAPPER_WIN_COUNTS = {name: 0 for name in WRAPPER_NAMES}
+_LINKER_WIN_TOTAL = 0
+
+
+def _ensure_linker_log():
+    global _LINKER_LOG_FH, _LINKER_LOG_WRITER
+    if _LINKER_LOG_FH is None:
+        _LINKER_LOG_FH = open(LINKER_LOG_PATH, "w", newline="")
+        _LINKER_LOG_WRITER = _csv.writer(_LINKER_LOG_FH)
+        _LINKER_LOG_WRITER.writerow(["gen", "deme", "owner", "wrapper", "linker",
+                                      "hff", "mse_tr", "mse_va",
+                                      "one_minus_r2_tr", "one_minus_r2_va",
+                                      "winner"])
+
+
+def print_linker_leaderboard(label: str = ""):
+    total = max(1, _LINKER_WIN_TOTAL)
+    lparts = [f"{name}={100.0*c/total:.0f}%" for name, c in _LINKER_WIN_COUNTS.items()]
+    wparts = [f"{name}={100.0*c/total:.0f}%" for name, c in _WRAPPER_WIN_COUNTS.items()]
+    tag = (' ' + label) if label else ''
+    print(f"[leaderboard{tag}]  linkers: " + "  ".join(lparts))
+    print(f"[leaderboard{tag}]  wrappers: " + "  ".join(wparts)
+          + f"  (n={_LINKER_WIN_TOTAL} winners)")
+
+
+# Frozen HFF column ranges. Captured from gen 0 by the first call to
+# ``assign_fitness_batch``; reused for all subsequent generations so the
+# HFF pole stays geometrically stable across the run and later good
+# solutions can genuinely approach distance zero.
+_HFF_COL_MIN = None
+_HFF_COL_MAX = None
 
 
 def assign_fitness_batch(population, raw_results):
@@ -564,36 +683,104 @@ def assign_fitness_batch(population, raw_results):
     fitness so they die off via tournament. They are NOT included in the
     HFF matrix, so their outlier values can't poison column-wise min-max
     normalisation for the rest of the population.
-    """
-    good_idx = [i for i, r in enumerate(raw_results) if r is not None]
 
-    # Stamp failed individuals first
+    Gen 0 calls the with_ranges variant and stashes (col_min, col_max);
+    every subsequent gen uses the fixed variant with those ranges.
+    """
+    global _HFF_COL_MIN, _HFF_COL_MAX
+
+    # Stamp failed individuals first.
     for i, r in enumerate(raw_results):
-        if r is None:
+        if r is None or not r.get("candidates"):
             ind = population[i]
             ind.fitness.values = (FAILED_FITNESS,)
             ind.metrics = dict.fromkeys(METRIC_NAMES, FAILED_METRIC_VALUE)
             ind.a = 1.0
             ind.b = 0.0
 
+    good_idx = [i for i, r in enumerate(raw_results)
+                if r is not None and r.get("candidates")]
     if not good_idx:
         return
 
-    F = np.array([raw_results[i]["vec"] for i in good_idx], dtype=np.float64)
-    fitness = hff.calculate_fitness_hf1_enhanced(
-        F, normalize=True, north_pole_method=settings.north_pole_method
-    )
+    # Stack ALL (individual × wrapper) candidate rows into one HFF batch.
+    # cand_owner[k] = which individual row k belongs to.
+    F_rows = []
+    cand_owner = []
+    cand_payload = []
+    for i in good_idx:
+        for c in raw_results[i]["candidates"]:
+            F_rows.append(c["vec"])
+            cand_owner.append(i)
+            cand_payload.append(c)
+    F = np.array(F_rows, dtype=np.float64)
 
-    for slot, i in enumerate(good_idx):
+    if _HFF_COL_MIN is None:
+        fitness, _HFF_COL_MIN, _HFF_COL_MAX = hff.calculate_fitness_hf1_with_ranges(
+            F, normalize=True, north_pole_method=settings.north_pole_method
+        )
+        # All HFF input columns are error-style (MSE, MAE, max_err, 1-R²);
+        # perfect = 0 on every axis. Pin col_min to 0 so HFF=0 corresponds
+        # to a truly perfect solution, not just the gen-0 population best.
+        _HFF_COL_MIN = np.zeros_like(_HFF_COL_MIN)
+        # Re-score gen 0 using the corrected ranges so its fitness is on
+        # the same scale as every subsequent generation.
+        fitness = hff.calculate_fitness_hf1_fixed(
+            F, _HFF_COL_MIN, _HFF_COL_MAX,
+            north_pole_method=settings.north_pole_method,
+        )
+        print(f"[HFF] froze ranges: col_min={_HFF_COL_MIN}  col_max={_HFF_COL_MAX}")
+    else:
+        fitness = hff.calculate_fitness_hf1_fixed(
+            F, _HFF_COL_MIN, _HFF_COL_MAX,
+            north_pole_method=settings.north_pole_method,
+        )
+
+    # Per individual: pick the (linker × wrapper) with the lowest HFF distance.
+    best_for_ind: dict[int, tuple[float, dict]] = {}
+    for k, owner in enumerate(cand_owner):
+        f = float(fitness[k])
+        prev = best_for_ind.get(owner)
+        if prev is None or f < prev[0]:
+            best_for_ind[owner] = (f, cand_payload[k])
+
+    # Telemetry: log every candidate row + mark which one HFF picked.
+    global _LINKER_WIN_TOTAL
+    _ensure_linker_log()
+    cur_gen = globals().get("_CUR_GEN", -1)
+    cur_deme = globals().get("_CUR_DEME", -1)
+    winners_payload = {owner: payload for owner, (_f, payload) in best_for_ind.items()}
+    for k, owner in enumerate(cand_owner):
+        c = cand_payload[k]
+        m = c["metrics"]
+        is_win = (winners_payload.get(owner) is c)
+        _LINKER_LOG_WRITER.writerow([
+            cur_gen, cur_deme, owner,
+            WRAPPER_NAMES[c["wrapper_id"]],
+            LINKER_NAMES[c.get("linker_id", 0)],
+            float(fitness[k]),
+            m.get("mse_tr"), m.get("mse_va"),
+            m.get("one_minus_r2_tr"), m.get("one_minus_r2_va"),
+            int(is_win),
+        ])
+        if is_win:
+            _LINKER_WIN_COUNTS[LINKER_NAMES[c.get("linker_id", 0)]] += 1
+            _WRAPPER_WIN_COUNTS[WRAPPER_NAMES[c["wrapper_id"]]] += 1
+            _LINKER_WIN_TOTAL += 1
+    _LINKER_LOG_FH.flush()
+
+    for i, (f, payload) in best_for_ind.items():
         ind = population[i]
-        r = raw_results[i]
-        ind.fitness.values = (float(fitness[slot]),)
-        ind.metrics = r["metrics"]
-        ind.a = r["a"]
-        ind.b = r["b"]
-        # The worker copy of `ind` had the wrapper_id we used; the parent
-        # copy may or may not — stamp it back to be safe (cheap, idempotent).
-        ind.wrapper_id = int(r["wrapper_id"])
+        ind.fitness.values = (f,)
+        ind.metrics = payload["metrics"]
+        ind.a = payload["a"]
+        ind.b = payload["b"]
+        ind.wrapper_id = int(payload["wrapper_id"])
+        ind.linker_id = int(payload.get("linker_id", 0))
+        # geppy's Chromosome.linker is a read-only property backed by
+        # `_linker`; assign directly so downstream compile()/predict()
+        # uses the linker HFF actually selected.
+        ind._linker = LINKER_FUNCS[ind.linker_id]
 
 
 toolbox.register("evaluate", evaluate_individual)
@@ -728,7 +915,11 @@ _ensure_pool()
 # %%
 tournament = settings.tournament_size
 num_elites = settings.num_elites
-population_size = int(np.ceil(tournament * 100 / 7))   # ~7% tournament-of-pop heuristic
+# Per-island population sizes (intake, champion). Lives outside
+# GeppySettings because its dataclass schema is fixed.
+DEME_SIZES = (100, 100)
+deme_sizes = DEME_SIZES
+population_size = sum(deme_sizes)
 k_migrants = settings.k_migrants
 toolbox.register("select", tools.selTournament, tournsize=tournament)
 
@@ -737,13 +928,16 @@ FREQ = settings.migration_freq
 
 print(f"Genes: head_length={settings.head_length}, n_genes={settings.n_genes}, "
       f"rnc_array_length={settings.rnc_array_length}")
-print(f"Population size: {population_size}, tournament: {tournament}, "
+print(f"E20 pump: islands={settings.num_islands}  deme_sizes={deme_sizes}  "
+      f"(intake={deme_sizes[0]}, champion={deme_sizes[1] if len(deme_sizes)>1 else '-'})")
+print(f"Total pop: {population_size}, tournament: {tournament}, "
       f"elites: {num_elites}, generations: {n_gen}, migration FREQ: {FREQ}")
 experiment["head_length"] = str(settings.head_length)
 experiment["n_genes"] = str(settings.n_genes)
 experiment["rnc_array_length"] = str(settings.rnc_array_length)
 experiment["tournament size"] = str(tournament)
 experiment["population size"] = str(population_size)
+experiment["deme_sizes"] = str(deme_sizes)
 experiment["number of elites"] = str(num_elites)
 experiment["number of generations"] = str(n_gen)
 experiment["number of islands"] = str(settings.num_islands)
@@ -816,7 +1010,7 @@ if number_islands == 0:
 else:
     # sub-populations ("islands")
     _ensure_pool()
-    demes = [toolbox.population(n=population_size) for _ in range(number_islands)]
+    demes = [toolbox.population(n=deme_sizes[i]) for i in range(number_islands)]
 
     log = tools.Logbook()
     log.header = ("gen", "deme", "evals", "min fitness", *METRIC_NAMES)
@@ -828,6 +1022,8 @@ else:
         raw_results = list(toolbox.map(toolbox.evaluate, demewide_ind))
         # Phase 2 (batched): project the whole deme onto the hypersphere at
         # once so HFF's column-wise normalisation has a real range.
+        globals()["_CUR_GEN"] = 0
+        globals()["_CUR_DEME"] = idx
         assign_fitness_batch(demewide_ind, raw_results)
 
         log.record(gen=0, deme=idx, evals=len(deme),
@@ -906,6 +1102,9 @@ else:
             invalid_ind = [ind for ind in deme if not ind.fitness.valid]
             if invalid_ind:
                 raw_results = list(toolbox.map(toolbox.evaluate, invalid_ind))
+                _CUR_GEN, _CUR_DEME = gen, idx
+                globals()["_CUR_GEN"] = _CUR_GEN
+                globals()["_CUR_DEME"] = _CUR_DEME
                 assign_fitness_batch(invalid_ind, raw_results)
 
             log.record(gen=gen, deme=idx, evals=len(deme),
@@ -931,11 +1130,26 @@ else:
             gen += 1
             break
 
-        # ring migration on a FREQ pulse — counts cumulative ``gen`` so the
-        # cadence is preserved across re-runs.
+        # E20 pump on a FREQ pulse: ring-migrate champions across demes,
+        # then refill the bottom 60% of the intake deme (deme 0) with
+        # fresh random chromosomes for sustained exploration.
         if gen > 30 and gen % FREQ == 0 or gen > (target_gen - 10):
             toolbox.migrate(demes)
-            print("------------------------migration across islands---------------")
+            intake = demes[0]
+            n_refill = int(0.60 * len(intake))
+            intake.sort(key=lambda i: i.fitness.values[0])  # best first
+            # Replace the worst n_refill with fresh random individuals.
+            fresh = toolbox.population(n=n_refill)
+            intake[-n_refill:] = fresh
+            # Score the new arrivals so they have valid fitness next gen.
+            invalid = [ind for ind in intake if not ind.fitness.valid]
+            if invalid:
+                raw = (pool.map(evaluate_individual, invalid)
+                       if pool is not None
+                       else [evaluate_individual(i) for i in invalid])
+                assign_fitness_batch(invalid, raw)
+            print(f"------------------------pump: migrate + intake refill {n_refill}/{len(intake)}---------------")
+            print_linker_leaderboard(label=f"gen={gen}")
 
         gen += 1
 
@@ -983,11 +1197,21 @@ _scale = hgh.apply_linear_scaling(_wrapped_for_scale, Y)
 if _scale is not None:
     best_ind.a, best_ind.b = _scale
 
-# Sympify the gene tree first. The chromosome wrapper isn't a node inside
-# the tree — it lives on `best_ind.wrapper_id` — so it's applied AFTER
-# simplification, once, at the root.
+# Sympify the gene tree. With head_length=48 and n_genes=12 the default
+# gep.simplify() invokes a top-level sp.simplify() over the linker-combined
+# tree, which is dominated by the n_genes×head_length depth and gets very
+# slow. Faster path: simplify each gene independently (shallow trees),
+# THEN combine with the linker, skipping the outer sp.simplify. Result is
+# algebraically equivalent for sum/avg/mul linkers; only the printed form
+# is less canonical.
 CUSTOM_SYMBOLIC_FUNCTION_MAP = hgh.custom_symbolic_function_map()
-symplified_best = gep.simplify(best_ind, symbolic_function_map=CUSTOM_SYMBOLIC_FUNCTION_MAP)
+from geppy.support.simplification import _simplify_kexpression as _simplify_kexpr
+_per_gene_sym = [_simplify_kexpr(g.kexpression, CUSTOM_SYMBOLIC_FUNCTION_MAP)
+                 for g in best_ind]
+_linker_for_sym = CUSTOM_SYMBOLIC_FUNCTION_MAP.get(
+    best_ind.linker.__name__, best_ind.linker
+)
+symplified_best = _linker_for_sym(*_per_gene_sym)
 
 # Apply the chromosome's wrapper exactly once at the root. Sympy gets
 # the *real* function (log/exp/sqrt) where it has one, and a named
@@ -1136,18 +1360,23 @@ holdout_mse = mean_squared_error(holdout_Yt, holdout_Yp)
 holdout_mae = mean_absolute_error(holdout_Yt, holdout_Yp)
 holdout_r2 = r2_score(holdout_Yt, holdout_Yp)
 
+train_mse = mean_squared_error(train_Y, train_Yp)
+train_mae = mean_absolute_error(train_Y, train_Yp)
+train_r2 = r2_score(train_Y, train_Yp)
+
 # %%
 head = "\n###################################################"
-mse_text = "      Mean squared error: %.4f" % holdout_mse
-mae_text = "      Mean absolute error: %.4f" % holdout_mae
-r2_text  = "      R² score : %.4f" % holdout_r2
+mse_text = "      Mean squared error: train=%.4f  holdout=%.4f" % (train_mse, holdout_mse)
+mae_text = "      Mean absolute error: train=%.4f  holdout=%.4f" % (train_mae, holdout_mae)
+r2_text  = "      R² score :           train=%.4f  holdout=%.4f  (drift=%+.4f)" % (
+    train_r2, holdout_r2, train_r2 - holdout_r2)
 
 cfg_text = ("      Gene config: head_length=%d, n_genes=%d, RNC=%d"
             % (settings.head_length, settings.n_genes, settings.rnc_array_length))
 proj_text = "      Projection : %s" % settings.north_pole_method
 
 print(colorful(0,50,255,head))
-print(colorful(0,50,255," Performance on our holdout dataset is as follows:\n"))
+print(colorful(0,50,255," Performance on train vs holdout:\n"))
 print(colorful(255,0,255,mse_text))
 print(colorful(255,0,255,mae_text))
 print(colorful(255,0,255,r2_text))
@@ -1155,6 +1384,9 @@ print(colorful(255,0,255,cfg_text))
 print(colorful(255,0,255,proj_text))
 print(colorful(0,50,255,head))
 
+experiment["Train Mean squared error"] = str(train_mse)
+experiment["Train Mean absolute error"] = str(train_mae)
+experiment["Train R2 score"] = str(train_r2)
 experiment["Holdout Mean squared error"] = str(holdout_mse)
 experiment["Holdout Mean absolute error"] = str(holdout_mae)
 experiment["Holdout R2 score"] = str(holdout_r2)
@@ -1300,44 +1532,81 @@ _Y_tr = train[target_col].values
 _Y_va = validation[target_col].values
 _Y_ho = holdout[target_col].values
 _bundles = []
+# End-of-run HOF re-rank: for every HOF chromosome, enumerate every
+# (wrapper × linker) combination on holdout. HFF picks the best
+# combination per row; the global lowest angular distance wins overall.
 for _i, _ind in enumerate(hof):
-    _wid = int(getattr(_ind, "wrapper_id", 0)) % N_WRAPPERS
-    _wrap = WRAPPER_FUNCS[_wid]
-    _pt = hgh._eval_individual_on_df(_ind, train, finalTerminals, toolbox,
-                                     apply_sigmoid=False, wrapper_fn=_wrap)
-    _pv = hgh._eval_individual_on_df(_ind, validation, finalTerminals, toolbox,
-                                     apply_sigmoid=False, wrapper_fn=_wrap)
-    _ph = hgh._eval_individual_on_df(_ind, holdout, finalTerminals, toolbox,
-                                     apply_sigmoid=False, wrapper_fn=_wrap)
-    if _pt is None or _pv is None or _ph is None:
+    _genes_tr = _predict_per_gene(_ind, train)
+    _genes_va = _predict_per_gene(_ind, validation)
+    _genes_ho = _predict_per_gene(_ind, holdout)
+    if _genes_tr is None or _genes_va is None or _genes_ho is None:
         continue
-    _r2_tr = float(_r2_fn(_Y_tr, _pt))
-    _r2_va = float(_r2_fn(_Y_va, _pv))
-    _r2_ho = float(_r2_fn(_Y_ho, _ph))
-    _mse_ho = float(_mse(_Y_ho, _ph))
-    _F = [float(_mse(_Y_tr, _pt)), float(_mse(_Y_va, _pv)),
-          float(np.max(np.abs(_Y_va - _pv))),
-          1.0 - _r2_tr, 1.0 - _r2_va]
-    if not all(math.isfinite(_v) for _v in _F):
-        continue
-    if not (math.isfinite(_r2_ho) and math.isfinite(_mse_ho)):
-        continue
-    _bundles.append((_i, {
-        "model": _i,
-        "expression": str(_ind),
-        "wrapper": WRAPPER_NAMES[_wid],
-        "length": hgh.chromosome_length(_ind),
-        "train_mse": _F[0], "val_mse": _F[1], "max_err": _F[2],
-        "train_r2": _r2_tr, "val_r2": _r2_va,
-        "holdout_mse": _mse_ho, "holdout_r2": _r2_ho,
-        "a": getattr(_ind, "a", 1.0), "b": getattr(_ind, "b", 0.0),
-    }, _F))
+    for _l_id in range(N_LINKERS):
+        _raw_tr = _link_genes(_genes_tr, _l_id)
+        _raw_va = _link_genes(_genes_va, _l_id)
+        _raw_ho = _link_genes(_genes_ho, _l_id)
+        if _raw_tr is None or _raw_va is None or _raw_ho is None:
+            continue
+        for _w_id in range(N_WRAPPERS):
+            _wrap_fn = WRAPPER_FUNCS[_w_id]
+            try:
+                _wt = _wrap_fn(_raw_tr)
+                _wv = _wrap_fn(_raw_va)
+                _wh = _wrap_fn(_raw_ho)
+            except (ValueError, OverflowError, FloatingPointError):
+                continue
+            if not (np.all(np.isfinite(_wt)) and np.all(np.isfinite(_wv))
+                    and np.all(np.isfinite(_wh))):
+                continue
+            if settings.enable_linear_scaling:
+                _scale = hgh.apply_linear_scaling(_wt, _Y_tr)
+                if _scale is None:
+                    continue
+                _a, _b = float(_scale[0]), float(_scale[1])
+            else:
+                _a, _b = 1.0, 0.0
+            _pt = _a * _wt + _b
+            _pv = _a * _wv + _b
+            _ph = _a * _wh + _b
+            _r2_tr = float(_r2_fn(_Y_tr, _pt))
+            _r2_va = float(_r2_fn(_Y_va, _pv))
+            _r2_ho = float(_r2_fn(_Y_ho, _ph))
+            _mse_ho = float(_mse(_Y_ho, _ph))
+            _F = [float(_mse(_Y_tr, _pt)), float(_mse(_Y_va, _pv)),
+                  float(np.max(np.abs(_Y_tr - _pt))),
+                  float(np.max(np.abs(_Y_va - _pv))),
+                  1.0 - _r2_tr, 1.0 - _r2_va]
+            if not all(math.isfinite(_v) for _v in _F):
+                continue
+            if not (math.isfinite(_r2_ho) and math.isfinite(_mse_ho)):
+                continue
+            _bundles.append((_i, {
+                "model": _i,
+                "expression": str(_ind),
+                "wrapper": WRAPPER_NAMES[_w_id],
+                "linker": LINKER_NAMES[_l_id],
+                "length": hgh.chromosome_length(_ind),
+                "train_mse": _F[0], "val_mse": _F[1],
+                "max_err_tr": _F[2], "max_err_va": _F[3],
+                "train_r2": _r2_tr, "val_r2": _r2_va,
+                "holdout_mse": _mse_ho, "holdout_r2": _r2_ho,
+                "a": _a, "b": _b,
+            }, _F))
 
 if _bundles:
     _Fm = np.array([f for _, _, f in _bundles], dtype=np.float64)
-    _ang = hff.calculate_fitness_hf1_enhanced(
-        _Fm, normalize=True, north_pole_method=settings.north_pole_method
-    )
+    # Use the frozen gen-0 ranges if available so the HOF ranker scores
+    # on the same scale as evolution; falls back to per-batch if not set
+    # (e.g. when the notebook is re-run without evolution).
+    if _HFF_COL_MIN is not None:
+        _ang = hff.calculate_fitness_hf1_fixed(
+            _Fm, _HFF_COL_MIN, _HFF_COL_MAX,
+            north_pole_method=settings.north_pole_method,
+        )
+    else:
+        _ang = hff.calculate_fitness_hf1_enhanced(
+            _Fm, normalize=True, north_pole_method=settings.north_pole_method,
+        )
     _rows = []
     for _slot, (_, _row, _) in enumerate(_bundles):
         _row["angular_distance"] = float(_ang[_slot])
@@ -1346,16 +1615,18 @@ if _bundles:
     ranked = hgh._dedupe_hof(ranked)
     hgh._mark_pareto(
         ranked,
-        objective_cols=["train_mse", "val_mse", "max_err", "train_r2", "val_r2"],
-        minimise=[True, True, True, False, False],
+        objective_cols=["train_mse", "val_mse", "max_err_tr", "max_err_va",
+                        "train_r2", "val_r2"],
+        minimise=[True, True, True, True, False, False],
     )
 else:
     ranked = pd.DataFrame()
 
 hgh.print_hof_with_pareto(
     ranked,
-    columns=["model", "wrapper", "length", "train_mse", "val_mse",
-             "max_err", "train_r2", "val_r2", "angular_distance"],
+    columns=["model", "wrapper", "linker", "length", "train_mse", "val_mse",
+             "max_err_tr", "max_err_va", "train_r2", "val_r2",
+             "holdout_r2", "angular_distance"],
     top_n=10,
     title=f"Top 10 HOF models by HFF angular distance "
           f"(north_pole={settings.north_pole_method})",
