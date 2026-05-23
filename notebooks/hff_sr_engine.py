@@ -72,9 +72,119 @@ N_WRAPPERS = len(WRAPPER_FUNCS)
 
 # Per-eval linker search — every chromosome × every linker × every wrapper
 # gets a row in the HFF batch; HFF picks the winner.
-LINKER_FUNCS = [hgh.avgval, hgh.mulval, hgh.addval]
-LINKER_NAMES = ["avgval", "mulval", "addval"]
+# Rounded linker variants — only useful for low-cardinality (ordinal /
+# multiclass) targets. Gated at fit time by _maybe_enable_round_linkers.
+import sympy as _sp_round_eng
+
+
+def _smart_round_eng(x):
+    if isinstance(x, _sp_round_eng.Expr):
+        return _sp_round_eng.floor(x + _sp_round_eng.Rational(1, 2))
+    return np.round(x)
+
+
+def _round_avg_eng(*n): return _smart_round_eng(hgh.avgval(*n))
+def _round_mul_eng(*n): return _smart_round_eng(hgh.mulval(*n))
+def _round_add_eng(*n): return _smart_round_eng(hgh.addval(*n))
+
+
+LINKER_FUNCS = [hgh.avgval, hgh.mulval, hgh.addval,
+                _round_avg_eng, _round_mul_eng, _round_add_eng]
+LINKER_NAMES = ["avgval", "mulval", "addval",
+                "round_avg", "round_mul", "round_add"]
 N_LINKERS = len(LINKER_FUNCS)
+ROUND_LINKER_MAX_CARDINALITY = 15  # ≤15 unique y-values ⇒ enable rounded
+
+# Frozen gen-0 HFF column ranges. Captured by the first call to
+# _assign_fitness_batch; reused for every subsequent batch in this fit
+# run. Reset to None at the start of each engine.fit().
+_HFF_COL_MIN = None
+_HFF_COL_MAX = None
+
+
+def _reset_hff_ranges():
+    """Reset the frozen-range globals — called at the start of every fit()."""
+    global _HFF_COL_MIN, _HFF_COL_MAX
+    _HFF_COL_MIN = None
+    _HFF_COL_MAX = None
+
+
+# Champion + HOF leaderboard accumulators — tracks which (wrapper, linker)
+# combos actually dominate the best-ever-seen chromosomes.
+_LINKER_WIN_COUNTS = {n: 0 for n in LINKER_NAMES}
+_WRAPPER_WIN_COUNTS = {n: 0 for n in WRAPPER_NAMES}
+_LEADERBOARD_TOTAL = 0
+
+
+def _reset_leaderboard():
+    global _LINKER_WIN_COUNTS, _WRAPPER_WIN_COUNTS, _LEADERBOARD_TOTAL
+    _LINKER_WIN_COUNTS = {n: 0 for n in LINKER_NAMES}
+    _WRAPPER_WIN_COUNTS = {n: 0 for n in WRAPPER_NAMES}
+    _LEADERBOARD_TOTAL = 0
+
+
+# Two-stage HOF-based prune of the per-eval (wrapper × linker) search
+# space. After gen 60 + gen 150, drop wrappers/linkers with <5% HOF
+# share. Refines within currently-active sets (never resurrects).
+_PRUNE_AT_GENS = (60, 150)
+_PRUNE_THRESHOLD = 0.05
+_ACTIVE_WRAPPER_IDS = list(range(N_WRAPPERS))
+_ACTIVE_LINKER_IDS = list(range(N_LINKERS))
+_PRUNES_DONE = 0
+
+
+def _reset_prune_state():
+    global _ACTIVE_WRAPPER_IDS, _ACTIVE_LINKER_IDS, _PRUNES_DONE
+    _ACTIVE_WRAPPER_IDS = list(range(N_WRAPPERS))
+    _ACTIVE_LINKER_IDS = list(range(N_LINKERS))
+    _PRUNES_DONE = 0
+
+
+def _maybe_prune(hof, current_gen: int, verbose: bool = False):
+    global _ACTIVE_WRAPPER_IDS, _ACTIVE_LINKER_IDS, _PRUNES_DONE
+    if _PRUNES_DONE >= len(_PRUNE_AT_GENS):
+        return
+    if current_gen < _PRUNE_AT_GENS[_PRUNES_DONE]:
+        return
+    if hof is None or len(hof) == 0:
+        return
+    w_counts = [0] * N_WRAPPERS
+    l_counts = [0] * N_LINKERS
+    for ind in hof:
+        w_counts[int(getattr(ind, "wrapper_id", 0)) % N_WRAPPERS] += 1
+        l_counts[int(getattr(ind, "linker_id", 0)) % N_LINKERS] += 1
+    n = len(hof)
+    threshold = _PRUNE_THRESHOLD * n
+    new_w = [i for i in _ACTIVE_WRAPPER_IDS if w_counts[i] >= threshold]
+    new_l = [i for i in _ACTIVE_LINKER_IDS if l_counts[i] >= threshold]
+    if len(new_w) == 1 or max(w_counts) >= n:
+        new_w = [int(np.argmax(w_counts))]
+    _ACTIVE_WRAPPER_IDS = new_w if new_w else _ACTIVE_WRAPPER_IDS
+    _ACTIVE_LINKER_IDS = new_l if new_l else _ACTIVE_LINKER_IDS
+    _PRUNES_DONE += 1
+    if verbose:
+        print(f"[prune#{_PRUNES_DONE} @ gen {current_gen}] "
+              f"wrappers={[WRAPPER_NAMES[i] for i in _ACTIVE_WRAPPER_IDS]} "
+              f"linkers={[LINKER_NAMES[i] for i in _ACTIVE_LINKER_IDS]} "
+              f"({len(_ACTIVE_WRAPPER_IDS)}×{len(_ACTIVE_LINKER_IDS)} "
+              f"candidates)")
+
+
+def _print_leaderboard(hof, gen: int, verbose: bool = False):
+    if not verbose or hof is None or len(hof) == 0:
+        return
+    hl = {n: 0 for n in LINKER_NAMES}
+    hw = {n: 0 for n in WRAPPER_NAMES}
+    for ind in hof:
+        wid = int(getattr(ind, "wrapper_id", 0)) % N_WRAPPERS
+        lid = int(getattr(ind, "linker_id", 0)) % N_LINKERS
+        hw[WRAPPER_NAMES[wid]] += 1
+        hl[LINKER_NAMES[lid]] += 1
+    n = len(hof)
+    lp = "  ".join(f"{name}={100.0*c/n:.0f}%" for name, c in hl.items())
+    wp = "  ".join(f"{name}={100.0*c/n:.0f}%" for name, c in hw.items())
+    print(f"[leaderboard gen={gen}]  linkers (HOF):  {lp}")
+    print(f"[leaderboard gen={gen}]  wrappers (HOF): {wp}  (n={n})")
 
 
 def _link_genes(gene_outputs: list[np.ndarray], linker_id: int) -> np.ndarray | None:
@@ -324,6 +434,15 @@ def _build_toolbox(bundle: _Bundle):
         pset.add_function(math.cos, 1)
         pset.add_function(protected_exp, 1)
         pset.add_function(protected_log, 1)
+        # Extended primitives (notebook v1.0.4c parity): tanh, square,
+        # cube, abs, neg, inv. Skipping floor/ceil/max/min — they cause
+        # sympy combinatorial explosion (notebook dropped them).
+        pset.add_function(math.tanh, 1)
+        pset.add_function(lambda x: x * x, 1)
+        pset.add_function(lambda x: x * x * x, 1)
+        pset.add_function(abs, 1)
+        pset.add_function(lambda x: -x, 1)
+        pset.add_function(lambda x: 1.0 / x if x != 0 else 1.0, 1)
     pset.add_rnc_terminal()
 
     toolbox = gep.Toolbox()
@@ -418,7 +537,9 @@ def _compute_raw_metrics(individual, toolbox, bundle: _Bundle):
     var_va = float(np.var(Y_val))
 
     candidates = []
-    for l_id in range(N_LINKERS):
+    active_l = globals().get("_ACTIVE_LINKER_IDS", list(range(N_LINKERS)))
+    active_w = globals().get("_ACTIVE_WRAPPER_IDS", list(range(N_WRAPPERS)))
+    for l_id in active_l:
         raw_train = _link_genes(genes_tr, l_id)
         raw_val = _link_genes(genes_va, l_id)
         if raw_train is None or raw_val is None:
@@ -429,7 +550,7 @@ def _compute_raw_metrics(individual, toolbox, bundle: _Bundle):
             if raw_extr is None:
                 continue
 
-        for w_id in range(N_WRAPPERS):
+        for w_id in active_w:
             wrapped_train = apply_wrapper(raw_train, w_id)
             wrapped_val = apply_wrapper(raw_val, w_id)
             if wrapped_train is None or wrapped_val is None:
@@ -537,9 +658,26 @@ def _assign_fitness_batch(population, raw_results, cfg: HFFSRConfig):
             cand_payload.append(c)
     F = np.array(F_rows, dtype=np.float64)
 
-    fitness = hff.calculate_fitness_hf1_enhanced(
-        F, normalize=True, north_pole_method=cfg.north_pole_method
-    )
+    # Frozen gen-0 HFF ranges (paper §Method). Gen 0 captures (col_min,
+    # col_max); col_min is then pinned to 0.0 on every error-style axis
+    # so HFF=0 corresponds to actually-perfect, not just population-best.
+    # Subsequent gens reuse the fixed ranges so the pole stays
+    # geometrically meaningful across the whole run.
+    global _HFF_COL_MIN, _HFF_COL_MAX
+    if _HFF_COL_MIN is None:
+        fitness, _HFF_COL_MIN, _HFF_COL_MAX = hff.calculate_fitness_hf1_with_ranges(
+            F, normalize=True, north_pole_method=cfg.north_pole_method,
+        )
+        _HFF_COL_MIN = np.zeros_like(_HFF_COL_MIN)
+        fitness = hff.calculate_fitness_hf1_fixed(
+            F, _HFF_COL_MIN, _HFF_COL_MAX,
+            north_pole_method=cfg.north_pole_method,
+        )
+    else:
+        fitness = hff.calculate_fitness_hf1_fixed(
+            F, _HFF_COL_MIN, _HFF_COL_MAX,
+            north_pole_method=cfg.north_pole_method,
+        )
 
     best_for_ind = {}
     for k, owner in enumerate(cand_owner):
@@ -701,6 +839,26 @@ class HFFSREngine:
 
         # Track wall-clock for cfg.time_budget_s.
         fit_start = time.perf_counter()
+        _reset_hff_ranges()
+        _reset_leaderboard()
+        _reset_prune_state()
+        # Cardinality-gate rounded linkers — enable only for low-cardinality
+        # (ordinal/multiclass) targets where round-then-LSM helps.
+        global _ACTIVE_LINKER_IDS
+        try:
+            _y_card = int(np.unique(bundle.Y).shape[0])
+        except Exception:
+            _y_card = 999999
+        if _y_card > ROUND_LINKER_MAX_CARDINALITY:
+            _ACTIVE_LINKER_IDS = [0, 1, 2]  # continuous: plain linkers only
+            if verbose:
+                print(f"[engine] target cardinality={_y_card} > "
+                      f"{ROUND_LINKER_MAX_CARDINALITY} → 3 linkers (continuous)")
+        else:
+            _ACTIVE_LINKER_IDS = list(range(N_LINKERS))
+            if verbose:
+                print(f"[engine] target cardinality={_y_card} → "
+                      f"{N_LINKERS} linkers (rounded enabled)")
         target_gen = cfg.n_gen
         gen = 1
         wrapper_island_pairs = self._wrapper_island_pairs(roles)
@@ -772,6 +930,8 @@ class HFFSREngine:
             # Migration cycle (pump topology).
             if gen > 0 and gen % cfg.migration_freq_intra == 0:
                 self._migrate_pump_intra(demes, toolbox, wrapper_island_pairs, evaluate_one, gen=gen)
+                _print_leaderboard(hof, gen, verbose=verbose)
+                _maybe_prune(hof, gen, verbose=verbose)
             if gen > 30 and (gen % cfg.migration_freq == 0 or gen > target_gen - 10):
                 self._migrate_pump_cross(demes, toolbox, wrapper_island_pairs, evaluate_one, gen=gen)
             if cfg.dedup_freq > 0 and gen > 0 and gen % cfg.dedup_freq == 0:
