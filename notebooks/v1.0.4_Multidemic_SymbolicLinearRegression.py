@@ -845,7 +845,16 @@ if _scale is not None:
     best_ind.a, best_ind.b = _scale
 
 CUSTOM_SYMBOLIC_FUNCTION_MAP = hgh.custom_symbolic_function_map()
-symplified_best = gep.simplify(best_ind, symbolic_function_map=CUSTOM_SYMBOLIC_FUNCTION_MAP)
+# Per-gene simplify + linker assembly — skips the top-level sp.simplify()
+# inside gep.simplify(), which is the slow path on multi-gene chromosomes.
+from geppy.support.simplification import _simplify_kexpression as _simplify_kexpr
+_per_gene_sym = [_simplify_kexpr(g.kexpression, CUSTOM_SYMBOLIC_FUNCTION_MAP)
+                 for g in best_ind]
+_linker_for_sym = CUSTOM_SYMBOLIC_FUNCTION_MAP.get(
+    best_ind.linker.__name__, best_ind.linker
+)
+symplified_best = (_per_gene_sym[0] if len(_per_gene_sym) == 1
+                   else _linker_for_sym(*_per_gene_sym))
 
 if settings.enable_linear_scaling:
     symplified_best = best_ind.a * symplified_best + best_ind.b

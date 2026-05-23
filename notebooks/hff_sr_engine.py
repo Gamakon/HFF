@@ -1242,7 +1242,13 @@ class HFFSREngine:
         best = hof[0]
         # (1) chromosome × N_WRAPPERS — each LSM-fit on train.
         try:
-            raw_gene_sym = gep.simplify(best, symbolic_function_map=sym_map)
+            # Per-gene simplify + linker assembly (skip slow top-level
+            # sp.simplify inside gep.simplify on multi-gene chromosomes).
+            from geppy.support.simplification import _simplify_kexpression as _simplify_kexpr
+            _per_gene_sym = [_simplify_kexpr(g.kexpression, sym_map) for g in best]
+            _linker_for_sym = sym_map.get(best.linker.__name__, best.linker)
+            raw_gene_sym = (_per_gene_sym[0] if len(_per_gene_sym) == 1
+                            else _linker_for_sym(*_per_gene_sym))
         except Exception:
             raw_gene_sym = None
         raw_train = hgh.compile_and_predict(best, bundle.train,

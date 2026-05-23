@@ -923,7 +923,16 @@ CUSTOM_SYMBOLIC_FUNCTION_MAP["protected_sqrt"] = lambda x: sp.sqrt(sp.Abs(x))
 CUSTOM_SYMBOLIC_FUNCTION_MAP["protected_exp"]  = sp.exp
 CUSTOM_SYMBOLIC_FUNCTION_MAP["protected_log"]  = lambda x: sp.log(sp.Abs(x))
 
-raw_gene_sym = gep.simplify(best_ind, symbolic_function_map=CUSTOM_SYMBOLIC_FUNCTION_MAP)
+# Per-gene simplify + linker assembly — skips the top-level sp.simplify()
+# inside gep.simplify(), which is the slow path on multi-gene chromosomes.
+from geppy.support.simplification import _simplify_kexpression as _simplify_kexpr
+_per_gene_sym = [_simplify_kexpr(g.kexpression, CUSTOM_SYMBOLIC_FUNCTION_MAP)
+                 for g in best_ind]
+_linker_for_sym = CUSTOM_SYMBOLIC_FUNCTION_MAP.get(
+    best_ind.linker.__name__, best_ind.linker
+)
+raw_gene_sym = (_per_gene_sym[0] if len(_per_gene_sym) == 1
+                else _linker_for_sym(*_per_gene_sym))
 
 # Apply the chromosome wrapper once at the root (between the linker output
 # and the LSM scaling). Where sympy has a real function (log/exp/sqrt) we
@@ -1292,7 +1301,11 @@ for _, row in ranked.iterrows():
             recoveries.append({"model": i, "exact": False, "numerical": False, "snapped": None})
             continue
         ind.a, ind.b = scale_i
-        gene_sym_i = gep.simplify(ind, symbolic_function_map=CUSTOM_SYMBOLIC_FUNCTION_MAP)
+        # Per-gene simplify + linker assembly (skip slow top-level sp.simplify).
+        _pg = [_simplify_kexpr(g.kexpression, CUSTOM_SYMBOLIC_FUNCTION_MAP)
+               for g in ind]
+        _lf = CUSTOM_SYMBOLIC_FUNCTION_MAP.get(ind.linker.__name__, ind.linker)
+        gene_sym_i = _pg[0] if len(_pg) == 1 else _lf(*_pg)
         wrapped_sym_i = _WRAPPER_SYMPY[wname_i](gene_sym_i)
         composed_i = sp.Float(ind.a) * wrapped_sym_i + sp.Float(ind.b)
         snapped_i, _ = hgh.snap_constants(
