@@ -231,7 +231,7 @@ settings = hgh.GeppySettings(
     val_frac=0.15,
     holdout_frac=0.25,
     # Genes
-    head_length=48,
+    head_length=12,
     n_genes=12,
     rnc_array_length=10,
     # Evolution
@@ -244,7 +244,7 @@ settings = hgh.GeppySettings(
     # into champion; worst champion eliminated. Sizes set in DEME_SIZES
     # below (GeppySettings has a fixed schema so it lives outside it).
     num_islands=2,
-    migration_freq=15,
+    migration_freq=30,
     k_migrants=3,
     # HOF
     champs=30,
@@ -291,7 +291,7 @@ experiment = {
 # name and auto-builds the dictionary; USE_PMLB=False uses the original
 # CSV + dictionary file pair.
 USE_PMLB = True
-PMLB_DATASET = "1028_SWD"
+PMLB_DATASET = "505_tecator"
 
 if USE_PMLB:
     import pmlb
@@ -373,6 +373,79 @@ pset.add_function(operator.sub, 2)
 pset.add_function(operator.mul, 2)
 pset.add_function(hgh.protected_div_zero, 2)
 
+
+# Extended primitive set. HFF's O(MN) selection cost lets us throw a
+# rich alphabet at evolution without paying a Pareto-style penalty.
+# All "protected" variants degrade gracefully on invalid inputs so an
+# individual is never killed by domain errors mid-tree.
+def _safe_log(x):
+    import math
+    try:
+        return math.log(abs(x) + 1e-12)
+    except Exception:
+        return 0.0
+
+
+def _safe_exp(x):
+    import math
+    try:
+        return math.exp(max(-50.0, min(50.0, x)))
+    except Exception:
+        return 0.0
+
+
+def _safe_sqrt(x):
+    import math
+    try:
+        return math.sqrt(abs(x))
+    except Exception:
+        return 0.0
+
+
+def _inv(x): return 1.0 / x if x != 0 else 1.0
+def _neg(x): return -x
+def _square(x): return x * x
+def _cube(x): return x * x * x
+def _abs(x): return abs(x)
+
+
+def _floor(x):
+    import math
+    return math.floor(x)
+
+
+def _ceil(x):
+    import math
+    return math.ceil(x)
+
+
+def _max2(a, b): return a if a > b else b
+def _min2(a, b): return a if a < b else b
+
+
+def _tanh(x):
+    import math
+    return math.tanh(x)
+
+
+import math as _math
+pset.add_function(_safe_log, 1)
+pset.add_function(_safe_exp, 1)
+pset.add_function(_safe_sqrt, 1)
+pset.add_function(_math.sin, 1)
+pset.add_function(_math.cos, 1)
+pset.add_function(_tanh, 1)
+pset.add_function(_square, 1)
+pset.add_function(_cube, 1)
+pset.add_function(_abs, 1)
+pset.add_function(_neg, 1)
+pset.add_function(_inv, 1)
+pset.add_function(_floor, 1)
+pset.add_function(_ceil, 1)
+pset.add_function(_max2, 2)
+pset.add_function(_min2, 2)
+
+
 # === Chromosome-level regression wrapper (NOT in pset) ===
 # The wrapper choice is an attribute of the whole chromosome — a single
 # integer per individual — applied ONCE at the root after the linker has
@@ -400,9 +473,45 @@ WRAPPER_FUNCS = [_w_identity, _w_log_abs, _w_sqrt_abs]
 # Per-eval linker search. Every chromosome is scored under every
 # (linker × wrapper) combination so HFF picks the best linker too,
 # not just the best wrapper.
-LINKER_NAMES = ["avgval", "mulval", "addval"]
-LINKER_FUNCS = [hgh.avgval, hgh.mulval, hgh.addval]
+# Rounded linker variants — for integer-valued targets where the continuous
+# regression sits between adjacent classes (e.g. ordinal targets 0/1/2/3).
+# Round dispatches to np.round for numeric arrays at runtime and to a
+# sympy-friendly wrapper for symbolic post-fit assembly.
+import sympy as _sp_round
+
+
+def _smart_round(x):
+    # sympy expressions don't support np.round; use floor(x + 0.5)
+    # which lambdify maps to numpy without needing a custom symbol.
+    if isinstance(x, _sp_round.Expr):
+        return _sp_round.floor(x + _sp_round.Rational(1, 2))
+    return np.round(x)
+
+
+def _round_avg(*n): return _smart_round(hgh.avgval(*n))
+def _round_mul(*n): return _smart_round(hgh.mulval(*n))
+def _round_add(*n): return _smart_round(hgh.addval(*n))
+
+
+# Gate the rounded linker variants — only useful for ordinal / low-cardinality
+# targets (e.g. 1028_SWD with ~3 classes). On continuous targets rounding
+# just adds quantisation noise the downstream LSM can't undo. Use target
+# cardinality as the discriminator: ≤15 unique values ⇒ ordinal/discrete.
+ROUND_LINKER_MAX_CARDINALITY = 15
+_target_cardinality = int(yourData[finalTarget[0]].nunique())
+_USE_ROUND_LINKERS = _target_cardinality <= ROUND_LINKER_MAX_CARDINALITY
+if _USE_ROUND_LINKERS:
+    LINKER_NAMES = ["avgval", "mulval", "addval",
+                    "round_avg", "round_mul", "round_add"]
+    LINKER_FUNCS = [hgh.avgval, hgh.mulval, hgh.addval,
+                    _round_avg, _round_mul, _round_add]
+else:
+    LINKER_NAMES = ["avgval", "mulval", "addval"]
+    LINKER_FUNCS = [hgh.avgval, hgh.mulval, hgh.addval]
 N_LINKERS = len(LINKER_FUNCS)
+print(f"[linker gating] target cardinality={_target_cardinality} "
+      f"(threshold={ROUND_LINKER_MAX_CARDINALITY}) "
+      f"→ {len(LINKER_FUNCS)} linkers active: {LINKER_NAMES}")
 
 
 def _link_genes(gene_outputs, linker_id):
@@ -572,12 +681,14 @@ def compute_raw_metrics(individual):
     var_va = float(np.var(Y_val))
 
     candidates = []
-    for l_id in range(N_LINKERS):
+    active_l = globals().get("_ACTIVE_LINKER_IDS", list(range(N_LINKERS)))
+    active_w = globals().get("_ACTIVE_WRAPPER_IDS", list(range(N_WRAPPERS)))
+    for l_id in active_l:
         raw_train = _link_genes(genes_train, l_id)
         raw_val = _link_genes(genes_val, l_id)
         if raw_train is None or raw_val is None:
             continue
-        for w_id in range(N_WRAPPERS):
+        for w_id in active_w:
             wrapper_fn = WRAPPER_FUNCS[w_id]
             try:
                 wrapped_train = wrapper_fn(raw_train)
@@ -658,9 +769,29 @@ def print_linker_leaderboard(label: str = ""):
     lparts = [f"{name}={100.0*c/total:.0f}%" for name, c in _LINKER_WIN_COUNTS.items()]
     wparts = [f"{name}={100.0*c/total:.0f}%" for name, c in _WRAPPER_WIN_COUNTS.items()]
     tag = (' ' + label) if label else ''
-    print(f"[leaderboard{tag}]  linkers: " + "  ".join(lparts))
-    print(f"[leaderboard{tag}]  wrappers: " + "  ".join(wparts)
-          + f"  (n={_LINKER_WIN_TOTAL} winners)")
+    print(f"[leaderboard{tag}]  linkers (champion): " + "  ".join(lparts))
+    print(f"[leaderboard{tag}]  wrappers (champion): " + "  ".join(wparts)
+          + f"  (n={_LINKER_WIN_TOTAL} champion winners)")
+
+    # HOF leaderboard — most filtered signal: only currently-resident
+    # best-ever chromosomes vote, one vote each by their stamped
+    # wrapper_id / linker_id.
+    hof_obj = globals().get("hof", None)
+    if hof_obj is None or len(hof_obj) == 0:
+        return
+    hof_link = {name: 0 for name in LINKER_NAMES}
+    hof_wrap = {name: 0 for name in WRAPPER_NAMES}
+    for ind in hof_obj:
+        wid = int(getattr(ind, "wrapper_id", 0)) % N_WRAPPERS
+        lid = int(getattr(ind, "linker_id", 0)) % N_LINKERS
+        hof_wrap[WRAPPER_NAMES[wid]] += 1
+        hof_link[LINKER_NAMES[lid]] += 1
+    n_hof = len(hof_obj)
+    lp = [f"{n}={100.0*c/n_hof:.0f}%" for n, c in hof_link.items()]
+    wp = [f"{n}={100.0*c/n_hof:.0f}%" for n, c in hof_wrap.items()]
+    print(f"[leaderboard{tag}]  linkers (HOF):       " + "  ".join(lp))
+    print(f"[leaderboard{tag}]  wrappers (HOF):      " + "  ".join(wp)
+          + f"  (n={n_hof} HOF members)")
 
 
 # Frozen HFF column ranges. Captured from gen 0 by the first call to
@@ -763,7 +894,12 @@ def assign_fitness_batch(population, raw_results):
             m.get("one_minus_r2_tr"), m.get("one_minus_r2_va"),
             int(is_win),
         ])
-        if is_win:
+        # Only count CHAMPION-deme winners in the leaderboard. Intake
+        # is exploration noise (60% gets refilled with randoms every pump
+        # beat); champion deme carries the real signal about which
+        # (wrapper, linker) the search converged on. The CSV still
+        # records every candidate so post-hoc analysis can use both.
+        if is_win and cur_deme == 1:
             _LINKER_WIN_COUNTS[LINKER_NAMES[c.get("linker_id", 0)]] += 1
             _WRAPPER_WIN_COUNTS[WRAPPER_NAMES[c["wrapper_id"]]] += 1
             _LINKER_WIN_TOTAL += 1
@@ -920,6 +1056,57 @@ num_elites = settings.num_elites
 DEME_SIZES = (100, 100)
 deme_sizes = DEME_SIZES
 population_size = sum(deme_sizes)
+
+# Adaptive prune of the per-eval (wrapper × linker) batch. After the HOF
+# stabilises (~60 gens), drop every wrapper / linker that has 0 HOF
+# winners. Lock the wrapper if it has 100% HOF dominance. Cuts the
+# per-eval batch size dramatically (typical: 18 → 3) so the remaining
+# budget concentrates on evolving good chromosomes under the surviving
+# combinations.
+PRUNE_ENABLED = True
+PRUNE_AT_GENS = (60, 150)        # two staged prunes — early aggressive, then refine
+PRUNE_THRESHOLD = 0.05           # drop wrappers/linkers with <5% HOF share
+_ACTIVE_WRAPPER_IDS = list(range(N_WRAPPERS))
+_ACTIVE_LINKER_IDS = list(range(N_LINKERS))
+_PRUNES_DONE = 0
+
+
+def _maybe_prune_search_space(current_gen: int):
+    """At each gen in PRUNE_AT_GENS: drop wrappers/linkers with
+    <PRUNE_THRESHOLD HOF share. If one wrapper has 100% HOF, lock it."""
+    global _ACTIVE_WRAPPER_IDS, _ACTIVE_LINKER_IDS, _PRUNES_DONE
+    if not PRUNE_ENABLED:
+        return
+    next_idx = _PRUNES_DONE
+    if next_idx >= len(PRUNE_AT_GENS):
+        return
+    if current_gen < PRUNE_AT_GENS[next_idx]:
+        return
+    hof_obj = globals().get("hof", None)
+    if hof_obj is None or len(hof_obj) == 0:
+        return
+    w_counts = [0] * N_WRAPPERS
+    l_counts = [0] * N_LINKERS
+    for ind in hof_obj:
+        w_counts[int(getattr(ind, "wrapper_id", 0)) % N_WRAPPERS] += 1
+        l_counts[int(getattr(ind, "linker_id", 0)) % N_LINKERS] += 1
+    n = len(hof_obj)
+    # Threshold prunes only within currently-active sets — gen-150 round
+    # narrows the gen-60 survivors further, never resurrects discards.
+    threshold = PRUNE_THRESHOLD * n
+    new_w = [i for i in _ACTIVE_WRAPPER_IDS if w_counts[i] >= threshold]
+    new_l = [i for i in _ACTIVE_LINKER_IDS if l_counts[i] >= threshold]
+    # Wrapper lock-in if one wrapper has 100% HOF dominance.
+    if len(new_w) == 1 or max(w_counts) >= n:
+        new_w = [int(np.argmax(w_counts))]
+    _ACTIVE_WRAPPER_IDS = new_w if new_w else _ACTIVE_WRAPPER_IDS
+    _ACTIVE_LINKER_IDS = new_l if new_l else _ACTIVE_LINKER_IDS
+    _PRUNES_DONE = next_idx + 1
+    print(f"[prune#{_PRUNES_DONE} @ gen {current_gen}]  "
+          f"wrappers kept: {[WRAPPER_NAMES[i] for i in _ACTIVE_WRAPPER_IDS]}  "
+          f"linkers kept: {[LINKER_NAMES[i] for i in _ACTIVE_LINKER_IDS]}  "
+          f"(now {len(_ACTIVE_WRAPPER_IDS)}×{len(_ACTIVE_LINKER_IDS)}="
+          f"{len(_ACTIVE_WRAPPER_IDS)*len(_ACTIVE_LINKER_IDS)} candidates)")
 k_migrants = settings.k_migrants
 toolbox.register("select", tools.selTournament, tournsize=tournament)
 
@@ -1130,26 +1317,39 @@ else:
             gen += 1
             break
 
-        # E20 pump on a FREQ pulse: ring-migrate champions across demes,
-        # then refill the bottom 60% of the intake deme (deme 0) with
-        # fresh random chromosomes for sustained exploration.
+        # ALPS-style pump: ONE-WAY promotion only. Best k_migrants from
+        # intake (young, noisy) overwrite worst k_migrants in champion
+        # (old, refined). Champion never sends material back, so its
+        # convergence is never contaminated by raw random material. Then
+        # refill bottom 60% of intake with fresh randoms for sustained
+        # exploration. Diversity stays high; champion stays clean.
         if gen > 30 and gen % FREQ == 0 or gen > (target_gen - 10):
-            toolbox.migrate(demes)
             intake = demes[0]
+            champion = demes[1]
+            # Promote best intake into champion (replace worst champion).
+            intake_sorted = sorted(intake, key=lambda i: i.fitness.values[0])
+            champion_sorted = sorted(champion, key=lambda i: i.fitness.values[0],
+                                     reverse=True)  # worst first
+            promotes = [toolbox.clone(intake_sorted[i]) for i in range(k_migrants)]
+            for i, prom in enumerate(promotes):
+                worst = champion_sorted[i]
+                idx = champion.index(worst)
+                champion[idx] = prom
+            # Refill bottom 60% of intake with fresh randoms.
             n_refill = int(0.60 * len(intake))
             intake.sort(key=lambda i: i.fitness.values[0])  # best first
-            # Replace the worst n_refill with fresh random individuals.
             fresh = toolbox.population(n=n_refill)
             intake[-n_refill:] = fresh
-            # Score the new arrivals so they have valid fitness next gen.
             invalid = [ind for ind in intake if not ind.fitness.valid]
             if invalid:
                 raw = (pool.map(evaluate_individual, invalid)
                        if pool is not None
                        else [evaluate_individual(i) for i in invalid])
                 assign_fitness_batch(invalid, raw)
-            print(f"------------------------pump: migrate + intake refill {n_refill}/{len(intake)}---------------")
+            print(f"------------------------ALPS pump: promote {k_migrants} intake→champion, "
+                  f"refill {n_refill}/{len(intake)} intake---------------")
             print_linker_leaderboard(label=f"gen={gen}")
+            _maybe_prune_search_space(gen)
 
         gen += 1
 
@@ -1205,6 +1405,25 @@ if _scale is not None:
 # algebraically equivalent for sum/avg/mul linkers; only the printed form
 # is less canonical.
 CUSTOM_SYMBOLIC_FUNCTION_MAP = hgh.custom_symbolic_function_map()
+# Sympy mappings for the extended primitive set added in §2.1.
+import sympy as _sp_ext
+CUSTOM_SYMBOLIC_FUNCTION_MAP.update({
+    "_safe_log":  lambda x: _sp_ext.log(_sp_ext.Abs(x) + 1e-12),
+    "_safe_exp":  lambda x: _sp_ext.exp(x),
+    "_safe_sqrt": lambda x: _sp_ext.sqrt(_sp_ext.Abs(x)),
+    "sin":        _sp_ext.sin,
+    "cos":        _sp_ext.cos,
+    "_tanh":      _sp_ext.tanh,
+    "_square":    lambda x: x ** 2,
+    "_cube":      lambda x: x ** 3,
+    "_abs":       _sp_ext.Abs,
+    "_neg":       lambda x: -x,
+    "_inv":       lambda x: 1 / x,
+    "_floor":     _sp_ext.floor,
+    "_ceil":      _sp_ext.ceiling,
+    "_max2":      _sp_ext.Max,
+    "_min2":      _sp_ext.Min,
+})
 from geppy.support.simplification import _simplify_kexpression as _simplify_kexpr
 _per_gene_sym = [_simplify_kexpr(g.kexpression, CUSTOM_SYMBOLIC_FUNCTION_MAP)
                  for g in best_ind]
@@ -1375,11 +1594,69 @@ cfg_text = ("      Gene config: head_length=%d, n_genes=%d, RNC=%d"
             % (settings.head_length, settings.n_genes, settings.rnc_array_length))
 proj_text = "      Projection : %s" % settings.north_pole_method
 
+# Answer size: count nodes in the *final printed* symbolic expression.
+import sympy as _sp_sz
+try:
+    _answer_size = int(sum(1 for _ in _sp_sz.preorder_traversal(symplified_best)))
+except Exception:
+    _answer_size = -1
+
+# Pareto status: is the chosen HOF[0] non-dominated in the HOF re-rank
+# table (built later)? We approximate by checking against the deme's
+# valid individuals on (train_mse, val_mse, max_err_va, 1-R²_tr, 1-R²_va).
+_is_pareto = "?"
+try:
+    if hasattr(best_ind, "metrics") and best_ind.metrics:
+        _bm = best_ind.metrics
+        _objs = ("mse_tr", "mse_va", "max_err_va", "one_minus_r2_tr", "one_minus_r2_va")
+        _b = [_bm.get(o, float("inf")) for o in _objs]
+        _dominated = False
+        for _d in demes:
+            for _o in _d:
+                if not getattr(_o, "metrics", None):
+                    continue
+                _v = [_o.metrics.get(k, float("inf")) for k in _objs]
+                # Strictly dominates: <= on all + < on at least one.
+                if all(vi <= bi for vi, bi in zip(_v, _b)) and any(vi < bi for vi, bi in zip(_v, _b)):
+                    _dominated = True
+                    break
+            if _dominated:
+                break
+        _is_pareto = "yes" if not _dominated else "no"
+except Exception:
+    pass
+
+# Search-space size: theoretical karva chromosome count, log10 for sanity.
+# Per gene: head can be any pset function/terminal; tail any terminal;
+# Dc any RNC index. Total = (n_funcs+n_terms)^head * n_terms^tail * rnc_lo^rnc_len.
+import math as _math_sz
+_n_funcs = len(pset.functions) if hasattr(pset, "functions") else 0
+_n_terms = len(pset.terminals) if hasattr(pset, "terminals") else len(finalTerminals) + 1
+_tail_length = settings.head_length * (max(p.arity for p in pset.functions) - 1) + 1 \
+    if _n_funcs > 0 else settings.head_length
+_per_gene_log10 = (settings.head_length * _math_sz.log10(_n_funcs + _n_terms)
+                   + _tail_length * _math_sz.log10(max(2, _n_terms))
+                   + settings.rnc_array_length * _math_sz.log10(
+                       max(2, settings.rnc_hi - settings.rnc_lo + 1)))
+_total_log10 = settings.n_genes * _per_gene_log10
+# Multiply by per-eval candidate count (wrapper × linker).
+_pereval_log10 = _math_sz.log10(N_WRAPPERS * N_LINKERS)
+_search_log10 = _total_log10 + _pereval_log10
+
+size_text = "      Answer size:  %d sympy nodes" % _answer_size
+pareto_text = "      Pareto front: %s" % _is_pareto
+space_text = ("      Search space: ~10^%.1f chromosomes (head=%d × n_genes=%d × "
+              "%d wrappers × %d linkers)" % (_search_log10, settings.head_length,
+                                              settings.n_genes, N_WRAPPERS, N_LINKERS))
+
 print(colorful(0,50,255,head))
 print(colorful(0,50,255," Performance on train vs holdout:\n"))
 print(colorful(255,0,255,mse_text))
 print(colorful(255,0,255,mae_text))
 print(colorful(255,0,255,r2_text))
+print(colorful(255,0,255,size_text))
+print(colorful(255,0,255,pareto_text))
+print(colorful(255,0,255,space_text))
 print(colorful(255,0,255,cfg_text))
 print(colorful(255,0,255,proj_text))
 print(colorful(0,50,255,head))
