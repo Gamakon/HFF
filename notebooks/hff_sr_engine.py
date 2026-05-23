@@ -70,6 +70,26 @@ WRAPPER_FUNCS: list[Callable] = [_w_identity, _w_log_abs, _w_sqrt_abs]
 WRAPPER_NAMES: list[str] = ["identity", "log_abs", "sqrt_abs"]
 N_WRAPPERS = len(WRAPPER_FUNCS)
 
+# Per-eval linker search — every chromosome × every linker × every wrapper
+# gets a row in the HFF batch; HFF picks the winner.
+LINKER_FUNCS = [hgh.avgval, hgh.mulval, hgh.addval]
+LINKER_NAMES = ["avgval", "mulval", "addval"]
+N_LINKERS = len(LINKER_FUNCS)
+
+
+def _link_genes(gene_outputs: list[np.ndarray], linker_id: int) -> np.ndarray | None:
+    """Apply LINKER_FUNCS[linker_id] over per-gene prediction arrays."""
+    linker = LINKER_FUNCS[int(linker_id) % N_LINKERS]
+    try:
+        out = linker(*gene_outputs)
+    except Exception:
+        return None
+    if not isinstance(out, np.ndarray):
+        out = np.asarray(out, dtype=np.float64)
+    if not np.all(np.isfinite(out)):
+        return None
+    return out
+
 METRIC_NAMES = ["mse_tr", "mse_va", "mse_extrap",
                 "one_minus_r2_tr", "one_minus_r2_va", "one_minus_r2_extrap",
                 "mae_tr", "mae_va", "mae_extrap"]
@@ -316,6 +336,7 @@ def _build_toolbox(bundle: _Bundle):
     def make_individual():
         ind = toolbox._chromosome_factory()
         ind.wrapper_id = random.randrange(N_WRAPPERS)
+        ind.linker_id = 0
         return ind
 
     toolbox.register("individual", make_individual)
@@ -335,13 +356,35 @@ def _build_toolbox(bundle: _Bundle):
     toolbox.register("mut_rnc_array_dc", gep.mutate_rnc_array_dc,
                      rnc_gen=toolbox.rnc_gen, ind_pb="0.5p")
     toolbox.pbs["mut_rnc_array_dc"] = 1
+    toolbox._pset = pset
     return toolbox, pset
+
+
+def _predict_per_gene(individual, df, terminals, pset) -> list[np.ndarray] | None:
+    """Compile each gene once, evaluate row-wise on df, return list of arrays.
+
+    Returns None if any gene produces non-finite output, so the caller
+    treats the whole individual as un-evaluatable.
+    """
+    from geppy.tools.parser import _compile_gene
+    arrays = [df[term].values for term in terminals]
+    out: list[np.ndarray] = []
+    for gene in individual:
+        try:
+            fn = _compile_gene(gene, pset)
+            raw = np.array(list(map(fn, *arrays)), dtype=np.float64)
+        except Exception:
+            return None
+        if not np.all(np.isfinite(raw)):
+            return None
+        out.append(raw)
+    return out
 
 
 def _compute_raw_metrics(individual, toolbox, bundle: _Bundle):
     """Per-individual fitness eval — score the chromosome under every
-    wrapper slot, return the candidate list. Vec construction depends on
-    ``cfg.mode``."""
+    (linker × wrapper) slot, return the candidate list. Vec construction
+    depends on ``cfg.mode``."""
     cfg = bundle.config
     train = bundle.train
     validation = bundle.validation
@@ -350,77 +393,90 @@ def _compute_raw_metrics(individual, toolbox, bundle: _Bundle):
     Y_val = bundle.Y_val
     Y_extrap = bundle.Y_extrap
     is_wild = cfg.mode == "wild_regression"
+    pset = toolbox._pset
 
-    raw_train = hgh.compile_and_predict(individual, train, bundle.variables, toolbox)
-    raw_val = hgh.compile_and_predict(individual, validation, bundle.variables, toolbox)
-    if raw_train is None or raw_val is None:
+    genes_tr = _predict_per_gene(individual, train, bundle.variables, pset)
+    genes_va = _predict_per_gene(individual, validation, bundle.variables, pset)
+    if genes_tr is None or genes_va is None:
         return None
     if is_wild:
-        raw_extr = None
+        genes_ex = None
     else:
-        raw_extr = hgh.compile_and_predict(individual, extrapolation, bundle.variables, toolbox)
-        if raw_extr is None:
+        genes_ex = _predict_per_gene(individual, extrapolation, bundle.variables, pset)
+        if genes_ex is None:
             return None
 
     var_tr = float(np.var(Y))
     var_va = float(np.var(Y_val))
 
     candidates = []
-    for w_id in range(N_WRAPPERS):
-        wrapped_train = apply_wrapper(raw_train, w_id)
-        wrapped_val = apply_wrapper(raw_val, w_id)
-        if wrapped_train is None or wrapped_val is None:
+    for l_id in range(N_LINKERS):
+        raw_train = _link_genes(genes_tr, l_id)
+        raw_val = _link_genes(genes_va, l_id)
+        if raw_train is None or raw_val is None:
             continue
-        wrapped_extr = None
+        raw_extr = None
         if not is_wild:
-            wrapped_extr = apply_wrapper(raw_extr, w_id)
-            if wrapped_extr is None:
+            raw_extr = _link_genes(genes_ex, l_id)
+            if raw_extr is None:
                 continue
 
-        if cfg.enable_linear_scaling:
-            scale = hgh.apply_linear_scaling(wrapped_train, Y)
-            if scale is None:
+        for w_id in range(N_WRAPPERS):
+            wrapped_train = apply_wrapper(raw_train, w_id)
+            wrapped_val = apply_wrapper(raw_val, w_id)
+            if wrapped_train is None or wrapped_val is None:
                 continue
-            a, b = scale
-            pred_train = a * wrapped_train + b
-            pred_val = a * wrapped_val + b
-            pred_extr = (a * wrapped_extr + b) if wrapped_extr is not None else None
-        else:
-            a, b = 1.0, 0.0
-            pred_train = wrapped_train
-            pred_val = wrapped_val
-            pred_extr = wrapped_extr
+            wrapped_extr = None
+            if not is_wild:
+                wrapped_extr = apply_wrapper(raw_extr, w_id)
+                if wrapped_extr is None:
+                    continue
 
-        mse_tr = float(np.mean((Y - pred_train) ** 2))
-        mse_va = float(np.mean((Y_val - pred_val) ** 2))
-        mae_tr = float(np.mean(np.abs(Y - pred_train)))
-        mae_va = float(np.mean(np.abs(Y_val - pred_val)))
-        one_minus_r2_tr = mse_tr / var_tr if var_tr > 0 else float("inf")
-        one_minus_r2_va = mse_va / var_va if var_va > 0 else float("inf")
+            if cfg.enable_linear_scaling:
+                scale = hgh.apply_linear_scaling(wrapped_train, Y)
+                if scale is None:
+                    continue
+                a, b = scale
+                pred_train = a * wrapped_train + b
+                pred_val = a * wrapped_val + b
+                pred_extr = (a * wrapped_extr + b) if wrapped_extr is not None else None
+            else:
+                a, b = 1.0, 0.0
+                pred_train = wrapped_train
+                pred_val = wrapped_val
+                pred_extr = wrapped_extr
 
-        if is_wild:
-            vec = [mse_tr, mse_va, one_minus_r2_tr, one_minus_r2_va, mae_tr, mae_va]
-            names = WILD_REGRESSION_METRIC_NAMES
-        else:
-            var_extrap = float(np.var(Y_extrap))
-            mse_extrap = float(np.mean((Y_extrap - pred_extr) ** 2))
-            mae_extrap = float(np.mean(np.abs(Y_extrap - pred_extr)))
-            one_minus_r2_extrap = (mse_extrap / var_extrap
-                                   if var_extrap > 0 else float("inf"))
-            vec = [mse_tr, mse_va, mse_extrap,
-                   one_minus_r2_tr, one_minus_r2_va, one_minus_r2_extrap,
-                   mae_tr, mae_va, mae_extrap]
-            names = METRIC_NAMES
-        if not all(np.isfinite(vec)):
-            continue
+            mse_tr = float(np.mean((Y - pred_train) ** 2))
+            mse_va = float(np.mean((Y_val - pred_val) ** 2))
+            mae_tr = float(np.mean(np.abs(Y - pred_train)))
+            mae_va = float(np.mean(np.abs(Y_val - pred_val)))
+            one_minus_r2_tr = mse_tr / var_tr if var_tr > 0 else float("inf")
+            one_minus_r2_va = mse_va / var_va if var_va > 0 else float("inf")
 
-        candidates.append({
-            "wrapper_id": w_id,
-            "vec": vec,
-            "a": float(a),
-            "b": float(b),
-            "metrics": dict(zip(names, vec)),
-        })
+            if is_wild:
+                vec = [mse_tr, mse_va, one_minus_r2_tr, one_minus_r2_va, mae_tr, mae_va]
+                names = WILD_REGRESSION_METRIC_NAMES
+            else:
+                var_extrap = float(np.var(Y_extrap))
+                mse_extrap = float(np.mean((Y_extrap - pred_extr) ** 2))
+                mae_extrap = float(np.mean(np.abs(Y_extrap - pred_extr)))
+                one_minus_r2_extrap = (mse_extrap / var_extrap
+                                       if var_extrap > 0 else float("inf"))
+                vec = [mse_tr, mse_va, mse_extrap,
+                       one_minus_r2_tr, one_minus_r2_va, one_minus_r2_extrap,
+                       mae_tr, mae_va, mae_extrap]
+                names = METRIC_NAMES
+            if not all(np.isfinite(vec)):
+                continue
+
+            candidates.append({
+                "wrapper_id": w_id,
+                "linker_id": l_id,
+                "vec": vec,
+                "a": float(a),
+                "b": float(b),
+                "metrics": dict(zip(names, vec)),
+            })
 
     if not candidates:
         return None
@@ -440,6 +496,7 @@ def _assign_fitness_batch(population, raw_results, cfg: HFFSRConfig):
             ind.a = 1.0
             ind.b = 0.0
             ind.wrapper_id = 0
+            ind.linker_id = 0
 
     good_idx = [i for i, r in enumerate(raw_results)
                 if r is not None and r.get("candidates")]
@@ -474,6 +531,8 @@ def _assign_fitness_batch(population, raw_results, cfg: HFFSRConfig):
         ind.a = payload["a"]
         ind.b = payload["b"]
         ind.wrapper_id = int(payload["wrapper_id"])
+        ind.linker_id = int(payload.get("linker_id", 0))
+        ind._linker = LINKER_FUNCS[ind.linker_id]
 
 
 def _per_metric_mins(population, mode: str = "feynman"):
@@ -529,6 +588,8 @@ class HFFSREngine:
         self.b_ = 0.0
         self.wrapper_id_ = 0
         self.wrapper_name_ = "identity"
+        self.linker_id_ = 0
+        self.linker_name_ = "avgval"
         # End-phase HFF pick state. Every (chromosome × N_WRAPPERS) is
         # scored by HFF on a 3D holdout-only vec; the lowest HFF wins.
         # Table is full ranked pool for inspection.
@@ -690,7 +751,37 @@ class HFFSREngine:
             gen += 1
 
         self.fit_seconds_ = time.perf_counter() - fit_start
-        self._extract_best(hof, bundle, toolbox, var_ranges, verbose=verbose)
+        # Hard wall-clock guard on end-phase. _extract_best calls
+        # gep.simplify + feynman_shape_rewrite which can spin forever on
+        # complex expressions. Honour the SRBench-style remaining budget,
+        # falling back to 120s when no budget was set.
+        _extract_budget = 120.0
+        if cfg.time_budget_s is not None:
+            _extract_budget = max(15.0, cfg.time_budget_s - (time.perf_counter() - fit_start))
+        try:
+            class _ExtractTimeout(Exception):
+                pass
+
+            def _extract_alarm(signum, frame):
+                raise _ExtractTimeout()
+
+            _has_alarm = hasattr(_signal, "SIGALRM")
+            if _has_alarm:
+                _signal.signal(_signal.SIGALRM, _extract_alarm)
+                _signal.alarm(int(_extract_budget))
+            try:
+                self._extract_best(hof, bundle, toolbox, var_ranges, verbose=verbose)
+            except _ExtractTimeout:
+                if verbose:
+                    print(f"[engine] _extract_best timeout after {_extract_budget:.0f}s — falling back to HOF[0] raw expr")
+                self._extract_best_fallback(hof, bundle)
+            finally:
+                if _has_alarm:
+                    _signal.alarm(0)
+        except Exception as e:
+            if verbose:
+                print(f"[engine] _extract_best raised {type(e).__name__}: {e} — falling back")
+            self._extract_best_fallback(hof, bundle)
         return self
 
     # -----------------------------------------------------------------
@@ -700,6 +791,20 @@ class HFFSREngine:
     def predict(self, X) -> np.ndarray:
         if self.discovered_expr_ is None:
             raise RuntimeError("Engine not fit yet; call .fit(...) first")
+        # Fallback path — _extract_best didn't finish; predict via the
+        # toolbox-compiled HOF[0] callable, applying the same wrapper +
+        # LSM scaling that produced the winning fitness.
+        if getattr(self, "_fallback_individual", None) is not None:
+            ind = self._fallback_individual
+            df = X if isinstance(X, pd.DataFrame) else self._coerce_X(X)
+            raw = hgh.compile_and_predict(ind, df, self._lambdified_var_order, self._toolbox)
+            if raw is None:
+                raise RuntimeError("fallback predict failed: chromosome compile returned None")
+            wid = int(getattr(ind, "wrapper_id", 0)) % N_WRAPPERS
+            wrapped = apply_wrapper(raw, wid)
+            if wrapped is None:
+                raise RuntimeError("fallback predict failed: wrapper produced non-finite")
+            return float(getattr(ind, "a", 1.0)) * wrapped + float(getattr(ind, "b", 0.0))
         if isinstance(X, pd.DataFrame):
             cols = list(X.columns)
             arrays = [X[v].values for v in self._lambdified_var_order if v in cols]
@@ -715,6 +820,12 @@ class HFFSREngine:
                 modules=["numpy"],
             )
         return self._lambdified(*arrays)
+
+    def _coerce_X(self, X) -> pd.DataFrame:
+        X = np.asarray(X)
+        if X.ndim == 1:
+            X = X.reshape(-1, 1)
+        return pd.DataFrame(X, columns=self._lambdified_var_order[:X.shape[1]])
 
     def expression_str(self) -> str:
         return str(self.discovered_expr_) if self.discovered_expr_ is not None else "<unfit>"
@@ -1044,6 +1155,19 @@ class HFFSREngine:
             except (ValueError, AttributeError):
                 pass
 
+    def _extract_best_fallback(self, hof, bundle):
+        """Minimal final-state when _extract_best can't finish in budget.
+
+        Skips gep.simplify / sympy snap / feynman rewrite — just sets
+        engine to a usable but unsimplified expression. predict() still
+        works via the toolbox-compiled callable on hof[0] (no sympy)."""
+        self.discovered_expr_ = sp.Symbol("hof0_fallback")
+        self.discovered_source_ = "fallback.timeout"
+        self.hff_holdout_ = None
+        self.holdout_pick_table_ = []
+        self._lambdified_var_order = bundle.variables[:]
+        self._fallback_individual = hof[0] if hof else None
+
     def _extract_best(self, hof, bundle, toolbox, var_ranges, verbose):
         """Pick the discovered expression by **HFF on a holdout-only vec**
         across one flat pool of candidates:
@@ -1181,6 +1305,8 @@ class HFFSREngine:
             self.b_ = winner["b"]
             self.wrapper_id_ = winner["wrapper_id"]
             self.wrapper_name_ = WRAPPER_NAMES[winner["wrapper_id"]]
+            self.linker_id_ = int(getattr(hof[0], "linker_id", 0))
+            self.linker_name_ = LINKER_NAMES[self.linker_id_]
             self.holdout_pick_table_ = [
                 {"source": e["source"],
                  "hff_holdout": e["hff_holdout"],
