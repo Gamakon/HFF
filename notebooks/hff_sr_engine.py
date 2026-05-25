@@ -1680,12 +1680,13 @@ class HFFSREngine:
                     "wrapper_id": w_id,
                 })
 
-        # Snap each pool member + build the holdout HFF vec for each.
+        # Per-subtree snap already ran inside visit_subtree during compress;
+        # no need to snap again on the combined expression. Just run the
+        # (cheap) Feynman-shape rewrite + build the holdout HFF vec.
         for entry in pool:
-            snapped = self._snap_with_timeout(entry["expr_pre_snap"], bundle, var_ranges)
-            snapped = self._maybe_feynman_rewrite(snapped, bundle, var_ranges)
-            entry["expr"] = snapped
-            entry["holdout_vec"] = _holdout_vec(snapped)
+            rewritten = self._maybe_feynman_rewrite(entry["expr_pre_snap"], bundle, var_ranges)
+            entry["expr"] = rewritten
+            entry["holdout_vec"] = _holdout_vec(rewritten)
 
         # Discard entries where the holdout vec didn't compute.
         scorable = [e for e in pool if e["holdout_vec"] is not None]
