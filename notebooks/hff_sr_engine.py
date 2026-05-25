@@ -917,19 +917,6 @@ class HFFSREngine:
                         print(hgh.format_log_row(log[-1], metric_names))
                     except Exception:
                         pass
-                    valid_with_w = [ind for ind in deme
-                                    if getattr(ind, "fitness", None) is not None
-                                    and ind.fitness.valid]
-                    if valid_with_w:
-                        counts = [0] * N_WRAPPERS
-                        for ind in valid_with_w:
-                            wid = int(getattr(ind, "wrapper_id", 0)) % N_WRAPPERS
-                            counts[wid] += 1
-                        best = min(valid_with_w, key=lambda i: i.fitness.values[0])
-                        bw = WRAPPER_NAMES[int(getattr(best, "wrapper_id", 0)) % N_WRAPPERS]
-                        dist = " ".join(f"{WRAPPER_NAMES[w]}={counts[w]}"
-                                        for w in range(N_WRAPPERS))
-                        print(f"          [deme {idx}] wrappers: {dist} | best={bw}")
 
             # Early-stop check (holdout-gated).
             if self._maybe_early_stop(demes, toolbox, hof, bundle, gen, verbose):

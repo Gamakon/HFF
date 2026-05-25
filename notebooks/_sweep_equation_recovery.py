@@ -89,12 +89,17 @@ def run_one(problem_id: str, no_val: bool = False, audit_dir: str | None = None)
     # read it (especially with multiprocess workers also writing), which
     # deadlocks at exit. Route stdout/stderr to temp files instead.
     import tempfile
-    # No per-problem timeout — every problem runs to completion (the
-    # notebook's own early-stop + n_gen cap bounds it). HFF_SWEEP_TIMEOUT
-    # is still honoured if explicitly set (e.g. for debugging); otherwise
-    # we wait indefinitely.
+    # Per-problem wall-clock cap. Defaults to 3600 s — the SRBench
+    # competition budget (1 hour per dataset/seed, single-core). Match
+    # the contest setting locally so our local sweeps measure the same
+    # algorithm we'd submit. Override via HFF_SWEEP_TIMEOUT for debugging
+    # (set to 0 to disable entirely — not recommended).
     _env_t = os.environ.get("HFF_SWEEP_TIMEOUT")
-    timeout_s = int(_env_t) if _env_t else None
+    if _env_t is None:
+        timeout_s = 3600
+    else:
+        _v = int(_env_t)
+        timeout_s = _v if _v > 0 else None
     out_fd, out_path = tempfile.mkstemp(suffix=f".{problem_id}.out")
     err_fd, err_path = tempfile.mkstemp(suffix=f".{problem_id}.err")
     os.close(out_fd); os.close(err_fd)

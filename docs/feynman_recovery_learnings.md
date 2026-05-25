@@ -252,6 +252,101 @@ diagnostic signal worth following back to the rule code, not noise.
 
 ---
 
+### E22 — Learned karva→karva rewrites as the mutation pump (name-blind, evidence-mined)
+
+**Core claim**: intelligence is graph rewriting. Karva is a flat linearisation of the chromosome's expression tree. So tree rewriting becomes **string rewriting on karva** — a regex task, microseconds per chromosome. Karva's head+tail structure with arity-bounded tail guarantees every rewrite is well-formed; no arity bookkeeping needed.
+
+**Hypothesis**: directed mutation via *learned* karva→karva rewrites outperforms random intake on the hard-recovery set, AND replaces the name-based rule library with a name-blind, evidence-mined one.
+
+**Mechanism**:
+
+1. **Offline corpus build** — run every Feynman seed through evolution; for each chromosome that sympy ever simplified, log the tuple `(raw_karva, simplified_karva, fitness_before, fitness_after, problem_id)`. Each sympy call we already make becomes a free labelled training example.
+
+2. **Rule mining** — extract recurring `(input_substring → output_substring)` pairs from the corpus. Filter by:
+   - frequency threshold (rule must fire on ≥ K distinct chromosomes),
+   - fitness-delta sign (rewrite must on average improve HFF distance),
+   - generality (rule fires across ≥ M problems, not 1).
+   Each surviving pair becomes a learned mutation operator.
+
+3. **Compiled rewriter** — set of compiled regexes on the karva symbol alphabet (`mul, div, sqrt, T, C, ...`). Pure string substitution. Runtime path no longer touches sympy.
+
+4. **Mutation pump** — replace the current random-intake injection with a directed-rewrite step:
+   - Take the top-K champions from the previous gen.
+   - Apply learned rewrites; each rewrite that matches produces a new candidate karva.
+   - Push the rewritten karva into the intake slot.
+   - **Alternating regime**: 10 gens learned-rewrite intake (exploit) ↔ 10 gens random intake (explore). Prevents collapse onto the mined rules; preserves exploration.
+
+5. **Sympy moves offline only**. The runtime path is pure string rewriting on karva. Sympy is used during corpus-build to generate the *labels*, not during evolution.
+
+**What replaces what**:
+| Today | After E22 |
+|---|---|
+| 14 hand-coded name-gated rules | Mined karva→karva rewrites |
+| Runtime sympy simplify | Compiled regex on karva strings |
+| Random intake injection | Champion-derived learned-rewrite injection (alternating with random) |
+| Column-name triggers | Karva-substring triggers |
+| Cheating-by-naming-convention | Name-blind, structure-only |
+
+**Why this is faster**:
+- Sympify+simplify: milliseconds per chromosome × thousands of chromosomes × hundreds of gens = the dominant cost in our runs today.
+- Compiled regex on karva: microseconds per chromosome. Several orders of magnitude.
+- The learned rewrites encode the *result* of common simplifications without re-deriving them every time.
+
+**Why this is name-blind**:
+- Pattern operates on symbol classes (`OP`, `T`, `C`, specific operators), never on terminal names.
+- Bindings are positional, not by name.
+- Same rewrite fires identically on Feynman `c, v` and on renamed `col_3, col_7`.
+
+**Why this is GA-correct**:
+- A karva→karva rewrite IS a directed mutation operator. This is standard GA terminology — we're replacing random mutation with evidence-driven mutation.
+- Karva's tail soaks up arity changes; every rewrite is guaranteed well-formed without extra checks.
+
+**Test plan**:
+
+- **Phase 1 — corpus** (offline, 1 day):
+  - Instrument the engine to log `(raw_karva, simplified_karva, fitness_delta)` to a jsonl every time sympy is called.
+  - Run one full Feynman base sweep (100 problems, current settings). Collect ~10⁵+ tuples.
+  - Inspect: how many distinct rewrite patterns? What's the long-tail vs head distribution?
+
+- **Phase 2 — mining** (offline, 1 day):
+  - Mine frequent (input_substr → output_substr) pairs at varying frequency thresholds.
+  - For each candidate rewrite, measure: (a) average fitness delta, (b) cross-problem generality, (c) length reduction.
+  - Land a v1 rule set (likely 20–100 rules).
+
+- **Phase 3 — runtime swap** (1–2 days):
+  - Build compiled-regex rewriter module.
+  - Wire it as the intake-pump source, behind a config flag.
+  - Add the 10-gen alternation knob (`PUMP_MODE=alternating`).
+
+- **Phase 4 — head-to-head** (1 day):
+  - 13-sample: random-intake vs learned-rewrite-intake vs alternating. Three configurations, same seeds.
+  - Full Feynman base: best of the three.
+  - **Renamed-Feynman smoke** (every variable → `col_N`): learned-rewrite recovery must equal the un-renamed recovery (proves name-blindness).
+
+**Acceptance criteria**:
+- Learned-rewrite-intake recovers ≥ E20 baseline on 13-sample (6/13).
+- Alternating mode recovers ≥ learned-only AND ≥ random-only — proving the alternation argument.
+- Renamed-Feynman parity: recovery identical to unrenamed run.
+- Runtime sympy calls drop by ≥ 95% (measure: sympy.simplify call count per generation).
+
+**Test variables (logged in the experiment table, not blockers)**:
+1. Corpus size for stable mining: 10³, 10⁴, 10⁵ tuples — does the rule set converge?
+2. Frequency threshold for rule acceptance.
+3. Champion count per pump cycle (top-1, top-5, top-20).
+4. Rewrite-vs-random alternation period (5/5, 10/10, plateau-triggered).
+5. Cross-gene vs per-gene rewrite scope.
+6. Strict vs fuzzy pattern matching (carries over from E22a).
+
+**Risks + mitigations**:
+- Mined rules overfit the seed corpus → random alternation period + cross-problem generality threshold.
+- Rule explosion (10⁴+ rare rewrites) → frequency threshold + length cap on input/output substrings.
+- Karva boundary corruption from naive regex → encode gene boundaries as a sentinel symbol the regex never crosses.
+- Learned rewrites that *worsen* fitness on some problems → require positive average fitness delta in mining.
+
+**Status**: design complete. Ready to start Phase 1 (corpus build) when sweep instrumentation is wired.
+
+---
+
 ## Heuristics emerging
 
 1. **Multiplicative `a·b·c` or `a/b` truths recover** in <30s at the existing baseline.
