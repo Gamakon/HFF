@@ -107,18 +107,26 @@ def annotate(root: Node) -> None:
 # Find the largest compressible subtree
 # ---------------------------------------------------------------------------
 
-def find_largest_compressible(root: Node, sub_h: int) -> Optional[Node]:
-    """Return the deepest, largest subtree (excluding root) with size <= sub_h
-    AND containing at least one Function (compressing single terminals is
-    pointless). Returns None if nothing compressible remains.
+def find_largest_compressible(root: Node, sub_h: int,
+                                exclude: set | None = None) -> Optional[Node]:
+    """Return the deepest, largest subtree with size <= sub_h AND containing
+    at least one Function (compressing single terminals is pointless). Root
+    is eligible — caller decides whether to special-case it. Already-tried
+    nodes (those whose visit returned the same Node back) are skipped via
+    the ``exclude`` set to avoid infinite loops.
+
+    Returns None if nothing compressible remains.
     """
+    exclude = exclude or set()
     candidates: list[Node] = []
 
     def _walk(n: Node, depth: int) -> None:
-        if n is not root and n.size <= sub_h:
-            # Must contain at least one Function to be worth compressing.
-            if _has_function(n):
-                candidates.append((n.size, depth, n))
+        if id(n) in exclude:
+            for c in n.children:
+                _walk(c, depth + 1)
+            return
+        if n.size <= sub_h and _has_function(n):
+            candidates.append((n.size, depth, n))
             return  # don't recurse into a candidate's children
         for c in n.children:
             _walk(c, depth + 1)
@@ -240,18 +248,39 @@ def compress_gene(
         # If visit returned None, the entry is the original subtree (so the
         # FK round-trips to the same Node, semantically unchanged).
         sub_trees: list[Node] = []
+        # Track Node identities whose visit returned a result equivalent
+        # (identical tree-shape) to the input, so the picker doesn't loop
+        # back to them.
+        exclude: set[int] = set()
         changed = False
         while True:
-            target = find_largest_compressible(root, sub_h)
+            target = find_largest_compressible(root, sub_h, exclude=exclude)
             if target is None:
                 break
             simplified_tokens = visit_subtree(target, pset)
             if simplified_tokens is None:
                 # Fallback: re-use the original Node subtree unchanged.
                 replacement_node = target
+                exclude.add(id(target))  # don't pick again
             else:
                 fk_h, fk_t = simplified_tokens
                 replacement_node = decode_head_to_tree(list(fk_h), list(fk_t))
+                # If the simplified result is structurally same size as the
+                # original, treat as no-op for exclude purposes — otherwise
+                # we'd loop on no-progress simplifications.
+                annotate(target)
+                annotate(replacement_node)
+                if replacement_node.size >= target.size:
+                    exclude.add(id(target))
+            # Special case: if target IS root, replace root in place
+            # (replace_subtree can't substitute the root).
+            if target is root:
+                root.tok = replacement_node.tok
+                root.children = replacement_node.children
+                root.fk_id = None
+                changed = True
+                annotate(root)
+                continue
             fk_id = len(sub_trees)
             sub_trees.append(replacement_node)
             fk_node = Node(tok=_FKTerminal(fk_id), fk_id=fk_id)
