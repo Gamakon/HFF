@@ -354,7 +354,10 @@ class HFFSRConfig:
     num_elites: int = 2
     migration_freq: int = 30      # cross-class broadcast cadence
     migration_freq_intra: int = 10
-    dedup_freq: int = 0           # 0 = disabled
+    dedup_freq: int = 5           # 0 = disabled. Default 5: every 5 gens,
+                                  # find duplicate chromosomes within each
+                                  # deme and replace with fresh random
+                                  # individuals (diversity injection).
     k_migrants: int = 3
     # HOF
     champs: int = 30
@@ -983,6 +986,26 @@ class HFFSREngine:
                           f"{self.hff_cdf_percentile_:.6e}")
         except Exception:
             pass
+
+        # Persist HOF + pset + bundle BEFORE _extract_best, so a hang or
+        # crash there doesn't cost us the evolution work. Tests can re-load
+        # via load_hof_dump() without re-running evolution.
+        try:
+            import pickle as _pickle
+            _dump_path = os.environ.get("HFF_HOF_DUMP", "/tmp/hff_hof.pkl")
+            _payload = {
+                "hof": list(hof),
+                "variables": bundle.variables,
+                "config": cfg,
+                "fit_seconds_evolution": time.perf_counter() - fit_start,
+            }
+            with open(_dump_path, "wb") as _f:
+                _pickle.dump(_payload, _f)
+            if verbose:
+                print(f"[engine] HOF dumped to {_dump_path} ({len(hof)} chromosomes)")
+        except Exception as _e:
+            if verbose:
+                print(f"[engine] HOF dump failed: {type(_e).__name__}: {_e}")
 
         # Hard wall-clock guard on end-phase. _extract_best calls
         # gep.simplify + feynman_shape_rewrite which can spin forever on
@@ -1763,3 +1786,12 @@ class HFFSREngine:
             return scored[0]["expr"]
         except Exception:
             return levels["default"][0] if "default" in levels else expr
+
+
+def load_hof_dump(path: str = None) -> dict:
+    """Load a HOF pickle dumped by HFFSREngine.fit() before _extract_best.
+    Returns the dict with keys: hof, variables, config, fit_seconds_evolution."""
+    import pickle
+    p = path or os.environ.get("HFF_HOF_DUMP", "/tmp/hff_hof.pkl")
+    with open(p, "rb") as f:
+        return pickle.load(f)

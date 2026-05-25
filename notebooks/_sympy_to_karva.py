@@ -252,8 +252,14 @@ def _dataclass_lite(cls):
 # Public: visit_subtree (called by compress_gene)
 # ---------------------------------------------------------------------------
 
-def visit_subtree(root_node, pset) -> Optional[tuple[list, list]]:
-    """Convert a subtree to sympy, simplify, and emit karva tokens.
+def visit_subtree(root_node, pset, snap_rel_tol: float = 1e-3) -> Optional[tuple[list, list]]:
+    """Convert a subtree to sympy, simplify, snap-constants, emit karva tokens.
+
+    Snap is run on the (small, bounded) sub-tree expression here rather than
+    on the full linker-combined expression downstream — bounded input means
+    snap is fast and never hangs. If snap fails the un-snapped simplified
+    expression is used.
+
     Return None on any failure (caller will retain original tokens).
     """
     expr = node_to_sympy(root_node)
@@ -263,5 +269,15 @@ def visit_subtree(root_node, pset) -> Optional[tuple[list, list]]:
         simplified = sp.simplify(expr)
     except Exception:
         return None
-    out = sympy_to_karva(simplified, pset)
+    # Snap numeric atoms against the known-constants library (G, π, e, etc.).
+    # On a sub_h<=10 expression this is microseconds; on a giant linker tree
+    # it can hang. Bounded here by construction.
+    try:
+        import hff_geppy_helpers as _hgh
+        import equation_problems as _eq
+        snapped, _ = _hgh.snap_constants(simplified, library=_eq.KNOWN_CONSTANTS,
+                                          rel_tol=snap_rel_tol)
+    except Exception:
+        snapped = simplified
+    out = sympy_to_karva(snapped, pset)
     return out
