@@ -1605,10 +1605,27 @@ class HFFSREngine:
         best = hof[0]
         # (1) chromosome × N_WRAPPERS — each LSM-fit on train.
         try:
-            # Per-gene simplify + linker assembly (skip slow top-level
-            # sp.simplify inside gep.simplify on multi-gene chromosomes).
+            # Per-gene compress (bounded sympy work) then assemble via linker
+            # WITHOUT a top-level sp.simplify on the combined tree — that
+            # path hangs sympy native code (SIGALRM cannot escape it).
+            # compress_gene caps sympy.simplify to sub-trees of <= sub_h
+            # nodes per call, so cost is bounded regardless of head size.
             from geppy.support.simplification import _simplify_kexpression as _simplify_kexpr
-            _per_gene_sym = [_simplify_kexpr(g.kexpression, sym_map) for g in best]
+            from geppy.core.entity import Gene as _Gene
+            from _gene_decompose import compress_gene as _compress_gene
+            from _sympy_to_karva import visit_subtree as _visit_subtree
+            _per_gene_sym = []
+            for _g in best:
+                try:
+                    _nh, _nt = _compress_gene(_g, self._pset, _visit_subtree,
+                                              sub_h=10, max_passes=2)
+                    _ng = _Gene.from_genome(list(_nh) + list(_nt),
+                                            head_length=len(_nh))
+                    _per_gene_sym.append(_simplify_kexpr(_ng.kexpression, sym_map))
+                except Exception:
+                    # Fall back to direct simplify on the (smaller) raw gene
+                    # if compression failed for any reason.
+                    _per_gene_sym.append(_simplify_kexpr(_g.kexpression, sym_map))
             _linker_for_sym = sym_map.get(best.linker.__name__, best.linker)
             raw_gene_sym = (_per_gene_sym[0] if len(_per_gene_sym) == 1
                             else _linker_for_sym(*_per_gene_sym))
