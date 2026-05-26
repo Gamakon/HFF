@@ -203,6 +203,8 @@ def _link_genes(gene_outputs: list[np.ndarray], linker_id: int) -> np.ndarray | 
 METRIC_NAMES = ["mse_tr", "mse_va", "mse_extrap",
                 "one_minus_r2_tr", "one_minus_r2_va", "one_minus_r2_extrap",
                 "mae_tr", "mae_va", "mae_extrap"]
+# Optional parsimony axis — appended when HFFSRConfig.parsimony_in_hff=True.
+PARSIMONY_METRIC_NAME = "n_nodes"
 N_OBJECTIVES = len(METRIC_NAMES)
 METRIC_NAMES_TRAIN_ONLY = ["mse_tr", "mse_extrap",
                             "one_minus_r2_tr", "one_minus_r2_extrap",
@@ -266,6 +268,19 @@ def _pset_cube(x):   return x * x * x
 def _pset_abs(x):    return abs(x)
 def _pset_neg(x):    return -x
 def _pset_inv(x):    return 1.0 / x if x != 0 else 1.0
+def _diff_sq(a, b):  return (a - b) * (a - b)   # (a-b)² — common physics
+
+# Raw (un-protected) ops added to match gamakAST's master_pset. The GA may
+# emit these via mutation; if they produce NaN/inf on data, the chromosome
+# gets max-bad fitness and selects out — no need for runtime guards. These
+# are the same ops gamakAST's physics_mutate generates (E1 inverse-square,
+# E4 power-law, etc.) — registering them keeps every candidate decodable.
+def _raw_div(a, b):  return a / b
+def _raw_sqrt(x):    return math.sqrt(x)
+def _raw_log(x):     return math.log(x)
+def _raw_exp(x):     return math.exp(x)
+def _raw_inv(x):     return 1.0 / x
+def _raw_pow(a, b):  return a ** b
 
 
 # ---------------------------------------------------------------------------
@@ -353,10 +368,9 @@ class HFFSRConfig:
     tourn_champion: int = 5
     num_elites: int = 2
     migration_freq: int = 30      # cross-class broadcast cadence
-    migration_freq_intra: int = 10
-    dedup_freq: int = 5           # 0 = disabled. Default 5: every 5 gens,
-                                  # find duplicate chromosomes within each
-                                  # deme and replace with fresh random
+    migration_freq_intra: int = 20
+    dedup_freq: int = 40          # 0 = disabled. Every N gens, replace
+                                  # duplicate chromosomes with random fresh
                                   # individuals (diversity injection).
     k_migrants: int = 3
     # HOF
@@ -370,11 +384,46 @@ class HFFSRConfig:
     use_wide_primitives: bool = True   # add sin, cos, exp, log to the pset
     # Post-run
     snap_rel_tol: float = 1e-3
-    early_stop_val_r2: float = 1.0 - 1e-9
+    # Use gamakAST's egglog-backed snap (snap_karva via _snap_op) at end-phase:
+    # snap hof[0]'s genes to constant-substituted equivalents and add the
+    # snapped chromosome as a PARALLEL pool candidate (HFF pick ranks it vs the
+    # raw form on holdout). Off by default — additive, never disturbs the
+    # existing path. The A/B test for the new snap on saved HOFs.
+    use_egglog_snap: bool = False
+    early_stop_val_r2: float = 0.999   # SRBench's R²_test threshold
     # A/B switch — include validation columns in the HFF vec. True (default)
     # = train + val pairs on every axis (current behaviour); False = train
     # columns only. Lets us measure the lift validation gives to HFF.
     use_validation_in_hff: bool = True
+    # Experimental: append chromosome n_nodes as an additional HFF axis.
+    # HFF normalises per-batch in gen 0 and freezes ranges, so the raw int
+    # is fine — no manual scaling needed.
+    parsimony_in_hff: bool = False
+    parsimony_normaliser: float = 100.0  # divides n_nodes; bigger = weaker pressure
+    # When >0, override the gen-0 frozen col_max on the parsimony axis.
+    # HFF's per-batch min-max normalisation otherwise cancels any
+    # scaling we do to n_nodes upstream. Setting this fixes the axis's
+    # effective scale to a chosen value — bigger = less pressure.
+    parsimony_col_max: float = 0.0
+    # Denoise mutation (gamakAST): per-individual probability per gen.
+    # Behaviour-preserving rewrite via egglog; sound-on-data via a
+    # compile_and_predict safety re-check before swap. 0 = disabled.
+    # Recommended 0.02-0.05 when enabled.
+    pb_denoise: float = 0.20
+    denoise_agree_tol: float = 1e-4    # compile-vs-denoise predict tolerance
+    denoise_sample_rows: int = 64      # rows used in safety re-check
+    # Physics-prior mutation (gamakAST physics_mutate_karva). Behaviour-
+    # CHANGING — re-pairs cross-axis vars, inverse-squares factors, etc.
+    # NaN/inf chromosomes get max-bad fitness and select out naturally
+    # (no runtime safety net beyond the existing _compute_raw_metrics path).
+    pb_physics: float = 0.20
+    physics_n_candidates: int = 8       # candidates per gene per call
+    physics_paired_groups: list | None = None  # None → auto-detect from var names
+    # Seed-from-HOF: path to a pickle written by a prior fit. When set, the
+    # initial population is filled with the saved HOF chromosomes (cycled
+    # if pop > HOF size). Lets you do a two-stage squeeze: wide explore →
+    # narrow refine, without losing the structural wins. None = fresh random init.
+    seed_hof_path: str | None = None
     # Reproducibility
     random_state: int = 5
     # Time budget — engine checks this at the gen boundary and stops cleanly
@@ -455,6 +504,18 @@ def _build_toolbox(bundle: _Bundle):
         pset.add_function(_pset_abs, 1)
         pset.add_function(_pset_neg, 1)
         pset.add_function(_pset_inv, 1)
+        pset.add_function(_diff_sq, 2)
+        # Master-pset coverage for gamakAST mutations (raw variants + tan +
+        # pow). Without these, physics_mutate candidates using raw ops get
+        # silently dropped at gene-rebuild. NaN/inf chromosomes get max-bad
+        # fitness in _compute_raw_metrics and select out naturally.
+        pset.add_function(math.tan, 1)
+        pset.add_function(_raw_div, 2)
+        pset.add_function(_raw_sqrt, 1)
+        pset.add_function(_raw_log, 1)
+        pset.add_function(_raw_exp, 1)
+        pset.add_function(_raw_inv, 1)
+        pset.add_function(_raw_pow, 2)
     pset.add_rnc_terminal()
 
     toolbox = gep.Toolbox()
@@ -619,6 +680,15 @@ def _compute_raw_metrics(individual, toolbox, bundle: _Bundle):
                            one_minus_r2_tr, one_minus_r2_extrap,
                            mae_tr, mae_extrap]
                     names = METRIC_NAMES_TRAIN_ONLY
+            if cfg.parsimony_in_hff:
+                # Normaliser brings n_nodes into roughly the same range as
+                # the loss metrics (MSE/MAE/1-R² are typically 0..1 for a
+                # decent fit). Without it, raw node counts (~10-200)
+                # dominate the HFF angle and collapse chromosomes to
+                # near-empty trees.
+                n_nodes = sum(len(g.kexpression) for g in individual)
+                vec = vec + [float(n_nodes) / cfg.parsimony_normaliser]
+                names = list(names) + [PARSIMONY_METRIC_NAME]
             if not all(np.isfinite(vec)):
                 continue
 
@@ -640,11 +710,13 @@ def _assign_fitness_batch(population, raw_results, cfg: HFFSRConfig):
     """Stack every candidate from every individual into a single HFF batch;
     per-individual pick the wrapper/rule row with the minimum HFF distance."""
     if cfg.mode == "wild_regression":
-        failure_names = (WILD_REGRESSION_METRIC_NAMES if cfg.use_validation_in_hff
-                         else WILD_REGRESSION_METRIC_NAMES_TRAIN_ONLY)
+        failure_names = list(WILD_REGRESSION_METRIC_NAMES if cfg.use_validation_in_hff
+                             else WILD_REGRESSION_METRIC_NAMES_TRAIN_ONLY)
     else:
-        failure_names = (METRIC_NAMES if cfg.use_validation_in_hff
-                         else METRIC_NAMES_TRAIN_ONLY)
+        failure_names = list(METRIC_NAMES if cfg.use_validation_in_hff
+                             else METRIC_NAMES_TRAIN_ONLY)
+    if cfg.parsimony_in_hff:
+        failure_names.append(PARSIMONY_METRIC_NAME)
     for i, r in enumerate(raw_results):
         if r is None or not r.get("candidates"):
             ind = population[i]
@@ -681,6 +753,13 @@ def _assign_fitness_batch(population, raw_results, cfg: HFFSRConfig):
             F, normalize=True, north_pole_method=cfg.north_pole_method,
         )
         _HFF_COL_MIN = np.zeros_like(_HFF_COL_MIN)
+        # Optional per-axis override on the parsimony axis. HFF's per-batch
+        # min-max otherwise cancels any upstream scaling of n_nodes. Setting
+        # a fixed col_max gives us a real, bounded knob on parsimony force.
+        if cfg.parsimony_in_hff and cfg.parsimony_col_max > 0:
+            print(f"[HFF] parsimony axis col_max override: gen0={_HFF_COL_MAX[-1]:.3f} -> {cfg.parsimony_col_max:.3f}",
+                  flush=True)
+            _HFF_COL_MAX[-1] = cfg.parsimony_col_max
         fitness = hff.calculate_fitness_hf1_fixed(
             F, _HFF_COL_MIN, _HFF_COL_MAX,
             north_pole_method=cfg.north_pole_method,
@@ -709,13 +788,16 @@ def _assign_fitness_batch(population, raw_results, cfg: HFFSRConfig):
         ind._linker = LINKER_FUNCS[ind.linker_id]
 
 
-def _per_metric_mins(population, mode: str = "feynman", use_validation: bool = True):
+def _per_metric_mins(population, mode: str = "feynman", use_validation: bool = True,
+                      parsimony: bool = False):
     """Per-deme reporting: metrics of the deme's single best-by-fitness ind."""
     if mode == "wild_regression":
-        names = (WILD_REGRESSION_METRIC_NAMES if use_validation
-                 else WILD_REGRESSION_METRIC_NAMES_TRAIN_ONLY)
+        names = list(WILD_REGRESSION_METRIC_NAMES if use_validation
+                     else WILD_REGRESSION_METRIC_NAMES_TRAIN_ONLY)
     else:
-        names = METRIC_NAMES if use_validation else METRIC_NAMES_TRAIN_ONLY
+        names = list(METRIC_NAMES if use_validation else METRIC_NAMES_TRAIN_ONLY)
+    if parsimony:
+        names.append(PARSIMONY_METRIC_NAME)
     out = {name: float("inf") for name in names}
     valid = [ind for ind in population
              if getattr(ind, "fitness", None) is not None
@@ -745,6 +827,79 @@ def _gep_apply_crossover(population, op, pb):
             population[i - 1], population[i] = op(population[i - 1], population[i])
             del population[i - 1].fitness.values
             del population[i].fitness.values
+    return population
+
+
+# Cumulative denoise stats across one fit() — reset per fit, dumped to log.
+_DENOISE_STATS = {"calls": 0, "swapped": 0, "rejected_safety": 0,
+                  "changed_any": 0, "inexpressible": 0}
+_PHYSICS_STATS = {"calls": 0, "generated": 0, "swapped_individuals": 0,
+                   "swapped_genes": 0}
+
+
+def _reset_denoise_stats():
+    global _DENOISE_STATS
+    _DENOISE_STATS = {"calls": 0, "swapped": 0, "rejected_safety": 0,
+                       "changed_any": 0, "inexpressible": 0}
+
+
+def _reset_physics_stats():
+    global _PHYSICS_STATS
+    _PHYSICS_STATS = {"calls": 0, "generated": 0, "swapped_individuals": 0,
+                       "swapped_genes": 0}
+
+
+def _apply_denoise(population, toolbox, pset, bundle, cfg):
+    """Per-individual denoise mutation. pb_denoise gates per-individual."""
+    try:
+        from _denoise_op import mut_denoise
+    except ImportError:
+        return population  # gamakAST not installed; silently skip
+    X_train = bundle.train.drop(columns=["target"]) if "target" in bundle.train.columns else bundle.train
+    y_train = bundle.Y
+    for i, ind in enumerate(population):
+        if random.random() >= cfg.pb_denoise:
+            continue
+        try:
+            (new_ind,) = mut_denoise(
+                ind, toolbox, pset, X_train, y_train,
+                pb_each_gene=1.0,
+                sample_rows=cfg.denoise_sample_rows,
+                agree_tol=cfg.denoise_agree_tol,
+                rng_seed=cfg.random_state + i,
+                _stats=_DENOISE_STATS,
+            )
+            if new_ind is not ind:
+                population[i] = new_ind
+        except Exception:
+            pass  # never crash evolution on a denoise glitch
+    return population
+
+
+def _apply_physics(population, toolbox, pset, bundle, cfg, gen: int):
+    """Per-individual physics mutation. pb_physics gates per-individual."""
+    try:
+        from _physics_op import mut_physics
+    except ImportError:
+        return population
+    X_train = bundle.train.drop(columns=["target"]) if "target" in bundle.train.columns else bundle.train
+    y_train = bundle.Y
+    paired = cfg.physics_paired_groups  # None → auto-detect inside mut_physics
+    for i, ind in enumerate(population):
+        if random.random() >= cfg.pb_physics:
+            continue
+        try:
+            (new_ind,) = mut_physics(
+                ind, toolbox, pset, X_train, y_train,
+                paired_groups=paired,
+                n_candidates=cfg.physics_n_candidates,
+                rng_seed=cfg.random_state + gen * 1000 + i,
+                _stats=_PHYSICS_STATS,
+            )
+            if new_ind is not ind:
+                population[i] = new_ind
+        except Exception:
+            pass  # never crash evolution
     return population
 
 
@@ -822,11 +977,59 @@ class HFFSREngine:
         self._hof = hof
         roles = self._island_roles()
         pop_sizes = [self._island_pop_size(i, roles) for i in range(cfg.num_islands)]
-        demes = [toolbox.population(n=pop_sizes[i]) for i in range(cfg.num_islands)]
+        # Seed from saved HOF if cfg.seed_hof_path is set. Cycle through the
+        # HOF (cloned) to fill the requested population sizes; any shortfall
+        # is topped up with fresh random individuals so we keep some diversity.
+        if cfg.seed_hof_path:
+            try:
+                import pickle as _pickle
+                with open(cfg.seed_hof_path, "rb") as _f:
+                    _seed_payload = _pickle.load(_f)
+                _seed_hof = list(_seed_payload["hof"])
+                if not _seed_hof:
+                    raise ValueError("seed HOF is empty")
+                print(f"[engine] seeding from {cfg.seed_hof_path}: "
+                      f"{len(_seed_hof)} chromosomes -> filling pop sizes {pop_sizes}",
+                      flush=True)
+                demes = []
+                _src_i = 0
+                for sz in pop_sizes:
+                    deme = []
+                    # Cycle the seed HOF (cloned) for most of the pop, leave
+                    # 20% for fresh random to maintain some diversity.
+                    n_from_seed = max(1, int(sz * 0.8))
+                    n_random = sz - n_from_seed
+                    for _ in range(n_from_seed):
+                        clone = toolbox.clone(_seed_hof[_src_i % len(_seed_hof)])
+                        # Invalidate fitness so it gets re-evaluated under new config
+                        try:
+                            del clone.fitness.values
+                        except Exception:
+                            pass
+                        deme.append(clone)
+                        _src_i += 1
+                    if n_random > 0:
+                        deme.extend(toolbox.population(n=n_random))
+                    demes.append(deme)
+            except Exception as _e:
+                print(f"[engine] seed_hof_path load FAILED ({type(_e).__name__}: {_e}) "
+                      f"— falling back to random init", flush=True)
+                demes = [toolbox.population(n=pop_sizes[i]) for i in range(cfg.num_islands)]
+        else:
+            demes = [toolbox.population(n=pop_sizes[i]) for i in range(cfg.num_islands)]
 
         def evaluate_one(ind):
             return _compute_raw_metrics(ind, toolbox, bundle)
         toolbox.register("evaluate", evaluate_one)
+
+        # Reset HFF range cache + global state BEFORE gen 0, so a fresh
+        # fit doesn't inherit stale frozen ranges from a prior run (e.g.
+        # different m_objectives count when parsimony toggles).
+        _reset_hff_ranges()
+        _reset_leaderboard()
+        _reset_prune_state()
+        _reset_denoise_stats()
+        _reset_physics_stats()
 
         # Gen 0 evaluation.
         for idx, deme in enumerate(demes):
@@ -836,12 +1039,14 @@ class HFFSREngine:
 
         log = tools.Logbook()
         if cfg.mode == "wild_regression":
-            metric_names = (WILD_REGRESSION_METRIC_NAMES
-                            if cfg.use_validation_in_hff
-                            else WILD_REGRESSION_METRIC_NAMES_TRAIN_ONLY)
+            metric_names = list(WILD_REGRESSION_METRIC_NAMES
+                                if cfg.use_validation_in_hff
+                                else WILD_REGRESSION_METRIC_NAMES_TRAIN_ONLY)
         else:
-            metric_names = (METRIC_NAMES if cfg.use_validation_in_hff
-                            else METRIC_NAMES_TRAIN_ONLY)
+            metric_names = list(METRIC_NAMES if cfg.use_validation_in_hff
+                                else METRIC_NAMES_TRAIN_ONLY)
+        if cfg.parsimony_in_hff:
+            metric_names.append(PARSIMONY_METRIC_NAME)
         log.header = ("gen", "deme", "evals", "min fitness", *metric_names)
         if verbose:
             try:
@@ -851,9 +1056,14 @@ class HFFSREngine:
 
         # Track wall-clock for cfg.time_budget_s.
         fit_start = time.perf_counter()
-        _reset_hff_ranges()
-        _reset_leaderboard()
-        _reset_prune_state()
+        if verbose:
+            print(f"[cfg] mode={cfg.mode} head={cfg.head_length} n_genes={cfg.n_genes} "
+                  f"pop={cfg.pop_intake}/{cfg.pop_champion} n_gen={cfg.n_gen} "
+                  f"budget={cfg.time_budget_s}s dedup={cfg.dedup_freq} "
+                  f"use_val={cfg.use_validation_in_hff} parsimony={cfg.parsimony_in_hff} "
+                  f"parsimony_col_max={cfg.parsimony_col_max}",
+                  flush=True)
+        # (HFF ranges + leaderboard + prune state already reset before gen 0.)
         # Cardinality-gate rounded linkers — enable only for low-cardinality
         # (ordinal/multiclass) targets where round-then-LSM helps.
         global _ACTIVE_LINKER_IDS
@@ -900,6 +1110,15 @@ class HFFSREngine:
                 for op in toolbox.pbs:
                     if op.startswith("cx"):
                         offspring = _gep_apply_crossover(offspring, getattr(toolbox, op), toolbox.pbs[op])
+                # Denoise mutation: gamakAST egglog-backed, behaviour-
+                # preserving. Per-individual probability gated by
+                # cfg.pb_denoise (default 0 = disabled). Safety re-check
+                # via compile_and_predict guarantees swaps never change
+                # numerical output. Logs cumulative stats on dump.
+                if cfg.pb_denoise > 0:
+                    offspring = _apply_denoise(offspring, toolbox, pset, bundle, cfg)
+                if cfg.pb_physics > 0:
+                    offspring = _apply_physics(offspring, toolbox, pset, bundle, cfg, gen)
                 deme[:] = elites + offspring
                 invalid_ind = [ind for ind in deme if not ind.fitness.valid]
                 if invalid_ind:
@@ -912,7 +1131,8 @@ class HFFSREngine:
                               if ind.fitness is not None and ind.fitness.valid]
                 min_fit = float(min(valid_fits)) if valid_fits else float("inf")
                 metric_mins = _per_metric_mins(deme, mode=cfg.mode,
-                                                use_validation=cfg.use_validation_in_hff)
+                                                use_validation=cfg.use_validation_in_hff,
+                                                parsimony=cfg.parsimony_in_hff)
                 log.record(gen=gen, deme=idx, evals=len(invalid_ind),
                            **{"min fitness": min_fit}, **metric_mins)
                 if verbose:
@@ -953,6 +1173,13 @@ class HFFSREngine:
             gen += 1
 
         self.fit_seconds_ = time.perf_counter() - fit_start
+        # Denoise stats — always print if denoise was active (provenance).
+        if cfg.pb_denoise > 0:
+            print(f"[denoise] {_DENOISE_STATS}", flush=True)
+        if cfg.pb_physics > 0:
+            print(f"[physics] {_PHYSICS_STATS}", flush=True)
+        self.denoise_stats_ = dict(_DENOISE_STATS)
+        self.physics_stats_ = dict(_PHYSICS_STATS)
 
         # Capture dimension-free HFF metadata BEFORE _extract_best mutates
         # state — hof[0]'s training-time HFF angle + CDF percentile let
@@ -962,12 +1189,14 @@ class HFFSREngine:
             if len(hof) > 0 and hof[0].fitness.valid:
                 self.hff_train_ = float(hof[0].fitness.values[0])
                 if cfg.mode == "wild_regression":
-                    _mn = (WILD_REGRESSION_METRIC_NAMES
-                           if cfg.use_validation_in_hff
-                           else WILD_REGRESSION_METRIC_NAMES_TRAIN_ONLY)
+                    _mn = list(WILD_REGRESSION_METRIC_NAMES
+                               if cfg.use_validation_in_hff
+                               else WILD_REGRESSION_METRIC_NAMES_TRAIN_ONLY)
                 else:
-                    _mn = (METRIC_NAMES if cfg.use_validation_in_hff
-                           else METRIC_NAMES_TRAIN_ONLY)
+                    _mn = list(METRIC_NAMES if cfg.use_validation_in_hff
+                               else METRIC_NAMES_TRAIN_ONLY)
+                if cfg.parsimony_in_hff:
+                    _mn.append(PARSIMONY_METRIC_NAME)
                 self.metric_names_ = list(_mn)
                 self.m_objectives_ = len(_mn)
                 self.train_metrics_ = dict(getattr(hof[0], "metrics", {}) or {})
@@ -992,7 +1221,14 @@ class HFFSREngine:
         # via load_hof_dump() without re-running evolution.
         try:
             import pickle as _pickle
-            _dump_path = os.environ.get("HFF_HOF_DUMP", "/tmp/hff_hof.pkl")
+            # Default path includes seed so sweeps don't clobber each other.
+            # Caller can override via HFF_HOF_DUMP env (full path; bypasses
+            # the seed suffix). Sweeps that do their own per-seed naming
+            # should unset HFF_HOF_DUMP.
+            _dump_path = os.environ.get(
+                "HFF_HOF_DUMP",
+                f"/tmp/hff_hof_seed{cfg.random_state}.pkl",
+            )
             _payload = {
                 "hof": list(hof),
                 "variables": bundle.variables,
@@ -1001,11 +1237,11 @@ class HFFSREngine:
             }
             with open(_dump_path, "wb") as _f:
                 _pickle.dump(_payload, _f)
-            if verbose:
-                print(f"[engine] HOF dumped to {_dump_path} ({len(hof)} chromosomes)")
+            # ALWAYS print the dump path (not gated on verbose). Provenance.
+            print(f"[engine] HOF dumped to {_dump_path} ({len(hof)} chromosomes)",
+                  flush=True)
         except Exception as _e:
-            if verbose:
-                print(f"[engine] HOF dump failed: {type(_e).__name__}: {_e}")
+            print(f"[engine] HOF dump failed: {type(_e).__name__}: {_e}", flush=True)
 
         # Hard wall-clock guard on end-phase. _extract_best calls
         # gep.simplify + feynman_shape_rewrite which can spin forever on
@@ -1582,6 +1818,16 @@ class HFFSREngine:
         sym_map["_pset_abs"] = sp.Abs
         sym_map["_pset_neg"] = lambda x: -x
         sym_map["_pset_inv"] = lambda x: 1 / x
+        sym_map["_diff_sq"] = lambda a, b: (a - b) ** 2
+        # Raw ops (master_pset coverage) — distinct symbolic forms from
+        # their protected counterparts so sympy stays in real domain.
+        sym_map["_raw_div"] = lambda a, b: a / b
+        sym_map["_raw_sqrt"] = sp.sqrt
+        sym_map["_raw_log"] = sp.log
+        sym_map["_raw_exp"] = sp.exp
+        sym_map["_raw_inv"] = lambda x: 1 / x
+        sym_map["_raw_pow"] = lambda a, b: a ** b
+        sym_map["tan"] = sp.tan
         wrapper_sym_map = {
             "identity": lambda e: e,
             "log_abs":  lambda e: sp.log(sp.Abs(e)),
@@ -1623,6 +1869,13 @@ class HFFSREngine:
             except Exception:
                 return None
 
+        def _r2_of(expr) -> str:
+            """Quick R²_holdout for diagnostics. Returns 'NA' on failure."""
+            v = _holdout_vec(expr)
+            if v is None:
+                return "NA"
+            return f"{1.0 - v[1]:+.6f}"
+
         # Build the flat candidate pool.
         pool: list[dict] = []
         best = hof[0]
@@ -1637,6 +1890,20 @@ class HFFSREngine:
             from geppy.core.entity import Gene as _Gene
             from _gene_decompose import compress_gene as _compress_gene
             from _sympy_to_karva import visit_subtree as _visit_subtree
+            def _real_subs(e):
+                """Replace free symbols with real-valued ones AND re-simplify
+                so re(real_theta) collapses to theta etc. Bounded cost
+                because input is already per-gene-compressed."""
+                try:
+                    syms = {s: sp.Symbol(s.name, real=True)
+                            for s in e.free_symbols if s.is_Symbol}
+                    if syms:
+                        e = e.subs(syms)
+                        e = sp.simplify(e)
+                    return e
+                except Exception:
+                    return e
+
             _per_gene_sym = []
             for _g in best:
                 try:
@@ -1644,16 +1911,18 @@ class HFFSREngine:
                                               sub_h=10, max_passes=2)
                     _ng = _Gene.from_genome(list(_nh) + list(_nt),
                                             head_length=len(_nh))
-                    _per_gene_sym.append(_simplify_kexpr(_ng.kexpression, sym_map))
+                    _per_gene_sym.append(_real_subs(_simplify_kexpr(_ng.kexpression, sym_map)))
                 except Exception:
-                    # Fall back to direct simplify on the (smaller) raw gene
-                    # if compression failed for any reason.
-                    _per_gene_sym.append(_simplify_kexpr(_g.kexpression, sym_map))
+                    _per_gene_sym.append(_real_subs(_simplify_kexpr(_g.kexpression, sym_map)))
             _linker_for_sym = sym_map.get(best.linker.__name__, best.linker)
             raw_gene_sym = (_per_gene_sym[0] if len(_per_gene_sym) == 1
                             else _linker_for_sym(*_per_gene_sym))
-        except Exception:
+            if verbose:
+                print(f"[extract] raw_gene_sym (post compress+linker): R²_ho={_r2_of(raw_gene_sym)}  expr={str(raw_gene_sym)[:120]}")
+        except Exception as _e:
             raw_gene_sym = None
+            if verbose:
+                print(f"[extract] raw_gene_sym build FAILED: {type(_e).__name__}: {_e}")
         raw_train = hgh.compile_and_predict(best, bundle.train,
                                             bundle.variables, self._toolbox)
         Y_tr = bundle.Y
@@ -1680,13 +1949,73 @@ class HFFSREngine:
                     "wrapper_id": w_id,
                 })
 
+        # (1b) EGGLOG SNAP (gamakAST) — additive parallel candidate. Snap hof[0]
+        # to a constant-substituted equivalent chromosome and run it through the
+        # SAME compress+wrapper+LSM path, tagged chromosome.snap.<wrapper>, so
+        # the HFF pick ranks snapped vs raw on holdout. Gated + fully fail-safe:
+        # any error leaves the existing pool untouched.
+        if self.config.use_egglog_snap:
+            try:
+                from _snap_op import snap_individual as _snap_individual
+                snapped_ind, _swapped = _snap_individual(
+                    best, self._toolbox, self._pset,
+                    bundle.holdout if bundle.holdout is not None else bundle.train,
+                    bundle.Y_holdout if hasattr(bundle, "Y_holdout") and bundle.Y_holdout is not None else bundle.Y,
+                    rel_tol=self.config.snap_rel_tol,
+                )
+                if _swapped and snapped_ind is not best:
+                    _snap_gene_sym = []
+                    for _g in snapped_ind:
+                        try:
+                            _nh, _nt = _compress_gene(_g, self._pset, _visit_subtree,
+                                                      sub_h=10, max_passes=2)
+                            _ng = _Gene.from_genome(list(_nh) + list(_nt), head_length=len(_nh))
+                            _snap_gene_sym.append(_real_subs(_simplify_kexpr(_ng.kexpression, sym_map)))
+                        except Exception:
+                            _snap_gene_sym.append(_real_subs(_simplify_kexpr(_g.kexpression, sym_map)))
+                    _snap_linker = sym_map.get(snapped_ind.linker.__name__, snapped_ind.linker)
+                    snap_gene_sym = (_snap_gene_sym[0] if len(_snap_gene_sym) == 1
+                                     else _snap_linker(*_snap_gene_sym))
+                    snap_train = hgh.compile_and_predict(snapped_ind, bundle.train,
+                                                         bundle.variables, self._toolbox)
+                    if snap_gene_sym is not None and snap_train is not None:
+                        for w_id in range(N_WRAPPERS):
+                            wname = WRAPPER_NAMES[w_id]
+                            wtr = apply_wrapper(snap_train, w_id)
+                            if wtr is None:
+                                continue
+                            if self.config.enable_linear_scaling:
+                                sc = hgh.apply_linear_scaling(wtr, Y_tr)
+                                if sc is None:
+                                    continue
+                                a, b = float(sc[0]), float(sc[1])
+                            else:
+                                a, b = 1.0, 0.0
+                            wsym = wrapper_sym_map[wname](snap_gene_sym)
+                            comp = (sp.Float(a) * wsym + sp.Float(b)
+                                    if self.config.enable_linear_scaling else wsym)
+                            pool.append({
+                                "source": f"chromosome.snap.{wname}",
+                                "expr_pre_snap": comp, "a": a, "b": b, "wrapper_id": w_id,
+                            })
+                        if verbose:
+                            print(f"[extract] egglog-snap added {N_WRAPPERS} candidates: {str(snap_gene_sym)[:100]}")
+            except Exception as _se:
+                if verbose:
+                    print(f"[extract] egglog-snap skipped: {type(_se).__name__}: {_se}")
+
         # Per-subtree snap already ran inside visit_subtree during compress;
         # no need to snap again on the combined expression. Just run the
         # (cheap) Feynman-shape rewrite + build the holdout HFF vec.
         for entry in pool:
+            pre_r2 = _r2_of(entry["expr_pre_snap"]) if verbose else None
             rewritten = self._maybe_feynman_rewrite(entry["expr_pre_snap"], bundle, var_ranges)
             entry["expr"] = rewritten
             entry["holdout_vec"] = _holdout_vec(rewritten)
+            if verbose:
+                post_r2 = _r2_of(rewritten)
+                tag = "  [SHAPE-REWRITE CHANGED]" if str(rewritten) != str(entry["expr_pre_snap"]) else ""
+                print(f"[extract] {entry['source']:<25} pre-rewrite R²={pre_r2}  post-rewrite R²={post_r2}{tag}")
 
         # Discard entries where the holdout vec didn't compute.
         scorable = [e for e in pool if e["holdout_vec"] is not None]
@@ -1789,10 +2118,15 @@ class HFFSREngine:
             return levels["default"][0] if "default" in levels else expr
 
 
-def load_hof_dump(path: str = None) -> dict:
+def load_hof_dump(path: str = None, seed: int = None) -> dict:
     """Load a HOF pickle dumped by HFFSREngine.fit() before _extract_best.
-    Returns the dict with keys: hof, variables, config, fit_seconds_evolution."""
+
+    Precedence: explicit path > seed-derived path > HFF_HOF_DUMP env >
+    legacy /tmp/hff_hof.pkl (back-compat).
+    """
     import pickle
+    if path is None and seed is not None:
+        path = f"/tmp/hff_hof_seed{seed}.pkl"
     p = path or os.environ.get("HFF_HOF_DUMP", "/tmp/hff_hof.pkl")
     with open(p, "rb") as f:
         return pickle.load(f)
