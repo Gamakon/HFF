@@ -16,11 +16,42 @@ back to original tokens.
 """
 from __future__ import annotations
 
-import operator, math
+import operator, math, os, json
 from typing import Optional
 
 import sympy as sp
 from geppy.core.symbol import Function, Terminal, SymbolTerminal
+
+
+# ---------------------------------------------------------------------------
+# Before→after simplification corpus (gamakAST CR, opt-in)
+# ---------------------------------------------------------------------------
+# Logs every sympy simplification visit_subtree performs, as one JSON line, for
+# offline training of a kingdom classifier + extending gamakAST's parity corpus.
+#
+# DISABLED by default: only active when GAMAK_SIMPLIFY_CORPUS names a path. The
+# running sweep is unaffected unless explicitly turned on.
+#
+# Cross-process note: _compute_raw_metrics runs in a multiprocessing.Pool, so
+# worker processes each open this file independently. We deliberately do NOT use
+# a lock — a POSIX O_APPEND write is atomic up to PIPE_BUF (4KB on macOS), and
+# our records are single JSON lines well under 4KB, so concurrent worker appends
+# do not interleave. (If a record could ever exceed 4KB this assumption breaks;
+# the records here are bounded by sub_h<=10 node expressions, so it holds.)
+_CORPUS_PATH = os.environ.get("GAMAK_SIMPLIFY_CORPUS")
+
+
+def _log_simplify(rec: dict) -> None:
+    """Append one corpus record. No-op unless GAMAK_SIMPLIFY_CORPUS is set.
+    Never raises into evolution — all failures are swallowed."""
+    if not _CORPUS_PATH:
+        return
+    try:
+        line = json.dumps(rec)
+        with open(_CORPUS_PATH, "a") as f:
+            f.write(line + "\n")  # atomic per-line append (<4KB), see note above
+    except Exception:
+        pass  # logging must never disturb the sweep
 
 
 # ---------------------------------------------------------------------------
@@ -51,6 +82,7 @@ _GEPPY_TO_SYMPY = {
     "_pset_abs": (sp.Abs, 1),
     "_pset_neg": (lambda x: -x, 1),
     "_pset_inv": (lambda x: 1 / x, 1),
+    "_diff_sq": (lambda a, b: (a - b) ** 2, 2),
 }
 
 
@@ -264,10 +296,29 @@ def visit_subtree(root_node, pset, snap_rel_tol: float = 1e-3) -> Optional[tuple
     """
     expr = node_to_sympy(root_node)
     if expr is None:
+        _log_simplify({"rejected": True, "reject_reason": "node_to_sympy_none"})
         return None
+    # Re-declare free symbols as real-valued. Default sympy symbols are
+    # complex; simplify then introduces re(), im(), sinh(), cosh() etc.
+    # that lambdify can't evaluate on real numpy data. Real-valued symbols
+    # keep sympy in the real domain throughout simplify.
+    real_subs = {s: sp.Symbol(s.name, real=True)
+                 for s in expr.free_symbols if s.is_Symbol}
+    if real_subs:
+        expr = expr.subs(real_subs)
+    before = sp.srepr(expr)
     try:
         simplified = sp.simplify(expr)
     except Exception:
+        _log_simplify({"before": before, "rejected": True,
+                       "reject_reason": "simplify_raised"})
+        return None
+    # Defensive: if simplify still produced complex-domain ops, reject —
+    # caller falls back to original tokens (keeps real-evaluable code path).
+    bad = (sp.re, sp.im, sp.conjugate, sp.sinh, sp.cosh, sp.tanh, sp.asinh, sp.acosh, sp.atanh)
+    if any(simplified.has(op) for op in bad):
+        _log_simplify({"before": before, "after_simplify": sp.srepr(simplified),
+                       "rejected": True, "reject_reason": "complex_domain"})
         return None
     # Snap numeric atoms against the known-constants library (G, π, e, etc.).
     # On a sub_h<=10 expression this is microseconds; on a giant linker tree
@@ -280,4 +331,16 @@ def visit_subtree(root_node, pset, snap_rel_tol: float = 1e-3) -> Optional[tuple
     except Exception:
         snapped = simplified
     out = sympy_to_karva(snapped, pset)
+    after_simplify = sp.srepr(simplified)
+    after_snap = sp.srepr(snapped)
+    _log_simplify({
+        "before": before,
+        "after_simplify": after_simplify,
+        "after_snap": after_snap,
+        "changed": before != after_simplify,
+        "snapped_changed": after_simplify != after_snap,
+        "rejected": out is None,
+        "reject_reason": "encode_none" if out is None else None,
+        "n_nodes_before": int(sp.count_ops(expr)),
+    })
     return out
