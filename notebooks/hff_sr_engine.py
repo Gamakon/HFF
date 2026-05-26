@@ -2042,6 +2042,19 @@ class HFFSREngine:
             self.hff_holdout_ = winner["hff_holdout"]
             self.a_ = winner["a"]
             self.b_ = winner["b"]
+            # POST-REGRESSION SNAP (egglog lattice): the GA found the SHAPE
+            # (e.g. r²) but the constant lives in the LSM scalar `a` (≈3.14159).
+            # Snap recognises `a` as a lattice constant (π) — pset never contains
+            # π, so this is genuine discovery, not a handed answer. Also try
+            # DROPPING the `+b` corrector (often a tiny fudge that, once `a`
+            # snaps clean, just blocks exact recovery). Keep whichever variant
+            # scores best R² on holdout.
+            if self.config.use_egglog_snap:
+                snapped_expr = self._snap_discovered(
+                    winner["expr"], winner["a"], winner["b"], bundle, verbose)
+                if snapped_expr is not None:
+                    self.discovered_expr_ = snapped_expr
+                    self.discovered_source_ = winner["source"] + ".snap"
             self.wrapper_id_ = winner["wrapper_id"]
             self.wrapper_name_ = WRAPPER_NAMES[winner["wrapper_id"]]
             self.linker_id_ = int(getattr(hof[0], "linker_id", 0))
@@ -2083,6 +2096,104 @@ class HFFSREngine:
             return rewritten if rule is not None else expr
         except Exception:
             return expr
+
+    def _snap_discovered(self, expr, a, b, bundle, verbose):
+        """Post-regression snap on the LSM coefficients of the discovered expr.
+
+        The discovered form is `a*f(x) + b`. The GA found f(x) (the shape); the
+        constant is in `a`. We:
+          1. Snap `a` to the nearest gamakAST lattice constant (π, 1/(4π), ...)
+             by relative tolerance — using a lattice that does NOT include any
+             handed-in pset constant (pset has no π; snap DISCOVERS it).
+          2. Build candidate exprs: (i) original, (ii) a→snap(a), (iii)
+             a→snap(a) AND drop +b, (iv) drop +b only.
+          3. Score each on holdout by R²; return the best. Returns None if no
+             snap beats the original (caller keeps the unsnapped expr).
+        """
+        try:
+            import sympy as _sp
+            import gamakAST as _gk  # noqa: F401  (availability/version anchor)
+        except Exception:
+            return None
+
+        def _snap_scalar(x):
+            """Snap x to a clean constant: nsimplify over pi/E (covers pi, pi/2,
+            2*pi, 1/(4*pi) as a composition) within 1e-3 rel. Returns a sympy
+            expr or None. File-free — no lattice path to break on install
+            layout; sympy composes the constants. pset never contains pi, so a
+            match here is genuine DISCOVERY of the constant in the fitted scalar."""
+            try:
+                cand = _sp.nsimplify(x, [_sp.pi, _sp.E], rational=False, tolerance=1e-4)
+                if (cand.has(_sp.pi) or cand.has(_sp.E)) and \
+                   abs(float(cand) - x) / max(abs(x), 1e-300) < 1e-3:
+                    return cand
+            except Exception:
+                pass
+            return None
+
+        # Recover f(x): expr = a*f + b  → f = (expr - b)/a  (symbolically).
+        try:
+            fx = _sp.simplify((expr - _sp.Float(b)) / _sp.Float(a)) if a not in (0, 0.0) else None
+        except Exception:
+            fx = None
+        if fx is None:
+            return None
+
+        ac = _snap_scalar(float(a))
+        candidates = [("orig", expr)]
+        if ac is not None:
+            candidates.append(("snap_a", ac * fx + _sp.Float(b)))
+            candidates.append(("snap_a_dropb", ac * fx))           # drop +b
+        candidates.append(("dropb", _sp.Float(a) * fx))            # drop +b only
+
+        # Score each on holdout R².
+        holdout = bundle.holdout if bundle.holdout is not None else bundle.train
+        yv = holdout["target"].values if "target" in holdout.columns else bundle.Y
+        Xcols = bundle.variables
+
+        def _r2(e):
+            try:
+                f = _sp.lambdify([_sp.Symbol(v) for v in Xcols], e, "numpy")
+                pred = f(*[holdout[v].values for v in Xcols])
+                pred = np.asarray(pred, dtype=float) * np.ones(len(yv))
+                if not np.all(np.isfinite(pred)):
+                    return -np.inf
+                return 1.0 - float(np.mean((yv - pred) ** 2)) / float(np.var(yv))
+            except Exception:
+                return -np.inf
+
+        def _nodes(e):
+            try:
+                return sum(1 for _ in _sp.preorder_traversal(e))
+            except Exception:
+                return 10_000
+
+        scored = [(tag, e, _r2(e)) for tag, e in candidates]
+        orig_r2 = next(r for tag, e, r in scored if tag == "orig")
+        # Rank: (1) highest R² (round to 1e-9 so ties are real ties),
+        # (2) on a tie, PREFER a snapped form over orig (cleaner = the more
+        #     honest recovered law — the user's call), (3) then fewest nodes
+        #     (so π·r² beats π·r²+0).
+        # Preference order on an R² tie (the user's intent: recover the LAW):
+        #   snap_a_dropb  (π·r², symbolic constant + no fudge)  best
+        #   snap_a        (π·r² + b)
+        #   dropb         (3.14·r², dropped fudge but raw float)
+        #   orig          (3.14·r² + b)                          worst
+        _pref = {"snap_a_dropb": 0, "snap_a": 1, "dropb": 2, "orig": 3}
+        def _rank(t):
+            tag, e, r = t
+            return (-round(r, 9), _pref.get(tag, 4), _nodes(e))
+        scored.sort(key=_rank)
+        best_tag, best_e, best_r2 = scored[0]
+        if verbose:
+            print(f"[snap-post] " + "  ".join(f"{t}={r:.6f}" for t, _, r in scored))
+        # Adopt a snap if it does not LOSE R² beyond tolerance. On a tie the
+        # rank above already chose the cleaner snapped form.
+        if best_tag != "orig" and best_r2 >= orig_r2 - 1e-9:
+            if verbose:
+                print(f"[snap-post] adopted {best_tag}: {best_e}  (R² {orig_r2:.6f} -> {best_r2:.6f})")
+            return best_e
+        return None
 
     def _snap_with_timeout(self, expr, bundle, var_ranges):
         """Run hgh.snap_levels with a SIGALRM guard, return the best level by
