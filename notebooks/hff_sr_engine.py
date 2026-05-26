@@ -389,7 +389,7 @@ class HFFSRConfig:
     # snapped chromosome as a PARALLEL pool candidate (HFF pick ranks it vs the
     # raw form on holdout). Off by default — additive, never disturbs the
     # existing path. The A/B test for the new snap on saved HOFs.
-    use_egglog_snap: bool = False
+    use_egglog_snap: bool = True
     early_stop_val_r2: float = 0.999   # SRBench's R²_test threshold
     # A/B switch — include validation columns in the HFF vec. True (default)
     # = train + val pairs on every axis (current behaviour); False = train
@@ -1521,9 +1521,14 @@ class HFFSREngine:
                 X = X.reshape(-1, 1)
             arrays = [X[:, i] for i in range(X.shape[1])]
         if self._lambdified is None:
+            # Use the atom-substituted numeric form for predict; falls back
+            # to discovered_expr_ if not set (older code paths / fallback).
+            _predict_expr = getattr(self, "_discovered_expr_numeric", None)
+            if _predict_expr is None:
+                _predict_expr = self.discovered_expr_
             self._lambdified = sp.lambdify(
                 [sp.Symbol(v) for v in self._lambdified_var_order],
-                self.discovered_expr_,
+                _predict_expr,
                 modules=["numpy"],
             )
         out = self._lambdified(*arrays)
@@ -2188,7 +2193,13 @@ class HFFSREngine:
                 except Exception:
                     return e
 
-            self.discovered_expr_ = _sub_atoms(winner["expr"])
+            # Store the SYMBOLIC form (atom symbols preserved) and a separate
+            # numeric form for predict. Atom-folding `discovered_expr_` here
+            # would destroy any symbolic gain from post-regression snap
+            # (which is the WHOLE POINT of the snap — express constants as
+            # named atoms like g_earth, not collapsed floats).
+            self.discovered_expr_ = winner["expr"]
+            self._discovered_expr_numeric = _sub_atoms(winner["expr"])
             self.discovered_source_ = winner["source"]
             self.hff_holdout_ = winner["hff_holdout"]
             self.a_ = winner["a"]
@@ -2204,7 +2215,8 @@ class HFFSREngine:
                 snapped_expr = self._snap_discovered(
                     winner["expr"], winner["a"], winner["b"], bundle, verbose)
                 if snapped_expr is not None:
-                    self.discovered_expr_ = _sub_atoms(snapped_expr)
+                    self.discovered_expr_ = snapped_expr
+                    self._discovered_expr_numeric = _sub_atoms(snapped_expr)
                     self.discovered_source_ = winner["source"] + ".snap"
             self.wrapper_id_ = winner["wrapper_id"]
             self.wrapper_name_ = WRAPPER_NAMES[winner["wrapper_id"]]
@@ -2269,28 +2281,37 @@ class HFFSREngine:
 
         def _snap_scalar(x):
             """Snap x to a clean constant. Hybrid:
-              1. gamakAST master_lattice() — 2378 verified entries (physics
-                 constants + composed forms incl. 1/sqrt(n*c), etc.)
-              2. Fallback to sympy.nsimplify([pi, E]) for the long tail
-                 (small rationals, log()-style values not yet in the lattice).
-            pset never contains pi, so a match here is genuine DISCOVERY."""
+              1. gamakAST master_lattice() — verified entries (physics
+                 constants + composed forms incl. 1/(4*pi), 2*pi/sqrt(e), ...)
+              2. Fallback to sympy.nsimplify([pi, E]) for the long tail.
+
+            Atom sympify locals are pulled from master_constants() so any
+            new atom (e.g. g_earth) gets sympified with its NUMERIC value,
+            not as an unbound Symbol — otherwise float(cand) fails and the
+            lattice hit is silently dropped.
+            """
             # Stage 1: gamakAST lattice
             try:
-                from gamakAST import master_lattice
+                from gamakAST import master_lattice, master_constants
+                # Build sympify locals: pi/E always symbolic; all OTHER atoms
+                # bound to their numeric values so float(cand) succeeds.
+                _locals = {"pi": _sp.pi, "E": _sp.E,
+                            "sqrt2": _sp.sqrt(2), "sqrt3": _sp.sqrt(3)}
+                for _aname, _aval in master_constants():
+                    if _aname in ("pi", "E", "e", "sqrt2", "sqrt3"):
+                        # `e` is sympy's symbol for E — bind to _sp.E so labels
+                        # like "2*pi/sqrt(e)" parse correctly.
+                        if _aname == "e":
+                            _locals["e"] = _sp.E
+                        continue
+                    try:
+                        _locals[_aname] = _sp.Float(float(_aval))
+                    except (TypeError, ValueError):
+                        continue
                 for value, _math_sexpr, label in master_lattice():
                     if abs(value - x) / max(abs(x), 1e-300) < 1e-3:
-                        # Parse label (e.g. "1/(4*pi)") back to sympy.
                         try:
-                            cand = _sp.sympify(label, locals={
-                                "pi": _sp.pi, "E": _sp.E,
-                                "G": _sp.Symbol("G"), "c": _sp.Symbol("c"),
-                                "hbar": _sp.Symbol("hbar"), "kB": _sp.Symbol("kB"),
-                                "h": _sp.Symbol("h"), "qe": _sp.Symbol("qe"),
-                                "eps0": _sp.Symbol("eps0"), "mu0": _sp.Symbol("mu0"),
-                                "NA": _sp.Symbol("NA"), "me": _sp.Symbol("me"),
-                                "phi": _sp.Symbol("phi"), "gamma": _sp.Symbol("gamma"),
-                                "sqrt2": _sp.sqrt(2), "sqrt3": _sp.sqrt(3),
-                            })
+                            cand = _sp.sympify(label, locals=_locals)
                             if abs(float(cand) - x) / max(abs(x), 1e-300) < 1e-3:
                                 return cand
                         except Exception:
@@ -2327,8 +2348,33 @@ class HFFSREngine:
         yv = holdout["target"].values if "target" in holdout.columns else bundle.Y
         Xcols = bundle.variables
 
+        # Build atom subs map — snap candidates often contain atom names
+        # (g_earth, h, pi, ...) that lambdify can't bind to Xcols.
+        _pset_globals = getattr(self._pset, "_globals", {}) or {}
+        _atom_value_by_name = {}
+        var_set = set(Xcols)
+        for _t in self._pset.terminals:
+            tname = getattr(_t, "name", None)
+            if tname is None or tname in var_set:
+                continue
+            tval = getattr(_t, "value", None)
+            if tval is None:
+                tval = _pset_globals.get(tname)
+            if tval is None:
+                continue
+            try:
+                _atom_value_by_name[tname] = _sp.Float(float(tval))
+            except (TypeError, ValueError):
+                continue
+
         def _r2(e):
             try:
+                if _atom_value_by_name:
+                    nsub = {s: _atom_value_by_name[s.name]
+                            for s in e.free_symbols
+                            if s.is_Symbol and s.name in _atom_value_by_name}
+                    if nsub:
+                        e = e.subs(nsub)
                 f = _sp.lambdify([_sp.Symbol(v) for v in Xcols], e, "numpy")
                 pred = f(*[holdout[v].values for v in Xcols])
                 pred = np.asarray(pred, dtype=float) * np.ones(len(yv))
