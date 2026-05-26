@@ -419,6 +419,21 @@ class HFFSRConfig:
     pb_physics: float = 0.20
     physics_n_candidates: int = 8       # candidates per gene per call
     physics_paired_groups: list | None = None  # None → auto-detect from var names
+    # Snap tournament winners BEFORE crossover: every gen, take the selected
+    # offspring and run snap_karva on each gene. Replaces approximate numeric
+    # constants with named-constant tokens (pi, G, hbar, ...) so crossover
+    # mixes symbolically-clean DNA instead of float-noise DNA. Cheaper than
+    # snap-as-mutation because only winners get snapped.
+    snap_winners: bool = True
+    snap_winners_top_k: int = 0          # 0 = snap all offspring; >0 = top-K only
+    pb_snap_winners: float = 1.0         # per-individual gate; 1.0 = every offspring
+    # Real surgery: when LSM-fitted `a` matches the gamakAST lattice, graft
+    # the named-constant karva (e.g. 1/sqrt(2*pi)) into gene[0] and reset
+    # ind.a=1.0. The constant becomes inheritable DNA so crossover mixes
+    # named atoms across chromosomes. No new pset terminals are created —
+    # composed constants live as karva trees built from the 16 atoms.
+    snap_lsm_into_gene: bool = True
+    snap_lsm_rel_tol: float = 1e-3
     # Seed-from-HOF: path to a pickle written by a prior fit. When set, the
     # initial population is filled with the saved HOF chromosomes (cycled
     # if pop > HOF size). Lets you do a two-stage squeeze: wide explore →
@@ -706,7 +721,7 @@ def _compute_raw_metrics(individual, toolbox, bundle: _Bundle):
     return {"candidates": candidates}
 
 
-def _assign_fitness_batch(population, raw_results, cfg: HFFSRConfig):
+def _assign_fitness_batch(population, raw_results, cfg: HFFSRConfig, pset=None):
     """Stack every candidate from every individual into a single HFF batch;
     per-individual pick the wrapper/rule row with the minimum HFF distance."""
     if cfg.mode == "wild_regression":
@@ -786,6 +801,21 @@ def _assign_fitness_batch(population, raw_results, cfg: HFFSRConfig):
         ind.wrapper_id = int(payload["wrapper_id"])
         ind.linker_id = int(payload.get("linker_id", 0))
         ind._linker = LINKER_FUNCS[ind.linker_id]
+        # Snap LSM coefficient INTO the chromosome's karva.
+        # If ind.a matches a lattice entry (e.g. 0.398942 -> 1/sqrt(2*pi)),
+        # graft the named constant tokens into gene[0] and reset ind.a=1.0.
+        # The constant is now inheritable DNA — crossover mixes named
+        # constants across chromosomes. pset must be passed.
+        if pset is not None and cfg.snap_lsm_into_gene and abs(ind.a - 1.0) > 1e-6:
+            try:
+                from _lsm_snap import snap_coefficient_into_gene
+                snap_coefficient_into_gene(
+                    ind, pset, ind.a, ind.b,
+                    tolerance=cfg.snap_lsm_rel_tol,
+                    rng_seed=cfg.random_state + i,
+                )
+            except Exception:
+                pass  # never crash evolution on a snap glitch
 
 
 def _per_metric_mins(population, mode: str = "feynman", use_validation: bool = True,
@@ -835,6 +865,8 @@ _DENOISE_STATS = {"calls": 0, "swapped": 0, "rejected_safety": 0,
                   "changed_any": 0, "inexpressible": 0}
 _PHYSICS_STATS = {"calls": 0, "generated": 0, "swapped_individuals": 0,
                    "swapped_genes": 0}
+_SNAP_WINNERS_STATS = {"calls": 0, "swapped": 0, "candidates_seen": 0,
+                        "individuals_swapped": 0, "genes_swapped": 0}
 
 
 def _reset_denoise_stats():
@@ -847,6 +879,12 @@ def _reset_physics_stats():
     global _PHYSICS_STATS
     _PHYSICS_STATS = {"calls": 0, "generated": 0, "swapped_individuals": 0,
                        "swapped_genes": 0}
+
+
+def _reset_snap_winners_stats():
+    global _SNAP_WINNERS_STATS
+    _SNAP_WINNERS_STATS = {"calls": 0, "swapped": 0, "candidates_seen": 0,
+                            "individuals_swapped": 0, "genes_swapped": 0}
 
 
 def _apply_denoise(population, toolbox, pset, bundle, cfg):
@@ -874,6 +912,48 @@ def _apply_denoise(population, toolbox, pset, bundle, cfg):
         except Exception:
             pass  # never crash evolution on a denoise glitch
     return population
+
+
+def _apply_snap_to_winners(offspring, toolbox, pset, bundle, cfg):
+    """Snap tournament winners' karva BEFORE crossover/mutation, so
+    breeding mixes named-constant tokens instead of float approximations.
+    Mirrors the _apply_denoise pattern but uses snap_individual.
+    """
+    try:
+        from _snap_op import snap_individual
+    except ImportError:
+        return offspring
+    X_train = bundle.train.drop(columns=["target"]) if "target" in bundle.train.columns else bundle.train
+    y_train = bundle.Y
+    # Pick which offspring to snap: all by default, top-K if configured.
+    if cfg.snap_winners_top_k > 0:
+        with_fit = [(i, ind) for i, ind in enumerate(offspring)
+                    if getattr(ind, "fitness", None) is not None and ind.fitness.valid]
+        with_fit.sort(key=lambda pair: pair[1].fitness.values[0])
+        target_indices = {i for i, _ in with_fit[:cfg.snap_winners_top_k]}
+    else:
+        target_indices = set(range(len(offspring)))
+
+    for i in range(len(offspring)):
+        if i not in target_indices:
+            continue
+        if cfg.pb_snap_winners < 1.0 and random.random() >= cfg.pb_snap_winners:
+            continue
+        ind = offspring[i]
+        try:
+            new_ind, swapped = snap_individual(
+                ind, toolbox, pset,
+                X_train, y_train,
+                k_variants=16, rel_tol=1e-3,
+                r2_drop_tol=1e-4,
+                rng_seed=cfg.random_state + i,
+                _stats=_SNAP_WINNERS_STATS,
+            )
+            if swapped and new_ind is not ind:
+                offspring[i] = new_ind
+        except Exception:
+            pass  # never crash evolution on snap glitch
+    return offspring
 
 
 def _apply_physics(population, toolbox, pset, bundle, cfg, gen: int):
@@ -971,6 +1051,16 @@ class HFFSREngine:
         self._toolbox = toolbox
         self._pset = pset
         self._bundle = bundle
+        # Register the 16 gamakAST master_constants atoms (pi, e, G, ...)
+        # as SymbolTerminals so snap-into-gene can graft named-constant
+        # tokens. Composed forms (1/(4*pi), 1/sqrt(2*pi)) appear as karva
+        # expressions built from these atoms + ints + div/mul/sqrt.
+        if cfg.snap_lsm_into_gene:
+            try:
+                from _lsm_snap import register_atoms_in_pset
+                register_atoms_in_pset(pset)
+            except Exception:
+                pass
 
         # Build evolution state: demes, HOF, log.
         hof = tools.HallOfFame(cfg.champs)
@@ -1030,11 +1120,12 @@ class HFFSREngine:
         _reset_prune_state()
         _reset_denoise_stats()
         _reset_physics_stats()
+        _reset_snap_winners_stats()
 
         # Gen 0 evaluation.
         for idx, deme in enumerate(demes):
             raw_results = [evaluate_one(ind) for ind in deme]
-            _assign_fitness_batch(deme, raw_results, cfg)
+            _assign_fitness_batch(deme, raw_results, cfg, pset=pset)
             hof.update(deme)
 
         log = tools.Logbook()
@@ -1104,6 +1195,12 @@ class HFFSREngine:
                 elites = tools.selBest(deme, k=cfg.num_elites)
                 offspring = tools.selTournament(deme, len(deme) - cfg.num_elites, tournsize=ts)
                 offspring = [toolbox.clone(ind) for ind in offspring]
+                # Snap tournament winners BEFORE crossover/mutation. Replaces
+                # approximate constants in winners' karva with named tokens
+                # (pi, G, ...) so subsequent crossover mixes symbolically-
+                # clean DNA. Cheaper than snap-as-mutation: only winners pay.
+                if cfg.snap_winners:
+                    offspring = _apply_snap_to_winners(offspring, toolbox, pset, bundle, cfg)
                 for op in toolbox.pbs:
                     if op.startswith("mut"):
                         offspring = _gep_apply_modification(offspring, getattr(toolbox, op), toolbox.pbs[op])
@@ -1123,7 +1220,7 @@ class HFFSREngine:
                 invalid_ind = [ind for ind in deme if not ind.fitness.valid]
                 if invalid_ind:
                     raw_results = [evaluate_one(ind) for ind in invalid_ind]
-                    _assign_fitness_batch(invalid_ind, raw_results, cfg)
+                    _assign_fitness_batch(invalid_ind, raw_results, cfg, pset=pset)
                 hof.update(deme)
 
                 # Per-deme logbook record matches notebook output exactly.
@@ -1178,8 +1275,11 @@ class HFFSREngine:
             print(f"[denoise] {_DENOISE_STATS}", flush=True)
         if cfg.pb_physics > 0:
             print(f"[physics] {_PHYSICS_STATS}", flush=True)
+        if cfg.snap_winners:
+            print(f"[snap-winners] {_SNAP_WINNERS_STATS}", flush=True)
         self.denoise_stats_ = dict(_DENOISE_STATS)
         self.physics_stats_ = dict(_PHYSICS_STATS)
+        self.snap_winners_stats_ = dict(_SNAP_WINNERS_STATS)
 
         # Capture dimension-free HFF metadata BEFORE _extract_best mutates
         # state — hof[0]'s training-time HFF angle + CDF percentile let
@@ -1564,7 +1664,7 @@ class HFFSREngine:
         for deme in demes:
             invalid = [ind for ind in deme if not ind.fitness.valid]
             if invalid:
-                _assign_fitness_batch(invalid, [evaluate_one(i) for i in invalid], cfg)
+                _assign_fitness_batch(invalid, [evaluate_one(i) for i in invalid], cfg, pset=self._pset)
 
     def _migrate_pump_cross(self, demes, toolbox, pairs, evaluate_one, *, gen: int = 0):
         cfg = self.config
@@ -1616,7 +1716,7 @@ class HFFSREngine:
         for deme in demes:
             invalid = [ind for ind in deme if not ind.fitness.valid]
             if invalid:
-                _assign_fitness_batch(invalid, [evaluate_one(i) for i in invalid], cfg)
+                _assign_fitness_batch(invalid, [evaluate_one(i) for i in invalid], cfg, pset=self._pset)
 
     def _dedup_all_demes(self, demes, toolbox, evaluate_one, *, gen: int = 0):
         cfg = self.config
@@ -1631,7 +1731,7 @@ class HFFSREngine:
         for deme in demes:
             invalid = [ind for ind in deme if not ind.fitness.valid]
             if invalid:
-                _assign_fitness_batch(invalid, [evaluate_one(i) for i in invalid], cfg)
+                _assign_fitness_batch(invalid, [evaluate_one(i) for i in invalid], cfg, pset=self._pset)
 
     def _adapt_intake_size(self, demes, roles, toolbox, gen, target_gen,
                            elapsed: float, gen_times: list, verbose: bool,
@@ -1844,10 +1944,46 @@ class HFFSREngine:
         ho_y = ho_df["target"].values
         ho_var = float(np.var(ho_y)) if len(ho_y) > 1 else 1.0
 
+        # Build the atom substitution map: any SymbolTerminal in the pset
+        # whose name is NOT a data column gets substituted with its numeric
+        # value before lambdify. Atoms registered by register_atoms_in_pset
+        # (pi, sqrt3, h, G, ...) would otherwise appear as loose sympy
+        # symbols and lambdify would error on the variable count mismatch.
+        # SymbolTerminal stores its value in pset.globals[name], NOT on
+        # the terminal object (`.value` returns None for SymbolTerminal).
+        var_set = set(bundle.variables)
+        _atom_subs = {}
+        _pset_globals = getattr(self._pset, "_globals", {}) or {}
+        for _t in self._pset.terminals:
+            tname = getattr(_t, "name", None)
+            if tname is None or tname in var_set:
+                continue
+            # First try terminal.value (ConstantTerminal); else pset.globals
+            tval = getattr(_t, "value", None)
+            if tval is None:
+                tval = _pset_globals.get(tname)
+            if tval is None:
+                continue
+            try:
+                _atom_subs[sp.Symbol(tname)] = sp.Float(float(tval))
+            except (TypeError, ValueError):
+                continue
+
         def _holdout_vec(expr) -> Optional[list]:
             """Build the 3D end-phase HFF vec for ``expr`` on holdout
             rows. Returns None on lambdify / numeric failure."""
             try:
+                if _atom_subs:
+                    # Substitute by NAME so we match regardless of the
+                    # symbol's assumptions (real=True vs unconstrained).
+                    # _real_subs upstream produces real-valued Symbols; our
+                    # _atom_subs keys are plain Symbols — `expr.subs(dict)`
+                    # would fail because Symbol('x') != Symbol('x', real=True).
+                    name_subs = {s: _atom_subs[sp.Symbol(s.name)]
+                                 for s in expr.free_symbols
+                                 if s.is_Symbol and sp.Symbol(s.name) in _atom_subs}
+                    if name_subs:
+                        expr = expr.subs(name_subs)
                 fn = sp.lambdify(
                     [sp.Symbol(v) for v in bundle.variables],
                     expr, modules=["numpy"],
@@ -2037,7 +2173,22 @@ class HFFSREngine:
             # significant digit) by complexity ascending.
             scorable.sort(key=lambda e: (e["hff_holdout"], _complexity(e)))
             winner = scorable[0]
-            self.discovered_expr_ = winner["expr"]
+
+            def _sub_atoms(e):
+                """Replace atom symbols (pi, sqrt3, h, ...) by their numeric
+                values, matching by NAME so symbol assumptions don't matter.
+                Yields a predict-ready expression containing only data vars."""
+                if not _atom_subs:
+                    return e
+                try:
+                    nsub = {s: _atom_subs[sp.Symbol(s.name)]
+                            for s in e.free_symbols
+                            if s.is_Symbol and sp.Symbol(s.name) in _atom_subs}
+                    return e.subs(nsub) if nsub else e
+                except Exception:
+                    return e
+
+            self.discovered_expr_ = _sub_atoms(winner["expr"])
             self.discovered_source_ = winner["source"]
             self.hff_holdout_ = winner["hff_holdout"]
             self.a_ = winner["a"]
@@ -2053,7 +2204,7 @@ class HFFSREngine:
                 snapped_expr = self._snap_discovered(
                     winner["expr"], winner["a"], winner["b"], bundle, verbose)
                 if snapped_expr is not None:
-                    self.discovered_expr_ = snapped_expr
+                    self.discovered_expr_ = _sub_atoms(snapped_expr)
                     self.discovered_source_ = winner["source"] + ".snap"
             self.wrapper_id_ = winner["wrapper_id"]
             self.wrapper_name_ = WRAPPER_NAMES[winner["wrapper_id"]]
@@ -2117,11 +2268,36 @@ class HFFSREngine:
             return None
 
         def _snap_scalar(x):
-            """Snap x to a clean constant: nsimplify over pi/E (covers pi, pi/2,
-            2*pi, 1/(4*pi) as a composition) within 1e-3 rel. Returns a sympy
-            expr or None. File-free — no lattice path to break on install
-            layout; sympy composes the constants. pset never contains pi, so a
-            match here is genuine DISCOVERY of the constant in the fitted scalar."""
+            """Snap x to a clean constant. Hybrid:
+              1. gamakAST master_lattice() — 2378 verified entries (physics
+                 constants + composed forms incl. 1/sqrt(n*c), etc.)
+              2. Fallback to sympy.nsimplify([pi, E]) for the long tail
+                 (small rationals, log()-style values not yet in the lattice).
+            pset never contains pi, so a match here is genuine DISCOVERY."""
+            # Stage 1: gamakAST lattice
+            try:
+                from gamakAST import master_lattice
+                for value, _math_sexpr, label in master_lattice():
+                    if abs(value - x) / max(abs(x), 1e-300) < 1e-3:
+                        # Parse label (e.g. "1/(4*pi)") back to sympy.
+                        try:
+                            cand = _sp.sympify(label, locals={
+                                "pi": _sp.pi, "E": _sp.E,
+                                "G": _sp.Symbol("G"), "c": _sp.Symbol("c"),
+                                "hbar": _sp.Symbol("hbar"), "kB": _sp.Symbol("kB"),
+                                "h": _sp.Symbol("h"), "qe": _sp.Symbol("qe"),
+                                "eps0": _sp.Symbol("eps0"), "mu0": _sp.Symbol("mu0"),
+                                "NA": _sp.Symbol("NA"), "me": _sp.Symbol("me"),
+                                "phi": _sp.Symbol("phi"), "gamma": _sp.Symbol("gamma"),
+                                "sqrt2": _sp.sqrt(2), "sqrt3": _sp.sqrt(3),
+                            })
+                            if abs(float(cand) - x) / max(abs(x), 1e-300) < 1e-3:
+                                return cand
+                        except Exception:
+                            continue
+            except Exception:
+                pass
+            # Stage 2: nsimplify fallback (rationals + log-style values)
             try:
                 cand = _sp.nsimplify(x, [_sp.pi, _sp.E], rational=False, tolerance=1e-4)
                 if (cand.has(_sp.pi) or cand.has(_sp.E)) and \

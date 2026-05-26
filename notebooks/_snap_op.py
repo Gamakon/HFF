@@ -211,10 +211,13 @@ def snap_individual(individual, toolbox, pset, X_ho, y_ho,
             consts = c.get("constants") or []
             _augment_pset_with_constants(pset, consts)
             try:
+                from _gene_utils import build_gene_like
                 new_head = _rebuild_tokens_with_consts(c["head"], pset)
                 new_tail = _rebuild_tokens_with_consts(c["tail"], pset)
-                new_gene = Gene.from_genome(list(new_head) + list(new_tail),
-                                             head_length=len(new_head))
+                new_gene = build_gene_like(gene, new_head, new_tail, pset,
+                                            rng_seed=rng_seed + g_idx)
+                if new_gene is None:
+                    continue
             except Exception:
                 continue
             # Build candidate individual: same chromosome with this gene swapped

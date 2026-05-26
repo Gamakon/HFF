@@ -136,10 +136,14 @@ def mut_physics(individual, toolbox, pset, X_train_df, y_train,
             new_genes.append(gene)  # nothing chosen (leap throttled out)
             continue
         try:
+            from _gene_utils import build_gene_like
             new_head_toks = _rebuild_tokens(pick["head"], pset)
             new_tail_toks = _rebuild_tokens(pick["tail"], pset)
-            new_gene = Gene.from_genome(new_head_toks + new_tail_toks,
-                                         head_length=len(new_head_toks))
+            new_gene = build_gene_like(gene, new_head_toks, new_tail_toks, pset,
+                                        rng_seed=rng_seed + g_idx)
+            if new_gene is None:
+                new_genes.append(gene)
+                continue
         except Exception as e:
             if _stats is not None:
                 _stats.setdefault("decode_errors", []).append(str(e))
