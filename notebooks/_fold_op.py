@@ -139,20 +139,55 @@ def fold_expr(
     atoms like ``pi``/``sqrt2`` the expression references)."""
     if not _GAMAKAST_OK or expr is None:
         return None
+
+    folded = None
     bridged = expr.subs(_CONST_TO_SYMBOL)
     try:
         math = _g.to_math(bridged)
     except Exception:
-        return None
-    if not math:  # unconvertible (op not modelled by the Math sort)
-        return None
-    try:
-        out = _g.denoise(math, rows, tolerance, k_variants)
-    except Exception:
-        return None
-    if not out or not out.get("changed"):
-        return None
-    try:
-        return _math_to_sympy(out["expr"])
-    except Exception:
-        return None
+        math = None
+    if math:
+        try:
+            out = _g.denoise(math, rows, tolerance, k_variants)
+            if out and out.get("changed"):
+                folded = _math_to_sympy(out["expr"]).subs(_SYMBOL_TO_CONST)
+        except Exception:
+            folded = None
+
+    # Data-gated Abs strip: Abs(x) -> x wherever x >= 0 on every row. This runs
+    # even when denoise itself was a no-op, so a lone protected-sqrt Abs wrapper
+    # (e.g. Abs(a**(3/2)) on positive data) still gets cleaned. SRBench scores
+    # both the extra node and the symbolic mismatch against a truth with no Abs.
+    base = folded if folded is not None else expr
+    stripped = strip_positive_abs(base, rows)
+
+    if stripped is not None and stripped != base:
+        return stripped
+    return folded
+
+
+def strip_positive_abs(expr, rows: list[dict]):
+    """Replace ``Abs(x)`` with ``x`` for every Abs whose argument is >= 0 across
+    all ``rows``. Returns a new sympy expression (possibly unchanged). Data-gated:
+    an Abs over an argument that is negative on any row is left intact."""
+    if expr is None or not expr.has(sp.Abs):
+        return expr
+    changed = False
+    result = expr
+    # Bottom-up: evaluate each Abs's argument on the data; strip only if all >= 0.
+    for node in sorted(expr.atoms(sp.Abs), key=lambda a: sp.count_ops(a)):
+        arg = node.args[0]
+        try:
+            syms = sorted(arg.free_symbols, key=lambda s: s.name)
+            f = sp.lambdify(syms, arg, "numpy")
+            import numpy as _np
+            vals = _np.array([
+                float(f(*[row[s.name] for s in syms])) if syms else float(arg)
+                for row in rows
+            ])
+            if _np.all(_np.isfinite(vals)) and _np.all(vals >= 0):
+                result = result.xreplace({node: arg})
+                changed = True
+        except Exception:
+            continue
+    return result if changed else expr
