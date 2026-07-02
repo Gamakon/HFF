@@ -37,6 +37,23 @@ ignore both. Integration = depend on `gnbg-gpu` (submodule or vendored),
 
 ---
 
+## Progress (updated as executed)
+
+- [x] **1. Figure runners moved + de-branded** — `corrected_igd_benchmark.py`,
+  `run_wfg4_9_higd.py`, `run_wfg1_3.py`, `wfg_pareto_fronts.py` in `benchmark/`,
+  zero brand tokens, all compile, import `hff` and see its 4 needed functions.
+- [x] **WFG smoke run** — `run_wfg4_9_higd.py --problem WFG4 --objectives 3`
+  completes; HFF HIGD computed end-to-end via `hff`; CSV written.
+- [x] **2. GNBG-II wiring** — hardcoded home-dir `sys.path` replaced with a
+  `GNBG_GPU_PATH` env var + graceful `import gnbg_gpu` fallback; legacy
+  `gnbg_ffi` import made non-fatal. Documented in `benchmark/README.md`.
+- [ ] **Analysis / figure scripts** — the scripts that turn the run CSVs into
+  paper figures 6–13 are not yet migrated. This is what remains for full
+  figure reproduction.
+- [ ] **pymoo/numpy pin** — pymoo 0.6.x `np.row_stack` breaks NSGA-II/III on
+  numpy ≥ 2.0 (HFF runs unaffected). Needs a version pin in packaging.
+- [ ] **Parity check** — formal float-precision comparison vs the internal engine.
+
 ## Corrected plan (supersedes earlier draft)
 
 Because the paper path uses only `calculate_fitness_hf1`,

@@ -12,14 +12,20 @@ from pathlib import Path
 from typing import Optional, Dict, Any, Union, List
 from pymoo.core.problem import Problem
 
-# Import the existing GNBG FFI implementation
+# Legacy GNBG C++ FFI path (superseded by the gnbg_gpu wgpu crate). Optional:
+# import lazily so this module loads even when gnbg_ffi is absent. Instantiating
+# GNBG2Problem without it will raise a clear error.
 _parent_path = Path(__file__).parent.parent.parent.parent / "demo"
-sys.path.append(str(_parent_path))
+if str(_parent_path) not in sys.path:
+    sys.path.append(str(_parent_path))
 
 try:
     from gnbg_ffi import GNBG_FFI
-except ImportError as e:
-    raise ImportError(f"Failed to import GNBG FFI: {e}. Please ensure gnbg_ffi.py is available.") from e
+    GNBG_FFI_AVAILABLE = True
+except ImportError as _e:
+    GNBG_FFI_AVAILABLE = False
+    GNBG_FFI = None
+    _GNBG_FFI_IMPORT_ERROR = _e
 
 
 class GNBG2Problem(Problem):
@@ -59,8 +65,13 @@ class GNBG2Problem(Problem):
             data_path = str(Path(__file__).parent.parent.parent.parent / "demo" / "gnbg_ffi_compiled")
         
         self.data_path = data_path
-        
+
         # Create GNBG FFI instance
+        if not GNBG_FFI_AVAILABLE:
+            raise RuntimeError(
+                "Legacy GNBG C++ FFI (gnbg_ffi) is unavailable: "
+                f"{_GNBG_FFI_IMPORT_ERROR}. Use the gnbg_gpu backend instead."
+            )
         try:
             self.gnbg_ffi = GNBG_FFI(function_id, data_path)
         except Exception as e:

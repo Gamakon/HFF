@@ -50,12 +50,32 @@ benchmark/
 └── DYNAMIC_GROUPS_USAGE.md         grouping/decrowding notes
 ```
 
+## Running the WFG benchmarks (works now)
+
+```bash
+maturin develop --release            # build/install hff into your env
+cd benchmark
+python run_wfg4_9_higd.py --problem WFG4 --objectives 3   # smoke test
+python run_wfg4_9_higd.py            # full WFG4–9 sweep, 10–100 objectives
+python run_wfg1_3.py                 # WFG1–3 (Euclidean IGD)
+```
+
+Each writes a per-experiment CSV; the HFF (TrueNorth / BalancedNorth) rows use
+`hff` directly. Figures are produced from those CSVs (analysis scripts still to
+be migrated — see the plan doc).
+
 ## Dependencies
 
-- Python ≥ 3.9, `pymoo`, `pandas`, `pyarrow`, `numpy`
+- Python ≥ 3.9, `pandas`, `pyarrow`, `numpy`
 - `hff` (this repo — `maturin develop --release`)
+- `pymoo` — **pin to a version compatible with your numpy.** pymoo 0.6.x uses
+  `np.row_stack`, removed in numpy ≥ 2.0; on numpy 2.x the NSGA-II/III baselines
+  fail with `module 'numpy' has no attribute 'row_stack'` (the HFF runs are
+  unaffected). Use numpy < 2.0 or a patched pymoo until this is pinned.
 - `gnbg_gpu` — **only** for GNBG-based benchmarks; from
-  [`minkymorgan/GNBG-II`](https://github.com/minkymorgan/GNBG-II)
+  [`minkymorgan/GNBG-II`](https://github.com/minkymorgan/GNBG-II). Install it, or
+  set `GNBG_GPU_PATH` to its `python/` directory. Without it, GNBG benchmarks are
+  disabled (a warning is emitted); WFG/DTLZ need none of this.
 
 ## Reproducing the paper (planned)
 

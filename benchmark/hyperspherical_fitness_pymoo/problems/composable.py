@@ -14,14 +14,22 @@ import warnings
 # Import the GNBG2 wrapper (legacy)
 from .gnbg2_wrapper import GNBG2Wrapper, GNBG2MultiObjectiveAdapter
 
-# Import GNBG-II library (new implementation)
+# Import GNBG-II library (the wgpu `gnbg_gpu` crate — https://github.com/minkymorgan/GNBG-II).
+# Install it (maturin/pip) so `import gnbg_gpu` works, or point GNBG_GPU_PATH at its
+# python/ dir. Only needed for GNBG-based benchmarks; WFG/DTLZ need none of this.
 try:
+    import os
     import sys
-    sys.path.append('/Users/andrewmorgan/Dev/minkymorgan/GNBG-II/python')
+    _gnbg_path = os.environ.get("GNBG_GPU_PATH")
+    if _gnbg_path and _gnbg_path not in sys.path:
+        sys.path.append(_gnbg_path)
     from gnbg_gpu.multi_objective import GNBGMultiObjectiveProblem
     GNBG_II_AVAILABLE = True
 except ImportError as e:
-    warnings.warn(f"GNBG-II library not available: {e}. Falling back to legacy GNBG2 wrapper.")
+    warnings.warn(
+        f"GNBG-II library not available: {e}. GNBG benchmarks are disabled; "
+        "install gnbg_gpu or set GNBG_GPU_PATH. Falling back to legacy GNBG2 wrapper."
+    )
     GNBG_II_AVAILABLE = False
     GNBGMultiObjectiveProblem = None
 
