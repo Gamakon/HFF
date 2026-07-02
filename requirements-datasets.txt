@@ -1,0 +1,6 @@
+# Extra dataset loaders for the equation-recovery notebook (PMLB benchmarks).
+# The per-equation Feynman datasets are downloaded on demand; only the index
+# CSVs are vendored under notebooks/data/equations/feynman/.
+#   pip install -r requirements-datasets.txt
+
+pmlb>=1.0

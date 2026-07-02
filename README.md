@@ -68,6 +68,23 @@ Or as an editable install:
 pip install -e .
 ```
 
+### Dependencies for the notebooks / benchmark
+
+The `hff` core needs only numpy. The demonstration notebooks and the benchmark
+harness have their own dependency groups, declared as PEP 621 optional extras
+in `pyproject.toml` (works with pip, poetry, uv, pdm):
+
+```bash
+pip install -e ".[notebooks]"            # symbolic-regression notebooks
+pip install -e ".[notebooks,datasets]"   # + PMLB/Feynman dataset loaders
+pip install -r benchmark/requirements.txt  # pymoo benchmark harness
+```
+
+Plain `requirements-*.txt` files are also provided for the non-editable path
+(`requirements-notebooks.txt`, `requirements-datasets.txt`,
+`benchmark/requirements.txt`). Note the benchmark pins **numpy < 2** (pymoo
+0.6.x uses `np.row_stack`, removed in numpy 2.0).
+
 Optional GPU acceleration (experimental) is gated behind the `gpu` Cargo
 feature — see [GPU acceleration](#gpu-acceleration) below.
 
