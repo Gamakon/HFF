@@ -1,0 +1,26 @@
+# HypersphericalFitnessBenchmarks Requirements
+# Production implementation of PyMOO HF1 algorithm with composable benchmarks
+
+# Core dependencies
+numpy>=1.21.0
+pymoo>=0.6.0
+pyarrow>=10.0.0
+pandas>=1.5.0
+
+# Development and testing
+pytest>=7.0.0
+pytest-cov>=4.0.0
+black>=22.0.0
+flake8>=5.0.0
+
+# Optional for analysis
+matplotlib>=3.5.0
+seaborn>=0.11.0
+jupyter>=1.0.0
+
+# HFF core (built from source)
+# hff (via maturin)
+
+# Future parallel processing
+# multiprocessing (standard library)
+# asyncio (standard library)
