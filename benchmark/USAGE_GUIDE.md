@@ -1,5 +1,12 @@
 # Hyperspherical Fitness Benchmark System - Usage Guide
 
+> **⚠️ Legacy document — predates the migration into this repo.** Some commands
+> and paths below (`optimize_gnbg2.py`, `run_single_problem.py`,
+> `experiments/…`, `results/…`) refer to files that were not moved and do not
+> exist here yet. Treat this as historical reference. For the current state and
+> the reproduction plan, see [`README.md`](README.md) and
+> [`../docs/PHASE_TWO_BENCHMARK_PLAN.md`](../docs/PHASE_TWO_BENCHMARK_PLAN.md).
+
 ## Quick Start
 
 ### 1. Basic Setup and Installation

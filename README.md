@@ -41,6 +41,7 @@ hff/
 │   ├── v1.0.4_Multidemic_SymbolicEquationRecovery.ipynb    equation rediscovery
 │   └── data/                  UCI PowerPlant CSV + dictionary
 ├── srbench_submission/        SRBench (AI-Feynman) contest submission package
+├── benchmark/                 pymoo many-objective benchmark harness (see below)
 ├── docs/                      research notes and figures
 ├── papers/
 │   ├── GECCO_..._Poster_SUBMITTED.pdf
@@ -145,6 +146,23 @@ maturin develop --release --features gpu
 The CPU path (Rayon-parallel) remains the default and is numerically
 authoritative; the GPU kernel is validated against it in `src/gpu.rs`'s unit
 tests. Treat this backend as experimental.
+
+---
+
+## Benchmark harness
+
+`benchmark/` holds the [pymoo](https://pymoo.org)-based many-objective harness
+used for the GECCO 2026 paper — evolving under an NSGA-II loop whose survival
+operator ranks by HFF angular distance, compared against standard NSGA-II/III on
+WFG/DTLZ and GNBG-II problems from 1–500 objectives.
+
+> **⚠️ Not yet runnable as shipped.** The harness source is migrated in, but the
+> figure-generating runners and the GNBG-II problem engine are not yet wired up.
+> See [`docs/PHASE_TWO_BENCHMARK_PLAN.md`](docs/PHASE_TWO_BENCHMARK_PLAN.md) for
+> exactly what remains. No benchmark result data is shipped — runs regenerate it.
+
+The WFG figures need only pymoo + `hff`; the GNBG figures additionally need the
+`gnbg-gpu` crate ([`minkymorgan/GNBG-II`](https://github.com/minkymorgan/GNBG-II)).
 
 ---
 
