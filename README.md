@@ -1,7 +1,9 @@
 # HFF — Hyperspherical Fitness Functions
 
-A Rust library (with Python bindings via PyO3 and a C ABI) for many-objective
-optimisation. HFF projects an objective vector onto a unit hypersphere and uses
+A Rust library for many-objective optimisation, usable from Python (via PyO3,
+the Rust↔Python binding layer) and from C (via a C ABI — the Application Binary
+Interface, i.e. the C-callable functions exported from the compiled shared
+library). HFF projects an objective vector onto a unit hypersphere and uses
 **angular distance to a reference pole** as a scalar fitness measure.
 
 The dimensionality of Pareto-dominance front degrades as the number of
@@ -11,8 +13,16 @@ relation with a single scalar that scales naturally with objective count, and
 remains useful at low dimensions (2–3 objectives) as a principled alternative
 to weighted sums.
 
-This repository contains the library, two demonstration notebooks (regression
-and binary classification), and the as-submitted GECCO 2026 poster.
+This repository contains the library, three demonstration notebooks (symbolic
+regression, binary classification, and equation rediscovery), and the
+as-submitted GECCO 2026 poster.
+
+<p align="center">
+  <img src="docs/img/truenorth_tournament.png" alt="HF1 TrueNorth: individuals ranked by angular distance to the True North pole" width="480">
+</p>
+
+<p align="center"><em>HF1 TrueNorth ranks candidates by their angular distance θ<sub>TN</sub> to the
+reference pole — a single cosine-similarity score that runs tournaments across N objectives.</em></p>
 
 ---
 
@@ -20,14 +30,18 @@ and binary classification), and the as-submitted GECCO 2026 poster.
 
 ```
 hff/
-├── src/                       Rust core (HF1 Balanced/TrueNorth, HIGD)
+├── src/                       Rust core (HF1 Balanced/TrueNorth, HIGD, optional GPU)
 ├── python/hff/                PyO3 module + Python convenience wrappers
 ├── include/hff.h              C header for the optional c-api feature
 ├── notebooks/
 │   ├── hff_geppy_helpers.py   shared helpers (primitives, LSM, rerankers, HIGD)
+│   ├── hff_sr_engine.py       reusable symbolic-regression engine
 │   ├── v1.0.4_Multidemic_SymbolicLinearRegression.ipynb    UCI PowerPlant
 │   ├── v1.0.4_Multidemic_SymbolicLogisticReg.ipynb         UCI Heart Disease
+│   ├── v1.0.4_Multidemic_SymbolicEquationRecovery.ipynb    equation rediscovery
 │   └── data/                  UCI PowerPlant CSV + dictionary
+├── srbench_submission/        SRBench (AI-Feynman) contest submission package
+├── docs/                      research notes and figures
 ├── papers/
 │   ├── GECCO_..._Poster_SUBMITTED.pdf
 │   └── hff-gecco2026-poster_Submitted.tex
@@ -39,16 +53,22 @@ hff/
 
 ## Installation
 
-```bash
-pip install hff
-```
-
-Or build from source:
+HFF is a Rust extension built with [maturin](https://github.com/PyO3/maturin);
+install it from source into your active environment:
 
 ```bash
 pip install maturin
-maturin develop --release
+maturin develop --release      # builds the Rust core and installs the hff module
 ```
+
+Or as an editable install:
+
+```bash
+pip install -e .
+```
+
+Optional GPU acceleration (experimental) is gated behind the `gpu` Cargo
+feature — see [GPU acceleration](#gpu-acceleration) below.
 
 ### Requirements
 
@@ -102,11 +122,29 @@ higd_score = hff.calculate_higd(
 |---|---|
 | `calculate_fitness_hf1(F)` | HF1 Balanced — angular distance to the diagonal pole `(1/√m, …, 1/√m)`. |
 | `calculate_fitness_hf1_enhanced(F, normalize=, north_pole_method=)` | HF1 with method selection: `"balanced"` or `"truenorth"`, plus an optional `normalize` flag. |
+| `calculate_fitness_hf1_with_ranges(F, decrowding=, north_pole_method=, normalize=)` | HF1 that also returns the per-column min/max ranges it used, so the same normalisation can be reapplied later (e.g. to a validation set). |
+| `calculate_fitness_hf1_fixed(F, col_min, col_max, decrowding=, north_pole_method=)` | HF1 with caller-supplied column ranges instead of recomputing them — score new points on a fixed, previously-seen scale. |
 | `calculate_higd(solutions, n_reference_points, dimensions, seed, positive_orthant)` | Set-level quality indicator. CDF-corrected angular IGD that is dimensionally robust. |
 | `calculate_angular_igd(solutions, n_reference_points, dimensions, seed, positive_orthant)` | Raw angular IGD (no CDF correction). |
 
 The same surface is also exposed via a C ABI when built with
 `--features c-api`; see `include/hff.h`.
+
+---
+
+## GPU acceleration
+
+An experimental GPU backend computes HF1 TrueNorth fitness for large batches on
+the GPU via [`wgpu`](https://github.com/gfx-rs/wgpu) (Vulkan / Metal / DX12).
+It is off by default and gated behind the `gpu` Cargo feature:
+
+```bash
+maturin develop --release --features gpu
+```
+
+The CPU path (Rayon-parallel) remains the default and is numerically
+authoritative; the GPU kernel is validated against it in `src/gpu.rs`'s unit
+tests. Treat this backend as experimental.
 
 ---
 
