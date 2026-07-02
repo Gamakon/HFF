@@ -427,6 +427,10 @@ class HFFSRConfig:
     snap_winners: bool = True
     snap_winners_top_k: int = 0          # 0 = snap all offspring; >0 = top-K only
     pb_snap_winners: float = 1.0         # per-individual gate; 1.0 = every offspring
+    # Representation DOWN-flip: concretize named constants (pi, G, ...) back to
+    # numeric values. The inverse of snap_winners; the pair lets selection choose
+    # the representation. Low probability — snap is the dominant direction.
+    pb_concretize: float = 0.05          # per-individual gate for the down-flip
     # Real surgery: when LSM-fitted `a` matches the fuller lattice, graft
     # the named-constant karva (e.g. 1/sqrt(2*pi)) into gene[0] and reset
     # ind.a=1.0. The constant becomes inheritable DNA so crossover mixes
@@ -867,6 +871,7 @@ _PHYSICS_STATS = {"calls": 0, "generated": 0, "swapped_individuals": 0,
                    "swapped_genes": 0}
 _SNAP_WINNERS_STATS = {"calls": 0, "swapped": 0, "candidates_seen": 0,
                         "individuals_swapped": 0, "genes_swapped": 0}
+_CONCRETIZE_STATS = {"calls": 0, "individuals_changed": 0}
 
 
 def _reset_denoise_stats():
@@ -953,6 +958,36 @@ def _apply_snap_to_winners(offspring, toolbox, pset, bundle, cfg):
                 offspring[i] = new_ind
         except Exception:
             pass  # never crash evolution on snap glitch
+    return offspring
+
+
+def _apply_concretize(offspring, toolbox, pset, bundle, cfg):
+    """The DOWN-flip mutation: concretize named constants back to numbers on a
+    fraction (pb_concretize) of offspring. Pairs with _apply_snap_to_winners so
+    the population carries both representations and selection picks the winner.
+    """
+    if cfg.pb_concretize <= 0.0:
+        return offspring
+    try:
+        from _snap_op import concretize_individual
+    except ImportError:
+        return offspring
+    X_train = bundle.train.drop(columns=["target"]) if "target" in bundle.train.columns else bundle.train
+    y_train = bundle.Y
+    for i in range(len(offspring)):
+        if random.random() >= cfg.pb_concretize:
+            continue
+        ind = offspring[i]
+        try:
+            new_ind, changed = concretize_individual(
+                ind, toolbox, pset, X_train, y_train,
+                r2_drop_tol=1e-4, rng_seed=cfg.random_state + i,
+                _stats=_CONCRETIZE_STATS,
+            )
+            if changed and new_ind is not ind:
+                offspring[i] = new_ind
+        except Exception:
+            pass  # never crash evolution on a concretize glitch
     return offspring
 
 
@@ -1201,6 +1236,9 @@ class HFFSREngine:
                 # clean DNA. Cheaper than snap-as-mutation: only winners pay.
                 if cfg.snap_winners:
                     offspring = _apply_snap_to_winners(offspring, toolbox, pset, bundle, cfg)
+                # Down-flip: low-probability concretize, so both representations
+                # (symbolic constants vs numbers) compete under selection.
+                offspring = _apply_concretize(offspring, toolbox, pset, bundle, cfg)
                 for op in toolbox.pbs:
                     if op.startswith("mut"):
                         offspring = _gep_apply_modification(offspring, getattr(toolbox, op), toolbox.pbs[op])

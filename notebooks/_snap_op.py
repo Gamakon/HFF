@@ -25,11 +25,12 @@ from geppy.core.symbol import ConstantTerminal
 import hff_geppy_helpers as hgh
 
 try:
-    from fuller import snap_karva, master_constants, master_pset
+    from fuller import snap_karva, concretize_karva, master_constants, master_pset
     FULLER_AVAILABLE = True
 except ImportError:
     FULLER_AVAILABLE = False
     snap_karva = None  # noqa
+    concretize_karva = None  # noqa
     master_constants = None  # noqa
     master_pset = None  # noqa
 
@@ -257,4 +258,75 @@ def snap_individual(individual, toolbox, pset, X_ho, y_ho,
         pass
     if _stats is not None:
         _stats["individuals_swapped"] = _stats.get("individuals_swapped", 0) + 1
+    return candidate, True
+
+
+def concretize_individual(individual, toolbox, pset, X_ho, y_ho,
+                          r2_drop_tol: float = 1e-4,
+                          rng_seed: int = 0,
+                          _stats: dict | None = None):
+    """The DOWN-FLIP: replace named-constant terminals (pi, G, sqrt2, ...) with
+    their numeric values in every gene, via fuller.concretize_karva. The inverse
+    of snap_individual; together they let the population evolve the constant
+    representation (symbolic vs numeric) under selection.
+
+    Behaviour-preserving by construction (eval binds those names to exactly
+    these values), but still R²-gated for safety and consistency with snap.
+    Returns (new_individual_or_original, changed: bool).
+    """
+    if not FULLER_AVAILABLE:
+        if _stats is not None:
+            _stats["unavailable"] = _stats.get("unavailable", 0) + 1
+        return individual, False
+    if _stats is not None:
+        _stats["calls"] = _stats.get("calls", 0) + 1
+
+    baseline_r2 = _r2_on_holdout(individual, toolbox, X_ho, y_ho)
+    if baseline_r2 is None:
+        return individual, False
+
+    changed_any = False
+    new_genes = []
+    for g_idx, gene in enumerate(individual):
+        try:
+            head_tuples = [_token_tuple(t) for t in gene.head]
+            tail_tuples = [_token_tuple(t) for t in gene.tail]
+            out = concretize_karva(head_tuples, tail_tuples)
+        except Exception:
+            new_genes.append(gene)
+            continue
+        if not out or not out.get("changed"):
+            new_genes.append(gene)
+            continue
+        try:
+            from _gene_utils import build_gene_like
+            new_head = _rebuild_tokens_with_consts(out["head"], pset)
+            new_tail = _rebuild_tokens_with_consts(out["tail"], pset)
+            new_gene = build_gene_like(gene, new_head, new_tail, pset,
+                                       rng_seed=rng_seed + g_idx)
+        except Exception:
+            new_gene = None
+        if new_gene is None:
+            new_genes.append(gene)
+            continue
+        new_genes.append(new_gene)
+        changed_any = True
+
+    if not changed_any:
+        return individual, False
+
+    candidate = toolbox.clone(individual)
+    for i in range(len(candidate)):
+        candidate[i] = new_genes[i]
+    try:
+        del candidate.fitness.values
+    except Exception:
+        pass
+    # R² gate: concretize is behaviour-preserving, but guard against any
+    # rebuild/round-trip surprise.
+    r2 = _r2_on_holdout(candidate, toolbox, X_ho, y_ho)
+    if r2 is None or r2 < baseline_r2 - r2_drop_tol:
+        return individual, False
+    if _stats is not None:
+        _stats["individuals_changed"] = _stats.get("individuals_changed", 0) + 1
     return candidate, True
