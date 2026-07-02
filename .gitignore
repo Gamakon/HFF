@@ -21,3 +21,17 @@ notebooks/data/figures/
 notebooks/sweep.log
 notebooks/circle_test.log
 notebooks/_test_feynman_load.py          # smoke test, not a source artefact
+
+# Scratch scripts, logs, ledgers, sweep outputs — kept local, never committed
+*.log
+notebooks/_*.py
+notebooks/_*.sh
+notebooks/_ledgers/
+notebooks/_sweep_logs/
+data/
+
+# Notebook render artefacts (jupytext pairs + rendered output dirs)
+notebooks/*_files/
+notebooks/SphericalSymbolicRegression-run*.md
+notebooks/SphericalSymbolicRegression-run*.py
+notebooks/SphericalSymbolicRegression-run*.ipynb
