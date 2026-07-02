@@ -2421,12 +2421,21 @@ class HFFSREngine:
             # changed the expression AND does not lose R² (data-gated).
             try:
                 from _fold_op import fold_expr as _fold_expr
+                # Gate the fold on the TRAINING rows (denoise's R² check should
+                # see the data the model was fit on, not the holdout).
+                _train = bundle.train
+                _n_tr = len(_train)
                 _rows = [
-                    {**{v: float(holdout[v].values[i]) for v in Xcols},
+                    {**{v: float(_train[v].values[i]) for v in Xcols},
                      **{name: float(val) for name, val in _atom_value_by_name.items()}}
-                    for i in range(len(yv))
+                    for i in range(_n_tr)
                 ]
-                _folded = _fold_expr(best_e, _rows, tolerance=1e-6, k_variants=32)
+                # Variables the training data keeps >= 0: denoise may shed a
+                # protected-sqrt Abs wrapper over these (proven positivity).
+                _positive = [v for v in Xcols
+                             if bool((_train[v].values >= 0).all())]
+                _folded = _fold_expr(best_e, _rows, tolerance=1e-6,
+                                     k_variants=32, positive_vars=_positive)
                 if _folded is not None:
                     _folded_r2 = _r2(_folded)
                     if _folded_r2 >= best_r2 - 1e-9:
