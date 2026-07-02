@@ -23,14 +23,29 @@ def build_gene_like(orig_gene, new_head: list, new_tail: list, pset,
 
     Returns the new gene object, or None if construction fails.
     """
-    head_length = len(new_head)
-    # Ensure tail length follows GEP rule
+    # CRITICAL: the new gene MUST keep the ORIGINAL gene's fixed head_length.
+    # GEP genes have a fixed head/tail geometry (tail = head*(max_arity-1)+1); a
+    # simplified karva often comes back shorter than the head it replaces. If we
+    # sized the gene to len(new_head) it would shrink below the fixed length its
+    # siblings share, violating the GEP invariant and later crashing geppy's
+    # length-dependent operators (e.g. is_transpose: empty randrange). Pad (or
+    # truncate) head and tail back to the declared lengths so the rebuilt gene is
+    # a structural drop-in replacement of the same length.
+    head_length = orig_gene.head_length
     max_arity = max((f.arity for f in pset.functions), default=2)
     target_tail = head_length * (max_arity - 1) + 1
     rng = random.Random(rng_seed)
     terminals = [t for t in pset.terminals
                  if isinstance(t, Terminal) and
                  (isinstance(t, SymbolTerminal) or t.value is not None)]
+    # Pad the head back to head_length with terminals. Per GEP, the coding
+    # region (ORF) ends where the expression tree closes; any head positions
+    # past the ORF are non-coding and ignored on expression, so terminal padding
+    # is inert and cannot change the expressed tree. Truncate if somehow longer.
+    new_head = list(new_head)
+    while len(new_head) < head_length:
+        new_head.append(rng.choice(terminals))
+    new_head = new_head[:head_length]
     new_tail = list(new_tail)
     while len(new_tail) < target_tail:
         new_tail.append(rng.choice(terminals))
