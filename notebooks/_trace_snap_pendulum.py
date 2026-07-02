@@ -1,6 +1,6 @@
 """Trace snap_karva on the pendulum chromosome winner.
 
-Goal: see what candidate refactorings gamakAST snap_karva offers for
+Goal: see what candidate refactorings fuller snap_karva offers for
 sqrt(col_0 * sqrt3 / h)  — numerically 2.006·√L — and whether any
 land on the lattice entry `2*pi/sqrt(g_earth)`.
 """
@@ -52,7 +52,7 @@ for i, g in enumerate(best):
 # Now run snap_karva on gene[0] directly
 print()
 print("=== snap_karva candidates for gene[0] ===")
-from gamakAST import snap_karva
+from fuller import snap_karva
 from _denoise_op import SEMANTIC_ID_MAP, _build_functions_dict, _token_tuple
 
 pset = eng._pset

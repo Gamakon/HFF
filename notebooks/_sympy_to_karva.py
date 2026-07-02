@@ -24,10 +24,10 @@ from geppy.core.symbol import Function, Terminal, SymbolTerminal
 
 
 # ---------------------------------------------------------------------------
-# Before→after simplification corpus (gamakAST CR, opt-in)
+# Before→after simplification corpus (fuller CR, opt-in)
 # ---------------------------------------------------------------------------
 # Logs every sympy simplification visit_subtree performs, as one JSON line, for
-# offline training of a kingdom classifier + extending gamakAST's parity corpus.
+# offline training of a kingdom classifier + extending fuller's parity corpus.
 #
 # DISABLED by default: only active when GAMAK_SIMPLIFY_CORPUS names a path. The
 # running sweep is unaffected unless explicitly turned on.

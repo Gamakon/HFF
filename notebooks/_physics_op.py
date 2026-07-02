@@ -1,4 +1,4 @@
-"""GEP physics-prior mutation operator: gamakAST physics_mutate_karva wrapper.
+"""GEP physics-prior mutation operator: fuller physics_mutate_karva wrapper.
 
 Unlike denoise (behaviour-preserving), this DELIBERATELY changes what the
 gene computes — re-pairs cross-axis vars onto same-axis, inverse-squares
@@ -21,10 +21,10 @@ from geppy.core.entity import Gene
 from geppy.core.symbol import Function, Terminal, SymbolTerminal
 
 try:
-    from gamakAST import physics_mutate_karva, master_pset
-    GAMAKAST_AVAILABLE = True
+    from fuller import physics_mutate_karva, master_pset
+    FULLER_AVAILABLE = True
 except ImportError:
-    GAMAKAST_AVAILABLE = False
+    FULLER_AVAILABLE = False
     physics_mutate_karva = None  # noqa
     master_pset = None  # noqa
 
@@ -80,7 +80,7 @@ def mut_physics(individual, toolbox, pset, X_train_df, y_train,
                 _stats: dict | None = None):
     """DEAP-style mutation. Returns (individual,). Behaviour-changing —
     NaN/inf survivors get max-bad fitness downstream and select out."""
-    if not GAMAKAST_AVAILABLE:
+    if not FULLER_AVAILABLE:
         return (individual,)
     if _stats is not None:
         _stats["calls"] = _stats.get("calls", 0) + 1

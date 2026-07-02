@@ -23,10 +23,10 @@ from geppy.core.entity import Gene, GeneDc
 from geppy.core.symbol import Function, Terminal, SymbolTerminal
 
 try:
-    from gamakAST import master_lattice, master_constants
-    GAMAKAST_AVAILABLE = True
+    from fuller import master_lattice, master_constants
+    FULLER_AVAILABLE = True
 except ImportError:
-    GAMAKAST_AVAILABLE = False
+    FULLER_AVAILABLE = False
 
 
 # ---------------------------------------------------------------------------
@@ -39,7 +39,7 @@ def register_atoms_in_pset(pset) -> None:
     Composed forms (1/(4*pi), 1/sqrt(2*pi)) appear as karva trees built
     from these atoms + integers + div/mul/sqrt — NOT as their own terminals.
     """
-    if not GAMAKAST_AVAILABLE:
+    if not FULLER_AVAILABLE:
         return
     existing = {t.name for t in pset.terminals}
     for name, value in master_constants():
@@ -58,7 +58,7 @@ def register_atoms_in_pset(pset) -> None:
 
 def _lattice_lookup(x: float, tolerance: float = 1e-3) -> Optional[dict]:
     """Find a lattice entry matching x within tolerance."""
-    if not GAMAKAST_AVAILABLE:
+    if not FULLER_AVAILABLE:
         return None
     if not (-1e10 < x < 1e10):
         return None
@@ -258,7 +258,7 @@ def snap_coefficient_into_gene(individual, pset, a: float, b: float = 0.0,
 
     Returns (individual, swapped: bool).
     """
-    if not GAMAKAST_AVAILABLE:
+    if not FULLER_AVAILABLE:
         return individual, False
     if abs(a - 1.0) < tolerance:
         return individual, False

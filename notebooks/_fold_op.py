@@ -1,16 +1,16 @@
-"""Post-snap fold via gamakAST denoise.
+"""Post-snap fold via fuller denoise.
 
 The snap-post step (in ``hff_sr_engine._pick_snap``) assembles the final
 recovered expression on the *sympy* side — e.g. ``pi*(r**2 + log(Abs(sqrt2)))
 - 1.0888``. That cluttered form only exists after the last in-loop denoise
-call, so gamakAST never gets a chance to fold the cancelling
+call, so fuller never gets a chance to fold the cancelling
 ``pi*log|sqrt2|`` / ``-1.0888`` pair.
 
-This module closes that gap: bridge the adopted sympy expression to gamakAST's
+This module closes that gap: bridge the adopted sympy expression to fuller's
 ``Math`` s-expression, run ``denoise`` once, and (if it changed and the data
 agrees) adopt the folded result back as sympy.
 
-Two gaps in the gamakAST surface we work around here:
+Two gaps in the fuller surface we work around here:
   * ``sympy_bridge.to_math`` returns None when a symbolic constant like
     ``sympy.pi`` is present — it models ``pi`` only as ``(Var "pi")``. We
     substitute ``sympy.pi -> Symbol('pi')`` (and e) before bridging.
@@ -26,14 +26,14 @@ from typing import Optional
 import sympy as sp
 
 try:
-    import gamakAST as _g
-    _GAMAKAST_OK = True
+    import fuller as _g
+    _FULLER_OK = True
 except Exception:  # pragma: no cover - optional dependency
     _g = None
-    _GAMAKAST_OK = False
+    _FULLER_OK = False
 
 
-# Symbolic constants gamakAST models only as named Vars, not sympy singletons.
+# Symbolic constants fuller models only as named Vars, not sympy singletons.
 _CONST_TO_SYMBOL = {sp.pi: sp.Symbol("pi"), sp.E: sp.Symbol("e")}
 _SYMBOL_TO_CONST = {"pi": sp.pi, "e": sp.E}
 
@@ -132,12 +132,12 @@ def fold_expr(
     tolerance: float = 1e-6,
     k_variants: int = 32,
 ) -> Optional["sp.Expr"]:
-    """Fold ``expr`` (sympy) via gamakAST denoise. Return the folded sympy
+    """Fold ``expr`` (sympy) via fuller denoise. Return the folded sympy
     expression if it changed, else None. Callers should data-gate adoption.
 
     ``rows`` is a list of {var_name: value} dicts (including any named-constant
     atoms like ``pi``/``sqrt2`` the expression references)."""
-    if not _GAMAKAST_OK or expr is None:
+    if not _FULLER_OK or expr is None:
         return None
 
     folded = None

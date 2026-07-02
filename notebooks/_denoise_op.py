@@ -1,6 +1,6 @@
-"""GEP mutation operator: denoise via gamakAST (egglog).
+"""GEP mutation operator: denoise via fuller (egglog).
 
-Wraps gamakAST.denoise_karva so it plugs into a geppy/DEAP toolbox like any
+Wraps fuller.denoise_karva so it plugs into a geppy/DEAP toolbox like any
 other mutator. Behaviour-preserving by construction — when it fires and
 denoise returns changed=True, we ALSO re-evaluate the candidate via the
 chromosome's compiled callable (geppy is the source of truth) before
@@ -25,14 +25,14 @@ from geppy.core.symbol import Function, Terminal, SymbolTerminal
 import hff_geppy_helpers as hgh
 
 try:
-    from gamakAST import denoise_karva
-    GAMAKAST_AVAILABLE = True
+    from fuller import denoise_karva
+    FULLER_AVAILABLE = True
 except ImportError:
-    GAMAKAST_AVAILABLE = False
+    FULLER_AVAILABLE = False
     denoise_karva = None  # noqa
 
 
-# Map our pset's geppy names → gamakAST semantic_ids. Protected ops use the
+# Map our pset's geppy names → fuller semantic_ids. Protected ops use the
 # new first-class protected_* constructors so denoise is sound on negatives.
 SEMANTIC_ID_MAP = {
     "add": "add",
@@ -56,7 +56,7 @@ SEMANTIC_ID_MAP = {
     "_pset_inv": "protected_inv",
     "_diff_sq": "diff_sq",
     # Raw ops (master_pset coverage) — keep semantically distinct from
-    # protected variants so gamakAST snap candidates that need raw div /
+    # protected variants so fuller snap candidates that need raw div /
     # inv / sqrt etc. can decode back into the engine's actual pset
     # without sneaking through unsafe protected substitution.
     "_raw_div": "div",
@@ -69,7 +69,7 @@ SEMANTIC_ID_MAP = {
 
 
 def _build_functions_dict(pset) -> dict:
-    """Build the {token_name: (semantic_id, arity)} dict gamakAST expects."""
+    """Build the {token_name: (semantic_id, arity)} dict fuller expects."""
     out = {}
     for f in pset.functions:
         sid = SEMANTIC_ID_MAP.get(f.name)
@@ -79,7 +79,7 @@ def _build_functions_dict(pset) -> dict:
 
 
 def _token_tuple(tok) -> tuple:
-    """Geppy token → gamakAST token tuple (kind, value)."""
+    """Geppy token → fuller token tuple (kind, value)."""
     if isinstance(tok, Function):
         return ("func", tok.name)
     if isinstance(tok, Terminal):
@@ -90,7 +90,7 @@ def _token_tuple(tok) -> tuple:
 
 
 def _rebuild_tokens(token_tuples: list, pset) -> list:
-    """gamakAST token tuples → geppy tokens (for re-injecting into a Gene)."""
+    """fuller token tuples → geppy tokens (for re-injecting into a Gene)."""
     name_to_fn = {f.name: f for f in pset.functions}
     name_to_term = {t.name: t for t in pset.terminals}
     out = []
@@ -155,7 +155,7 @@ def mut_denoise(individual, toolbox, pset, X_train_df, y_train,
                 agree_tol: float = 1e-4, rng_seed: int = 0,
                 _stats: dict | None = None):
     """DEAP-style mutation. Returns (individual,). Behaviour-preserving."""
-    if not GAMAKAST_AVAILABLE:
+    if not FULLER_AVAILABLE:
         return (individual,)
     if _stats is not None:
         _stats["calls"] = _stats.get("calls", 0) + 1
@@ -166,7 +166,7 @@ def mut_denoise(individual, toolbox, pset, X_train_df, y_train,
     functions = _build_functions_dict(pset)
 
     # Convert ALL training rows once; denoise will subsample internally as
-    # gamakAST sees fit (its k_variants param is per-call).
+    # fuller sees fit (its k_variants param is per-call).
     rows = X_train_df.to_dict(orient="records")
 
     changed_any = False

@@ -1,4 +1,4 @@
-"""End-phase snap via gamakAST.snap_karva (egglog-backed).
+"""End-phase snap via fuller.snap_karva (egglog-backed).
 
 Replaces _snap_with_timeout in hff_sr_engine._extract_best. Behaviour-
 preserving: candidates are e-graph-verified equivalents; snap proposes,
@@ -25,10 +25,10 @@ from geppy.core.symbol import ConstantTerminal
 import hff_geppy_helpers as hgh
 
 try:
-    from gamakAST import snap_karva, master_constants, master_pset
-    GAMAKAST_AVAILABLE = True
+    from fuller import snap_karva, master_constants, master_pset
+    FULLER_AVAILABLE = True
 except ImportError:
-    GAMAKAST_AVAILABLE = False
+    FULLER_AVAILABLE = False
     snap_karva = None  # noqa
     master_constants = None  # noqa
     master_pset = None  # noqa
@@ -153,7 +153,7 @@ def snap_individual(individual, toolbox, pset, X_ho, y_ho,
 
     Returns (new_individual_or_original, swapped: bool).
     """
-    if not GAMAKAST_AVAILABLE:
+    if not FULLER_AVAILABLE:
         if _stats is not None:
             _stats["unavailable"] = _stats.get("unavailable", 0) + 1
         return individual, False

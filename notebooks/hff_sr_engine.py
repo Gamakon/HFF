@@ -270,10 +270,10 @@ def _pset_neg(x):    return -x
 def _pset_inv(x):    return 1.0 / x if x != 0 else 1.0
 def _diff_sq(a, b):  return (a - b) * (a - b)   # (a-b)² — common physics
 
-# Raw (un-protected) ops added to match gamakAST's master_pset. The GA may
+# Raw (un-protected) ops added to match fuller's master_pset. The GA may
 # emit these via mutation; if they produce NaN/inf on data, the chromosome
 # gets max-bad fitness and selects out — no need for runtime guards. These
-# are the same ops gamakAST's physics_mutate generates (E1 inverse-square,
+# are the same ops fuller's physics_mutate generates (E1 inverse-square,
 # E4 power-law, etc.) — registering them keeps every candidate decodable.
 def _raw_div(a, b):  return a / b
 def _raw_sqrt(x):    return math.sqrt(x)
@@ -384,7 +384,7 @@ class HFFSRConfig:
     use_wide_primitives: bool = True   # add sin, cos, exp, log to the pset
     # Post-run
     snap_rel_tol: float = 1e-3
-    # Use gamakAST's egglog-backed snap (snap_karva via _snap_op) at end-phase:
+    # Use fuller's egglog-backed snap (snap_karva via _snap_op) at end-phase:
     # snap hof[0]'s genes to constant-substituted equivalents and add the
     # snapped chromosome as a PARALLEL pool candidate (HFF pick ranks it vs the
     # raw form on holdout). Off by default — additive, never disturbs the
@@ -405,14 +405,14 @@ class HFFSRConfig:
     # scaling we do to n_nodes upstream. Setting this fixes the axis's
     # effective scale to a chosen value — bigger = less pressure.
     parsimony_col_max: float = 0.0
-    # Denoise mutation (gamakAST): per-individual probability per gen.
+    # Denoise mutation (fuller): per-individual probability per gen.
     # Behaviour-preserving rewrite via egglog; sound-on-data via a
     # compile_and_predict safety re-check before swap. 0 = disabled.
     # Recommended 0.02-0.05 when enabled.
     pb_denoise: float = 0.20
     denoise_agree_tol: float = 1e-4    # compile-vs-denoise predict tolerance
     denoise_sample_rows: int = 64      # rows used in safety re-check
-    # Physics-prior mutation (gamakAST physics_mutate_karva). Behaviour-
+    # Physics-prior mutation (fuller physics_mutate_karva). Behaviour-
     # CHANGING — re-pairs cross-axis vars, inverse-squares factors, etc.
     # NaN/inf chromosomes get max-bad fitness and select out naturally
     # (no runtime safety net beyond the existing _compute_raw_metrics path).
@@ -427,7 +427,7 @@ class HFFSRConfig:
     snap_winners: bool = True
     snap_winners_top_k: int = 0          # 0 = snap all offspring; >0 = top-K only
     pb_snap_winners: float = 1.0         # per-individual gate; 1.0 = every offspring
-    # Real surgery: when LSM-fitted `a` matches the gamakAST lattice, graft
+    # Real surgery: when LSM-fitted `a` matches the fuller lattice, graft
     # the named-constant karva (e.g. 1/sqrt(2*pi)) into gene[0] and reset
     # ind.a=1.0. The constant becomes inheritable DNA so crossover mixes
     # named atoms across chromosomes. No new pset terminals are created —
@@ -520,7 +520,7 @@ def _build_toolbox(bundle: _Bundle):
         pset.add_function(_pset_neg, 1)
         pset.add_function(_pset_inv, 1)
         pset.add_function(_diff_sq, 2)
-        # Master-pset coverage for gamakAST mutations (raw variants + tan +
+        # Master-pset coverage for fuller mutations (raw variants + tan +
         # pow). Without these, physics_mutate candidates using raw ops get
         # silently dropped at gene-rebuild. NaN/inf chromosomes get max-bad
         # fitness in _compute_raw_metrics and select out naturally.
@@ -892,7 +892,7 @@ def _apply_denoise(population, toolbox, pset, bundle, cfg):
     try:
         from _denoise_op import mut_denoise
     except ImportError:
-        return population  # gamakAST not installed; silently skip
+        return population  # fuller not installed; silently skip
     X_train = bundle.train.drop(columns=["target"]) if "target" in bundle.train.columns else bundle.train
     y_train = bundle.Y
     for i, ind in enumerate(population):
@@ -1051,7 +1051,7 @@ class HFFSREngine:
         self._toolbox = toolbox
         self._pset = pset
         self._bundle = bundle
-        # Register the 16 gamakAST master_constants atoms (pi, e, G, ...)
+        # Register the 16 fuller master_constants atoms (pi, e, G, ...)
         # as SymbolTerminals so snap-into-gene can graft named-constant
         # tokens. Composed forms (1/(4*pi), 1/sqrt(2*pi)) appear as karva
         # expressions built from these atoms + ints + div/mul/sqrt.
@@ -1207,7 +1207,7 @@ class HFFSREngine:
                 for op in toolbox.pbs:
                     if op.startswith("cx"):
                         offspring = _gep_apply_crossover(offspring, getattr(toolbox, op), toolbox.pbs[op])
-                # Denoise mutation: gamakAST egglog-backed, behaviour-
+                # Denoise mutation: fuller egglog-backed, behaviour-
                 # preserving. Per-individual probability gated by
                 # cfg.pb_denoise (default 0 = disabled). Safety re-check
                 # via compile_and_predict guarantees swaps never change
@@ -2090,7 +2090,7 @@ class HFFSREngine:
                     "wrapper_id": w_id,
                 })
 
-        # (1b) EGGLOG SNAP (gamakAST) — additive parallel candidate. Snap hof[0]
+        # (1b) EGGLOG SNAP (fuller) — additive parallel candidate. Snap hof[0]
         # to a constant-substituted equivalent chromosome and run it through the
         # SAME compress+wrapper+LSM path, tagged chromosome.snap.<wrapper>, so
         # the HFF pick ranks snapped vs raw on holdout. Gated + fully fail-safe:
@@ -2265,7 +2265,7 @@ class HFFSREngine:
 
         The discovered form is `a*f(x) + b`. The GA found f(x) (the shape); the
         constant is in `a`. We:
-          1. Snap `a` to the nearest gamakAST lattice constant (π, 1/(4π), ...)
+          1. Snap `a` to the nearest fuller lattice constant (π, 1/(4π), ...)
              by relative tolerance — using a lattice that does NOT include any
              handed-in pset constant (pset has no π; snap DISCOVERS it).
           2. Build candidate exprs: (i) original, (ii) a→snap(a), (iii)
@@ -2275,13 +2275,13 @@ class HFFSREngine:
         """
         try:
             import sympy as _sp
-            import gamakAST as _gk  # noqa: F401  (availability/version anchor)
+            import fuller as _gk  # noqa: F401  (availability/version anchor)
         except Exception:
             return None
 
         def _snap_scalar(x):
             """Snap x to a clean constant. Hybrid:
-              1. gamakAST master_lattice() — verified entries (physics
+              1. fuller master_lattice() — verified entries (physics
                  constants + composed forms incl. 1/(4*pi), 2*pi/sqrt(e), ...)
               2. Fallback to sympy.nsimplify([pi, E]) for the long tail.
 
@@ -2290,9 +2290,9 @@ class HFFSREngine:
             not as an unbound Symbol — otherwise float(cand) fails and the
             lattice hit is silently dropped.
             """
-            # Stage 1: gamakAST lattice
+            # Stage 1: fuller lattice
             try:
-                from gamakAST import master_lattice, master_constants
+                from fuller import master_lattice, master_constants
                 # Build sympify locals: pi/E always symbolic; all OTHER atoms
                 # bound to their numeric values so float(cand) succeeds.
                 _locals = {"pi": _sp.pi, "E": _sp.E,
@@ -2417,7 +2417,7 @@ class HFFSREngine:
             # Post-snap fold: the adopted form is assembled on the sympy side
             # after the last in-loop denoise, so a cancelling constant subtree
             # (e.g. pi*log|sqrt2| + a linker offset) is never handed back to
-            # gamakAST. Try one denoise pass on it here; adopt only if the fold
+            # fuller. Try one denoise pass on it here; adopt only if the fold
             # changed the expression AND does not lose R² (data-gated).
             try:
                 from _fold_op import fold_expr as _fold_expr
