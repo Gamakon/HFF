@@ -26,6 +26,8 @@ notebooks/_test_feynman_load.py          # smoke test, not a source artefact
 *.log
 notebooks/_*.py
 notebooks/_*.sh
+# ...but real underscore-prefixed modules are tracked; exempt them explicitly.
+!notebooks/_fold_op.py
 notebooks/_ledgers/
 notebooks/_sweep_logs/
 data/

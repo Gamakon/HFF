@@ -2414,6 +2414,32 @@ class HFFSREngine:
         if best_tag != "orig" and best_r2 >= orig_r2 - 1e-9:
             if verbose:
                 print(f"[snap-post] adopted {best_tag}: {best_e}  (R² {orig_r2:.6f} -> {best_r2:.6f})")
+            # Post-snap fold: the adopted form is assembled on the sympy side
+            # after the last in-loop denoise, so a cancelling constant subtree
+            # (e.g. pi*log|sqrt2| + a linker offset) is never handed back to
+            # gamakAST. Try one denoise pass on it here; adopt only if the fold
+            # changed the expression AND does not lose R² (data-gated).
+            try:
+                from _fold_op import fold_expr as _fold_expr
+                _rows = [
+                    {**{v: float(holdout[v].values[i]) for v in Xcols},
+                     **{name: float(val) for name, val in _atom_value_by_name.items()}}
+                    for i in range(len(yv))
+                ]
+                _folded = _fold_expr(best_e, _rows, tolerance=1e-6, k_variants=32)
+                if _folded is not None:
+                    _folded_r2 = _r2(_folded)
+                    if _folded_r2 >= best_r2 - 1e-9:
+                        if verbose:
+                            print(f"[snap-post] folded {best_tag}: {_folded}  "
+                                  f"(R² {best_r2:.6f} -> {_folded_r2:.6f})")
+                        return _folded
+                    elif verbose:
+                        print(f"[snap-post] fold rejected (R² {best_r2:.6f} -> "
+                              f"{_folded_r2:.6f}, would lose accuracy)")
+            except Exception as _fe:
+                if verbose:
+                    print(f"[snap-post] fold skipped ({type(_fe).__name__}: {_fe})")
             return best_e
         return None
 
