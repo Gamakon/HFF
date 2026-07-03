@@ -68,10 +68,17 @@ SEMANTIC_ID_MAP = {
 }
 
 
+def _all_decodable_functions(pset) -> list:
+    """pset.functions plus any decode-only registrations (raw ops etc. that
+    fuller may emit but the GA's random sampler must not draw — see
+    hff_sr_engine._add_decode_only_function)."""
+    return list(pset.functions) + list(getattr(pset, "decode_only_functions", []))
+
+
 def _build_functions_dict(pset) -> dict:
     """Build the {token_name: (semantic_id, arity)} dict fuller expects."""
     out = {}
-    for f in pset.functions:
+    for f in _all_decodable_functions(pset):
         sid = SEMANTIC_ID_MAP.get(f.name)
         if sid is not None:
             out[f.name] = (sid, f.arity)
@@ -91,7 +98,7 @@ def _token_tuple(tok) -> tuple:
 
 def _rebuild_tokens(token_tuples: list, pset) -> list:
     """fuller token tuples → geppy tokens (for re-injecting into a Gene)."""
-    name_to_fn = {f.name: f for f in pset.functions}
+    name_to_fn = {f.name: f for f in _all_decodable_functions(pset)}
     name_to_term = {t.name: t for t in pset.terminals}
     out = []
     for kind, val in token_tuples:

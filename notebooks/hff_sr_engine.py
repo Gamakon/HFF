@@ -270,11 +270,13 @@ def _pset_neg(x):    return -x
 def _pset_inv(x):    return 1.0 / x if x != 0 else 1.0
 def _diff_sq(a, b):  return (a - b) * (a - b)   # (a-b)² — common physics
 
-# Raw (un-protected) ops added to match fuller's master_pset. The GA may
-# emit these via mutation; if they produce NaN/inf on data, the chromosome
-# gets max-bad fitness and selects out — no need for runtime guards. These
-# are the same ops fuller's physics_mutate generates (E1 inverse-square,
-# E4 power-law, etc.) — registering them keeps every candidate decodable.
+# Raw (un-protected) ops matching fuller's master_pset. These exist ONLY so
+# chromosomes emitted by fuller's karva mutations (physics_mutate, snap,
+# denoise) stay decodable + compilable — they are registered decode-only
+# (see _add_decode_only_function) and NEVER enter the random sampling pool.
+# The engine's searchable symbol table uses the protected_* variants; a raw
+# op reaches the population only via a fuller candidate, and if it produces
+# NaN/inf on data the chromosome gets max-bad fitness and selects out.
 def _raw_div(a, b):  return a / b
 def _raw_sqrt(x):    return math.sqrt(x)
 def _raw_log(x):     return math.log(x)
@@ -503,6 +505,31 @@ def _build_ctx(bundle: _Bundle) -> dict:
     }
 
 
+def _add_decode_only_function(pset, func, arity, name=None):
+    """Register *func* so genes containing it compile and rebuild, WITHOUT
+    entering the GA's random sampling pool.
+
+    geppy draws head symbols from ``pset.functions``; ``add_function`` both
+    appends there AND registers the callable in ``pset.globals``. Splitting
+    the two lets fuller's karva mutations (physics/snap/denoise) emit these
+    tokens — the rebuild paths in _denoise_op/_snap_op also consult
+    ``pset.decode_only_functions`` — while ordinary init/mutation never
+    samples them. This is what keeps raw (un-protected) ops out of random
+    chromosomes: previously they were add_function'd and sprayed
+    div-by-zero/overflow RuntimeWarnings from freshly generated genes.
+    """
+    if name is None:
+        name = func.__name__
+    if name in pset.globals:
+        return None  # already registered (sampled or decode-only)
+    fn = gep.Function(name, arity)
+    pset.globals[name] = func
+    if not hasattr(pset, "decode_only_functions"):
+        pset.decode_only_functions = []
+    pset.decode_only_functions.append(fn)
+    return fn
+
+
 def _build_toolbox(bundle: _Bundle):
     """Construct the DEAP toolbox + primitive set for a problem."""
     cfg = bundle.config
@@ -529,16 +556,19 @@ def _build_toolbox(bundle: _Bundle):
         pset.add_function(_pset_inv, 1)
         pset.add_function(_diff_sq, 2)
         # Master-pset coverage for fuller mutations (raw variants + tan +
-        # pow). Without these, physics_mutate candidates using raw ops get
-        # silently dropped at gene-rebuild. NaN/inf chromosomes get max-bad
-        # fitness in _compute_raw_metrics and select out naturally.
-        pset.add_function(math.tan, 1)
-        pset.add_function(_raw_div, 2)
-        pset.add_function(_raw_sqrt, 1)
-        pset.add_function(_raw_log, 1)
-        pset.add_function(_raw_exp, 1)
-        pset.add_function(_raw_inv, 1)
-        pset.add_function(_raw_pow, 2)
+        # pow). Without these, physics_mutate/snap candidates using raw ops
+        # get silently dropped at gene-rebuild. Registered DECODE-ONLY: the
+        # random sampler must not draw them (raw div/pow on random genes
+        # spray NaN/inf chromosomes that waste evaluations); they enter the
+        # population only inside a fuller-built candidate, and NaN/inf
+        # survivors get max-bad fitness in _compute_raw_metrics.
+        _add_decode_only_function(pset, math.tan, 1)
+        _add_decode_only_function(pset, _raw_div, 2)
+        _add_decode_only_function(pset, _raw_sqrt, 1)
+        _add_decode_only_function(pset, _raw_log, 1)
+        _add_decode_only_function(pset, _raw_exp, 1)
+        _add_decode_only_function(pset, _raw_inv, 1)
+        _add_decode_only_function(pset, _raw_pow, 2)
     pset.add_rnc_terminal()
 
     toolbox = gep.Toolbox()

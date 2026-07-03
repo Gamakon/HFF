@@ -37,7 +37,8 @@ except ImportError:
     eclass_extract_hff_instrumented = None  # noqa
     from_math = None  # noqa
 
-from _denoise_op import SEMANTIC_ID_MAP, _build_functions_dict, _token_tuple, _rebuild_tokens
+from _denoise_op import (SEMANTIC_ID_MAP, _build_functions_dict, _token_tuple,
+                         _rebuild_tokens, _all_decodable_functions)
 
 
 def _build_functions_dict_for_snap(pset) -> dict:
@@ -90,7 +91,7 @@ def _rebuild_tokens_with_consts(token_tuples: list, pset) -> list:
     entries — looks up the constant as a ConstantTerminal in the augmented
     pset.
     """
-    name_to_fn = {f.name: f for f in pset.functions}
+    name_to_fn = {f.name: f for f in _all_decodable_functions(pset)}
     name_to_term = {t.name: t for t in pset.terminals}
     out = []
     for kind, val in token_tuples:
