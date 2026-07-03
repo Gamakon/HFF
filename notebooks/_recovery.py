@@ -24,19 +24,41 @@ import numpy as np
 try:
     import fuller
     _FULLER_OK = True
+    # Named physical/math constants with their values (pi, e, gamma, c, G, ...).
+    _CONSTS = dict(fuller.master_constants())
 except Exception:
     fuller = None
     _FULLER_OK = False
+    _CONSTS = {}
+
+
+def _parse(expr_str):
+    """sympify a string, forcing every named-constant token to a plain Symbol.
+
+    Critical: sympy parses bare names like `gamma` (Euler-Mascheroni) and `beta`
+    as its built-in SPECIAL FUNCTIONS, not symbols — so `a**3*gamma` becomes
+    `Pow * FunctionClass` and multiplication raises. Binding those names to
+    Symbols in `locals` defeats the collision; the numeric values are substituted
+    separately by the caller path."""
+    if not isinstance(expr_str, str):
+        return sp.sympify(expr_str)
+    loc = {name: sp.Symbol(name) for name in _CONSTS}
+    return sp.sympify(expr_str, locals=loc)
 
 
 def recovery_check(discovered, truth, variables, ranges,
                    subs: dict | None = None, r2_tol: float = 0.9999,
                    n: int = 400, seed: int = 0) -> dict:
     try:
-        d = sp.sympify(discovered)
-        t = sp.sympify(truth)
+        d = _parse(discovered)
+        t = _parse(truth)
+        # Substitute known constant values (both truth's and any left in
+        # discovered): these are named constants, not free fitted parameters.
+        const_subs = {sp.Symbol(k): v for k, v in _CONSTS.items()}
         if subs:
-            t = t.subs({sp.Symbol(k): v for k, v in subs.items()})
+            const_subs.update({sp.Symbol(k): v for k, v in subs.items()})
+        d = d.subs(const_subs)
+        t = t.subs(const_subs)
     except Exception as e:
         return {"recovered": False, "how": f"parse error: {e}", "r2": float("nan")}
 
@@ -48,17 +70,48 @@ def recovery_check(discovered, truth, variables, ranges,
         except Exception:
             pass
 
+    # After binding named constants, any symbol left in `discovered` that is not
+    # a data variable is a genuinely-unresolved free parameter. Report it plainly
+    # rather than guess a value — that is an oracle limitation, not a recovery.
+    stray = sorted({str(s) for s in d.free_symbols} - set(variables))
+    if stray:
+        return {"recovered": False,
+                "how": f"unscored: free symbol(s) {stray} not in data vars",
+                "r2": float("nan")}
+
     # 2) numeric: does discovered predict truth up to an affine (scale+offset)?
     syms = [sp.Symbol(v) for v in variables]
     rng = np.random.RandomState(seed)
     X = {v: rng.uniform(ranges[v][0], ranges[v][1], n) for v in variables}
-    try:
-        fd = sp.lambdify(syms, d, "numpy")
-        ft = sp.lambdify(syms, t, "numpy")
-        yd = np.asarray(fd(*[X[v] for v in variables]), dtype=float) * np.ones(n)
-        yt = np.asarray(ft(*[X[v] for v in variables]), dtype=float) * np.ones(n)
-    except Exception as e:
-        return {"recovered": False, "how": f"eval error: {e}", "r2": float("nan")}
+
+    def _eval(expr):
+        """Evaluate expr over the sample points, returning a float array.
+        Tries vectorised numpy; on a ufunc/dtype failure (complex results, ops
+        numpy's lambdify can't broadcast) falls back to per-row scalar eval so
+        a hard-to-vectorise-but-valid form is not misreported as a non-match."""
+        try:
+            f = sp.lambdify(syms, expr, "numpy")
+            out = np.asarray(f(*[X[v] for v in variables]), dtype=complex) * np.ones(n)
+            return np.where(np.abs(out.imag) < 1e-9, out.real, np.nan)
+        except Exception:
+            pass
+        try:
+            fs = sp.lambdify(syms, expr, "math")
+            vals = np.full(n, np.nan)
+            for i in range(n):
+                try:
+                    r = fs(*[X[v][i] for v in variables])
+                    vals[i] = float(r) if np.isreal(r) else np.nan
+                except Exception:
+                    vals[i] = np.nan
+            return vals
+        except Exception:
+            return None
+
+    yd = _eval(d)
+    yt = _eval(t)
+    if yd is None or yt is None:
+        return {"recovered": False, "how": "eval error (unevaluable)", "r2": float("nan")}
 
     m = np.isfinite(yd) & np.isfinite(yt)
     if m.sum() < 10:
