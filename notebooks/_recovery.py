@@ -48,7 +48,12 @@ def _parse(expr_str):
 
 def recovery_check(discovered, truth, variables, ranges,
                    subs: dict | None = None, r2_tol: float = 0.9999,
-                   n: int = 400, seed: int = 0) -> dict:
+                   n: int = 400, seed: int = 0, X_eval: dict | None = None) -> dict:
+    """`X_eval`: optional {var: array} of in-domain points (e.g. the problem's
+    holdout X). When given, it is used for the numeric comparison instead of a
+    uniform random sweep — the random sweep can land mostly in a protected op's
+    NaN domain (sqrt/log/div of negatives) and leave too few finite points to
+    score, even for a form that is R²=1.0 on the real data."""
     try:
         d = _parse(discovered)
         t = _parse(truth)
@@ -81,8 +86,13 @@ def recovery_check(discovered, truth, variables, ranges,
 
     # 2) numeric: does discovered predict truth up to an affine (scale+offset)?
     syms = [sp.Symbol(v) for v in variables]
-    rng = np.random.RandomState(seed)
-    X = {v: rng.uniform(ranges[v][0], ranges[v][1], n) for v in variables}
+    if X_eval is not None and all(v in X_eval for v in variables):
+        # Use the caller's in-domain points (holdout X) — guaranteed valid.
+        X = {v: np.asarray(X_eval[v], dtype=float) for v in variables}
+        n = len(next(iter(X.values())))
+    else:
+        rng = np.random.RandomState(seed)
+        X = {v: rng.uniform(ranges[v][0], ranges[v][1], n) for v in variables}
 
     def _eval(expr):
         """Evaluate expr over the sample points, returning a float array.
