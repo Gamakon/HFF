@@ -25,7 +25,8 @@ from geppy.core.symbol import ConstantTerminal
 import hff_geppy_helpers as hgh
 
 try:
-    from fuller import snap_karva, concretize_karva, master_constants, master_pset
+    from fuller import (snap_karva, concretize_karva, master_constants,
+                        master_pset, eclass_extract_hff_instrumented, from_math)
     FULLER_AVAILABLE = True
 except ImportError:
     FULLER_AVAILABLE = False
@@ -33,6 +34,8 @@ except ImportError:
     concretize_karva = None  # noqa
     master_constants = None  # noqa
     master_pset = None  # noqa
+    eclass_extract_hff_instrumented = None  # noqa
+    from_math = None  # noqa
 
 from _denoise_op import SEMANTIC_ID_MAP, _build_functions_dict, _token_tuple, _rebuild_tokens
 
@@ -330,3 +333,42 @@ def concretize_individual(individual, toolbox, pset, X_ho, y_ho,
     if _stats is not None:
         _stats["individuals_changed"] = _stats.get("individuals_changed", 0) + 1
     return candidate, True
+
+
+def instrumented_tidy_gene(gene, pset, rows_train, rows_val,
+                           k: int = 64, iters: int = 12):
+    """Final-answer tidying via fuller.eclass_extract_hff_instrumented.
+
+    Runs the e-class tournament on one gene's karva, scoring every equivalent
+    form on train + val rows, and returns the winning (lowest-score) form as a
+    sympy expression (via from_math), or None on any failure. Behaviour-
+    preserving: the tournament only ranks algebraically-equal variants, so the
+    caller can adopt the result but should still R²-gate as a belt-and-braces.
+    """
+    if not FULLER_AVAILABLE:
+        return None
+    try:
+        head_tuples = [_token_tuple(t) for t in gene.head]
+        tail_tuples = [_token_tuple(t) for t in gene.tail]
+    except Exception:
+        return None
+    variables = [t.name for t in pset.terminals
+                 if (isinstance(t, SymbolTerminal) or t.value is None)]
+    rnc_values = sorted({float(t.value) for t in pset.terminals
+                         if getattr(t, "value", None) is not None})
+    functions = _build_functions_dict_for_snap(pset)
+    try:
+        ranked = eclass_extract_hff_instrumented(
+            head_tuples, tail_tuples, variables, functions, rnc_values,
+            rows_train, rows_val, k=k, iters=iters,
+        )
+    except Exception:
+        return None
+    if not ranked:
+        return None
+    # ranked is [(score, math_sexpr), ...], best (lowest) first.
+    try:
+        _score, best_sexpr = ranked[0]
+        return from_math(best_sexpr)
+    except Exception:
+        return None

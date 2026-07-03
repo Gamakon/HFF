@@ -431,6 +431,10 @@ class HFFSRConfig:
     # numeric values. The inverse of snap_winners; the pair lets selection choose
     # the representation. Low probability — snap is the dominant direction.
     pb_concretize: float = 0.05          # per-individual gate for the down-flip
+    # Final-answer tidying via fuller's instrumented e-class tournament: score
+    # every equivalent form of the winner's genes on train+val and adopt the
+    # tidiest, R²-gated. Augments the compress path; off -> only compress runs.
+    instrumented_tidy: bool = True
     # Real surgery: when LSM-fitted `a` matches the fuller lattice, graft
     # the named-constant karva (e.g. 1/sqrt(2*pi)) into gene[0] and reset
     # ind.a=1.0. The constant becomes inheritable DNA so crossover mixes
@@ -2083,6 +2087,21 @@ class HFFSREngine:
                 except Exception:
                     return e
 
+            # Optional: build train/val row dicts once for the instrumented
+            # tournament tidier (fuller e-class extraction scored on real data).
+            _tidy_rows_tr = _tidy_rows_va = None
+            if self.config.instrumented_tidy:
+                try:
+                    _Xc = bundle.variables
+                    _tr = bundle.train
+                    _va = bundle.val if getattr(bundle, "val", None) is not None else bundle.train
+                    _tidy_rows_tr = [{v: float(_tr[v].values[i]) for v in _Xc}
+                                     for i in range(len(_tr))]
+                    _tidy_rows_va = [{v: float(_va[v].values[i]) for v in _Xc}
+                                     for i in range(len(_va))]
+                except Exception:
+                    _tidy_rows_tr = _tidy_rows_va = None
+
             _per_gene_sym = []
             for _g in best:
                 try:
@@ -2090,7 +2109,17 @@ class HFFSREngine:
                                               sub_h=10, max_passes=2)
                     _ng = _Gene.from_genome(list(_nh) + list(_nt),
                                             head_length=len(_nh))
-                    _per_gene_sym.append(_real_subs(_simplify_kexpr(_ng.kexpression, sym_map)))
+                    _compressed_sym = _real_subs(_simplify_kexpr(_ng.kexpression, sym_map))
+                    # Instrumented tidy: if the tournament yields an equivalent
+                    # form, prefer it (it ranked variants on train+val already).
+                    _tidied = None
+                    if _tidy_rows_tr is not None:
+                        try:
+                            from _snap_op import instrumented_tidy_gene as _tidy
+                            _tidied = _tidy(_g, self._pset, _tidy_rows_tr, _tidy_rows_va)
+                        except Exception:
+                            _tidied = None
+                    _per_gene_sym.append(_tidied if _tidied is not None else _compressed_sym)
                 except Exception:
                     _per_gene_sym.append(_real_subs(_simplify_kexpr(_g.kexpression, sym_map)))
             _linker_for_sym = sym_map.get(best.linker.__name__, best.linker)
