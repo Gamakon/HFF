@@ -140,7 +140,8 @@ def _reset_prune_state():
     _PRUNES_DONE = 0
 
 
-def _maybe_prune(hof, current_gen: int, verbose: bool = False):
+def _maybe_prune(hof, current_gen: int, verbose: bool = False,
+                 freeze_wrappers: bool = False):
     global _ACTIVE_WRAPPER_IDS, _ACTIVE_LINKER_IDS, _PRUNES_DONE
     if _PRUNES_DONE >= len(_PRUNE_AT_GENS):
         return
@@ -159,6 +160,11 @@ def _maybe_prune(hof, current_gen: int, verbose: bool = False):
     new_l = [i for i in _ACTIVE_LINKER_IDS if l_counts[i] >= threshold]
     if len(new_w) == 1 or max(w_counts) >= n:
         new_w = [int(np.argmax(w_counts))]
+    if freeze_wrappers:
+        # Wrapper-per-island mode: every class is pinned by construction —
+        # pruning wrappers would silently kill whole islands. Linker
+        # pruning stays active.
+        new_w = list(_ACTIVE_WRAPPER_IDS)
     _ACTIVE_WRAPPER_IDS = new_w if new_w else _ACTIVE_WRAPPER_IDS
     _ACTIVE_LINKER_IDS = new_l if new_l else _ACTIVE_LINKER_IDS
     _PRUNES_DONE += 1
@@ -364,6 +370,17 @@ class HFFSRConfig:
     # Evolution
     n_gen: int = 400
     num_islands: int = 2          # 1 intake + 1 champion (pump topology)
+    # Wrapper-per-island fanout (v1.0.4 notebook topology). One pump pair
+    # (intake -> champion) PER WRAPPER CLASS, each island pinned to its
+    # wrapper: individuals evaluate ONLY their island's wrapper (linker
+    # search stays per-eval). Cross-class broadcast (migration_freq) is the
+    # only channel between wrapper spaces; arrivals are re-stamped to the
+    # receiving class so structural DNA crosses but the wrapper doesn't.
+    # Overrides num_islands (topology becomes 2 x N_WRAPPERS islands) and
+    # freezes wrapper pruning (each class is protected by construction).
+    # Total population = N_WRAPPERS x (pop_intake + pop_champion) — size
+    # pop_intake/pop_champion accordingly for a fair compute budget.
+    wrapper_islands: bool = False
     pop_intake: int = 100
     pop_champion: int = 50
     tourn_intake: int = 8
@@ -665,6 +682,11 @@ def _compute_raw_metrics(individual, toolbox, bundle: _Bundle):
     candidates = []
     active_l = globals().get("_ACTIVE_LINKER_IDS", list(range(N_LINKERS)))
     active_w = globals().get("_ACTIVE_WRAPPER_IDS", list(range(N_WRAPPERS)))
+    # Wrapper-per-island pinning: an individual stamped with
+    # pinned_wrapper_id evaluates ONLY its island's wrapper class.
+    _pinned = getattr(individual, "pinned_wrapper_id", None)
+    if _pinned is not None:
+        active_w = [int(_pinned) % N_WRAPPERS]
     for l_id in active_l:
         raw_train = _link_genes(genes_tr, l_id)
         raw_val = _link_genes(genes_va, l_id)
@@ -1135,7 +1157,8 @@ class HFFSREngine:
         hof = tools.HallOfFame(cfg.champs)
         self._hof = hof
         roles = self._island_roles()
-        pop_sizes = [self._island_pop_size(i, roles) for i in range(cfg.num_islands)]
+        n_islands = len(roles)  # == cfg.num_islands except wrapper_islands mode
+        pop_sizes = [self._island_pop_size(i, roles) for i in range(n_islands)]
         # Seed from saved HOF if cfg.seed_hof_path is set. Cycle through the
         # HOF (cloned) to fill the requested population sizes; any shortfall
         # is topped up with fresh random individuals so we keep some diversity.
@@ -1173,9 +1196,22 @@ class HFFSREngine:
             except Exception as _e:
                 print(f"[engine] seed_hof_path load FAILED ({type(_e).__name__}: {_e}) "
                       f"— falling back to random init", flush=True)
-                demes = [toolbox.population(n=pop_sizes[i]) for i in range(cfg.num_islands)]
+                demes = [toolbox.population(n=pop_sizes[i]) for i in range(n_islands)]
         else:
-            demes = [toolbox.population(n=pop_sizes[i]) for i in range(cfg.num_islands)]
+            demes = [toolbox.population(n=pop_sizes[i]) for i in range(n_islands)]
+
+        # Wrapper-per-island: pin every individual to its island's wrapper
+        # class (covers random init AND seed_hof_path clones). In the default
+        # topology, strip any stale pin carried in via a seeded HOF pickle
+        # from a wrapper_islands run.
+        if cfg.wrapper_islands:
+            for _idx, _deme in enumerate(demes):
+                self._stamp_deme_wrapper(_deme, _idx)
+        else:
+            for _deme in demes:
+                for _ind in _deme:
+                    if hasattr(_ind, "pinned_wrapper_id"):
+                        del _ind.pinned_wrapper_id
 
         def evaluate_one(ind):
             return _compute_raw_metrics(ind, toolbox, bundle)
@@ -1319,7 +1355,8 @@ class HFFSREngine:
             if gen > 0 and gen % cfg.migration_freq_intra == 0:
                 self._migrate_pump_intra(demes, toolbox, wrapper_island_pairs, evaluate_one, gen=gen)
                 _print_leaderboard(hof, gen, verbose=verbose)
-                _maybe_prune(hof, gen, verbose=verbose)
+                _maybe_prune(hof, gen, verbose=verbose,
+                             freeze_wrappers=cfg.wrapper_islands)
             if gen > 30 and (gen % cfg.migration_freq == 0 or gen > target_gen - 10):
                 self._migrate_pump_cross(demes, toolbox, wrapper_island_pairs, evaluate_one, gen=gen)
             if cfg.dedup_freq > 0 and gen > 0 and gen % cfg.dedup_freq == 0:
@@ -1681,11 +1718,30 @@ class HFFSREngine:
         return df
 
     def _island_roles(self) -> list[str]:
+        if self.config.wrapper_islands:
+            # One pump pair per wrapper class: [intake, champion] x N.
+            # Deme layout: pair p = islands (2p, 2p+1), pinned to wrapper p.
+            return ["intake", "champion"] * N_WRAPPERS
         n = self.config.num_islands
         roles = ["intake", "champion"]
         if n <= 2:
             return roles[:n]
         return ["intake"] * n
+
+    def _island_wrapper_class(self, island_idx: int) -> int:
+        """Wrapper class pinned to an island in wrapper_islands mode."""
+        return (island_idx // 2) % N_WRAPPERS
+
+    def _stamp_deme_wrapper(self, deme, island_idx: int) -> None:
+        """(Re-)pin every individual in a deme to its island's wrapper class.
+        No-op unless cfg.wrapper_islands. Used at gen-0 and by every path
+        that creates or imports individuals (migration arrivals, dedup
+        replacements, adaptive growth) so pinning survives population churn."""
+        if not self.config.wrapper_islands:
+            return
+        wid = self._island_wrapper_class(island_idx)
+        for ind in deme:
+            ind.pinned_wrapper_id = wid
 
     def _island_pop_size(self, idx: int, roles: list[str]) -> int:
         if roles[idx] == "champion":
@@ -1737,6 +1793,7 @@ class HFFSREngine:
             keepers = dedup[:n_keep]
             n_fresh = target_size - len(keepers)
             fresh = [toolbox.individual() for _ in range(n_fresh)]
+            self._stamp_deme_wrapper(fresh, intake_idx)
             intake[:] = keepers + fresh
         for deme in demes:
             invalid = [ind for ind in deme if not ind.fitness.valid]
@@ -1789,6 +1846,9 @@ class HFFSREngine:
                 arrivals.append(cloned)
             while len(arrivals) < n_to_fill:
                 arrivals.append(toolbox.individual())
+            # Re-pin arrivals to the RECEIVING island's wrapper class:
+            # structural DNA crosses classes, the wrapper does not.
+            self._stamp_deme_wrapper(arrivals, intake_idx)
             intake[:] = keepers + arrivals
         for deme in demes:
             invalid = [ind for ind in deme if not ind.fitness.valid]
@@ -1797,12 +1857,13 @@ class HFFSREngine:
 
     def _dedup_all_demes(self, demes, toolbox, evaluate_one, *, gen: int = 0):
         cfg = self.config
-        for deme in demes:
+        for d_idx, deme in enumerate(demes):
             seen = set()
             for i, ind in enumerate(deme):
                 key = str(ind)
                 if key in seen:
                     deme[i] = toolbox.individual()
+                    self._stamp_deme_wrapper([deme[i]], d_idx)
                 else:
                     seen.add(key)
         for deme in demes:
@@ -1861,7 +1922,9 @@ class HFFSREngine:
             deme = demes[i]
             if new_size > len(deme):
                 # Grow: append fresh individuals (re-eval on next gen).
-                deme.extend(toolbox.individual() for _ in range(new_size - len(deme)))
+                fresh = [toolbox.individual() for _ in range(new_size - len(deme))]
+                self._stamp_deme_wrapper(fresh, i)
+                deme.extend(fresh)
             else:
                 # Shrink: keep the best (n new_size by fitness).
                 deme.sort(key=lambda x: x.fitness.values[0]
