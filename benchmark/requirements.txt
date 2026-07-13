@@ -23,5 +23,5 @@ pytest-cov>=4.0
 # The hff core is built from source with maturin (see top-level README).
 #
 # GNBG benchmarks additionally require the gnbg_gpu wgpu crate, which is NOT on
-# PyPI. Install it from github.com/minkymorgan/GNBG-II, or set GNBG_GPU_PATH to
+# PyPI. Install it from github.com/Gamakon/GNBG-II, or set GNBG_GPU_PATH to
 # its python/ directory. WFG/DTLZ benchmarks need none of this.

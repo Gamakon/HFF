@@ -14,7 +14,7 @@ import warnings
 # Import the GNBG2 wrapper (legacy)
 from .gnbg2_wrapper import GNBG2Wrapper, GNBG2MultiObjectiveAdapter
 
-# Import GNBG-II library (the wgpu `gnbg_gpu` crate — https://github.com/minkymorgan/GNBG-II).
+# Import GNBG-II library (the wgpu `gnbg_gpu` crate — https://github.com/Gamakon/GNBG-II).
 # Install it (maturin/pip) so `import gnbg_gpu` works, or point GNBG_GPU_PATH at its
 # python/ dir. Only needed for GNBG-based benchmarks; WFG/DTLZ need none of this.
 try:
