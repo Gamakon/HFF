@@ -52,7 +52,7 @@ datasets = [
 ]
 # pymoo benchmark harness. NOTE: pymoo 0.6.x calls np.row_stack, removed in
 # numpy 2.0 — pin numpy<2 for the NSGA-II/III baselines. The GNBG problems
-# additionally need the `gnbg_gpu` crate (github.com/minkymorgan/GNBG-II),
+# additionally need the `gnbg_gpu` crate (github.com/Gamakon/GNBG-II),
 # which is not on PyPI; install it separately or set GNBG_GPU_PATH.
 benchmark = [
     "pymoo>=0.6,<0.7",

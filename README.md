@@ -180,7 +180,7 @@ WFG/DTLZ and GNBG-II problems from 1–500 objectives.
 > exactly what remains. No benchmark result data is shipped — runs regenerate it.
 
 The WFG figures need only pymoo + `hff`; the GNBG figures additionally need the
-`gnbg-gpu` crate ([`minkymorgan/GNBG-II`](https://github.com/minkymorgan/GNBG-II)).
+`gnbg-gpu` crate ([`Gamakon/GNBG-II`](https://github.com/Gamakon/GNBG-II)).
 
 ---
 

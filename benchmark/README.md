@@ -16,7 +16,7 @@ compares against standard NSGA-II/III on WFG/DTLZ and GNBG-II problems from
 >    `wfg_pareto_fronts.py`) that drive the sweep and produce figures 6–13 are
 >    not yet in this repo.
 > 2. **GNBG figures only:** the GNBG-II problem engine (`import gnbg_gpu`, the
->    wgpu crate at [`minkymorgan/GNBG-II`](https://github.com/minkymorgan/GNBG-II))
+>    wgpu crate at [`Gamakon/GNBG-II`](https://github.com/Gamakon/GNBG-II))
 >    must be installed. The WFG figures need only pymoo + `hff`.
 >
 > No benchmark **result data** is shipped — runs regenerate it locally.
@@ -73,7 +73,7 @@ be migrated — see the plan doc).
   fail with `module 'numpy' has no attribute 'row_stack'` (the HFF runs are
   unaffected). Use numpy < 2.0 or a patched pymoo until this is pinned.
 - `gnbg_gpu` — **only** for GNBG-based benchmarks; from
-  [`minkymorgan/GNBG-II`](https://github.com/minkymorgan/GNBG-II). Install it, or
+  [`Gamakon/GNBG-II`](https://github.com/Gamakon/GNBG-II). Install it, or
   set `GNBG_GPU_PATH` to its `python/` directory. Without it, GNBG benchmarks are
   disabled (a warning is emitted); WFG/DTLZ need none of this.
 

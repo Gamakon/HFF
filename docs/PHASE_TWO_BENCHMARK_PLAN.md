@@ -28,8 +28,8 @@ calls exactly three core functions:
 - **Figs 10–13 (GNBG GF1–24 sweep):** needs the GNBG-II engine.
 
 **GNBG-II engine (the wgpu port):** it's the top-level crate at
-`~/Dev/minkymorgan/GNBG-II/` — `name = "gnbg-gpu"`, wgpu 0.19, PyO3 module
-`gnbg_gpu`, its own GitHub repo `minkymorgan/GNBG-II`. It **imports and builds
+`~/Dev/gamakon/GNBG-II/` — `name = "gnbg-gpu"`, wgpu 0.19, PyO3 module
+`gnbg_gpu`, its own GitHub repo `Gamakon/GNBG-II`. It **imports and builds
 today** (`python/gnbg_gpu/*.so`). The `gnbg-absolute-error/` subdir is a
 separate CPU crate; the `gnbg_ffi` C++ path in `gnbg2_wrapper.py` is legacy —
 ignore both. Integration = depend on `gnbg-gpu` (submodule or vendored),
@@ -66,7 +66,7 @@ Because the paper path uses only `calculate_fitness_hf1`,
    tokens (content + filenames) as in phase one; delete the dead
    `calculate_fitness_hf1_truenorth` fallback branch.
 2. **Wire GNBG-II (GNBG figures only).** Add the `gnbg-gpu` crate
-   (`minkymorgan/GNBG-II`) as a git submodule or vendored copy; `import gnbg_gpu`;
+   (`Gamakon/GNBG-II`) as a git submodule or vendored copy; `import gnbg_gpu`;
    remove the hardcoded `sys.path.append('/Users/.../GNBG-II/python')` in
    `problems/composable.py`. WFG figures need none of this.
 3. **Parity check (guardrail).** Confirm an `hff`-computed HF1 value matches the
