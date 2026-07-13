@@ -1,6 +1,6 @@
 # Two-part simplification: how we bounded sympy
 
-A reference for the gamakAST team. Written 2026-05-26, after a full SRBench
+A reference for the fuller team. Written 2026-05-26, after a full SRBench
 Feynman sweep validated the approach end-to-end (87/120 problems scored
 without a single sympy hang).
 
@@ -129,7 +129,7 @@ Measured on a full SRBench Feynman sweep (120 problems, 600s budget each):
 ## What we'd change if rebuilding in egglog
 
 This whole module exists *because* sympy is fragile. The team's
-gamakAST/egglog substrate solves the same problem more cleanly:
+fuller/egglog substrate solves the same problem more cleanly:
 
 - **Decomposition isn't needed.** egglog's e-graph holds all equivalent
   forms simultaneously; you don't have to extract sub-trees and re-merge.
@@ -144,7 +144,7 @@ gamakAST/egglog substrate solves the same problem more cleanly:
 
 The reason we still have this code on `main` is that it shipped first,
 proved the architecture on real chromosomes, and won't be retired until
-gamakAST's denoise + physics_mutate completely replace its role in
+fuller's denoise + physics_mutate completely replace its role in
 `_extract_best`. Today they layer on top of it (denoise as a per-gen
 mutator); the end-phase simplify is still the old two-part path.
 

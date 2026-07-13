@@ -24,6 +24,13 @@ dependencies = [
 # core) needs only numpy; the groups below are for the demonstration notebooks
 # and the benchmark harness.
 [project.optional-dependencies]
+# fuller (github.com/Gamakon/fuller, MIT): egglog-backed symbolic operators
+# — physics-prior mutation, behaviour-preserving denoise, named-constant
+# snap. The SR engine detects it at runtime and no-ops cleanly without it;
+# install this extra to enable those operators.
+fuller = [
+    "fuller>=0.1",
+]
 # Demonstration notebooks (symbolic regression / classification).
 notebooks = [
     "geppy>=0.1.3",

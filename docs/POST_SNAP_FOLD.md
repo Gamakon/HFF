@@ -1,7 +1,7 @@
 # Post-snap fold — hff-side integration report
 
 **Branch:** `feat/gamakast-post-snap-fold` (commit `dcd163b`)
-**Audience:** the gamakAST reviewer / maintainer
+**Audience:** the fuller reviewer / maintainer
 **Status:** implemented, tested on two problems, awaiting sign-off + push.
 
 ---
@@ -14,14 +14,14 @@ Your read was correct on every point. Verified before touching anything:
    feeds `(Sub (Mul (Var "pi") (Add (Pow2 (Var "r")) (Log (Abs (Var "sqrt2"))))) (Num …))`
    into `denoise` and asserts it collapses to `(Mul (Var "pi") (Pow2 (Var "r")))`.
    It passes in the 128-test gate (`RUSTFLAGS="-D warnings" cargo test`, clippy clean).
-2. **Root cause was hff pipeline order, not gamakAST.** `_apply_denoise` runs only
+2. **Root cause was hff pipeline order, not fuller.** `_apply_denoise` runs only
    inside the evolution loop (`hff_sr_engine.py:1216`). The cluttered expression is
    assembled by snap-post on the sympy side *afterwards* (`_pick_snap`, ~line 2416),
    so the cancelling pair never reaches `denoise`.
 3. **`pre==post R²` was not a no-op signal.** Denoise is behaviour-preserving by
    contract; identical R² is expected. My earlier "rewrite did nothing" claim was wrong.
 
-## 2. Two gamakAST-surface gaps I had to work around (for your awareness)
+## 2. Two fuller-surface gaps I had to work around (for your awareness)
 
 Both are on the sympy⇄Math boundary; neither is a bug in the fold itself.
 
@@ -29,13 +29,13 @@ Both are on the sympy⇄Math boundary; neither is a bug in the fold itself.
   `to_math(pi*r**2)` → `None`; `to_math(r**2 + log(Abs(sqrt2)))` → OK. The `Math`
   sort models `pi` only as `(Var "pi")`, but the bridge doesn't map `sympy.pi`
   (or `sympy.E`) to it. Workaround on the hff side: `expr.subs({pi: Symbol('pi'),
-  E: Symbol('e')})` before bridging. **Candidate fix in gamakAST:** teach the
+  E: Symbol('e')})` before bridging. **Candidate fix in fuller:** teach the
   bridge to emit `(Var "pi")` / `(Var "e")` for the sympy singletons directly.
 - **There is no `from_math`.** `denoise` returns a `Math` s-expression string; to
   adopt it back I wrote a small recursive-descent parser (`_math_to_sympy` in
   `notebooks/_fold_op.py`) covering the full `Math` grammar (Add/Sub/Mul/Div/Neg/
   Sin/Cos/Tan/Tanh/Log/Exp/Sqrt/Abs/Pow2/Pow3/Pow/Inv/Var/Num + Protected*).
-  **Candidate fix in gamakAST:** expose a `from_math`/`math_to_sympy` in
+  **Candidate fix in fuller:** expose a `from_math`/`math_to_sympy` in
   `sympy_bridge` so consumers don't re-implement the table (mirrors your
   "single source of truth" note in the bridge docstring).
 
@@ -48,7 +48,7 @@ Returns the folded sympy expr **only if it changed**, else `None`.
 Wired into `_pick_snap` immediately after the snap adoption, **data-gated** by the
 existing `_r2`: the fold is adopted only if it does not lose R² beyond 1e-9.
 `rows` are built from the holdout data plus the named-constant atom values already
-in scope. Fully guarded: any exception (or gamakAST absent) → keep the unfolded
+in scope. Fully guarded: any exception (or fuller absent) → keep the unfolded
 form, engine unaffected.
 
 ## 4. Test evidence
@@ -74,7 +74,7 @@ The `5.45e-10` coefficient is √(4π²/GM): Kepler's third law recovered.
 ### 4c. Regression guards (unit-level, `_fold_op`)
 - **Needed constant preserved:** `fold_expr(x + 10, …)` → `None` (the 10 matters;
   data-gated denoise refuses to strip it).
-- **gamakAST absent:** `_GAMAKAST_OK=False` → `fold_expr` returns `None`; engine runs.
+- **fuller absent:** `_GAMAKAST_OK=False` → `fold_expr` returns `None`; engine runs.
 
 ## 5. Notes / non-issues encountered
 
@@ -87,5 +87,5 @@ The `5.45e-10` coefficient is √(4π²/GM): Kepler's third law recovered.
 ## 6. Open items
 
 - [ ] Your sign-off on the hff-side change (per CLAUDE.md).
-- [ ] Optional gamakAST follow-ups: `to_math` pi/e handling; a public `from_math`.
+- [ ] Optional fuller follow-ups: `to_math` pi/e handling; a public `from_math`.
 - [ ] Push `feat/gamakast-post-snap-fold` / open PR once approved.
