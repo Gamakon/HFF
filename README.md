@@ -281,7 +281,7 @@ Please cite the GECCO 2026 poster when using HFF in published research:
   publisher = {ACM},
   address   = {New York, NY, USA},
   isbn      = {979-8-4007-2488-6/2026/07},
-  doi       = {} % add when assigned
+  doi       = {10.1145/3795101.3805445}
 }
 ```
 
