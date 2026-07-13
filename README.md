@@ -77,6 +77,7 @@ in `pyproject.toml` (works with pip, poetry, uv, pdm):
 ```bash
 pip install -e ".[notebooks]"            # symbolic-regression notebooks
 pip install -e ".[notebooks,datasets]"   # + PMLB/Feynman dataset loaders
+pip install -e ".[fuller]"               # + egglog symbolic operators (see below)
 pip install -r benchmark/requirements.txt  # pymoo benchmark harness
 ```
 
@@ -261,6 +262,35 @@ maturin develop --release
 cd notebooks
 jupyter notebook v1.0.4_Multidemic_SymbolicLinearRegression.ipynb
 ```
+
+## Optional integration: fuller (egglog symbolic operators)
+
+[fuller](https://github.com/Gamakon/fuller) (MIT) is an
+[egglog](https://github.com/egraphs-good/egglog) e-graph engine for shrinking
+symbolic expressions **provably without changing what they compute**. The
+equation-recovery engine detects it at runtime and, when present, gains three
+genetic operators that plain GEP does not have:
+
+- **Denoise** — rewrite a chromosome to a smaller equivalent form, kept only
+  if R² does not drop on your data. Bloat (`x·1 + 0·y`, constants smuggled
+  into coefficients) is removed *during* evolution, not just at extraction.
+- **Snap ⇄ concretize** — flip fitted numbers to named constants (`π`, `G`,
+  `k_e`, …) and back, as a reversible mutation pair. The population carries
+  both representations and selection decides which survives — so the
+  discovered law comes out in its textbook form.
+- **Physics-prior mutation** — structural rewrites drawn from physical
+  idiom (inverse-square factors, cross-axis variable re-pairing, trig
+  identities), throttled and judged by the same HFF selection as everything
+  else.
+
+Because every fuller rewrite is either proved equivalent by equality
+saturation or data-gated, these are safe *inside* the loop — simplifications
+become heritable DNA rather than a post-processing step.
+
+Integration is a soft dependency: without fuller installed everything above
+silently no-ops and the engine runs pure GEP. Enable it with
+`pip install -e ".[fuller]"` (or put a source checkout of fuller on
+`PYTHONPATH`).
 
 ---
 
