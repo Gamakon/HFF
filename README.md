@@ -17,6 +17,9 @@ This repository contains the library, three demonstration notebooks (symbolic
 regression, binary classification, and equation rediscovery), and the
 as-submitted GECCO 2026 poster.
 
+> 🇫🇷 **Français** — une version française de ce document se trouve en bas de
+> page : [Version française](#version-francaise).
+
 <p align="center">
   <img src="docs/img/truenorth_tournament.png" alt="HF1 TrueNorth: individuals ranked by angular distance to the True North pole" width="480">
 </p>
@@ -402,3 +405,361 @@ MIT.
 
 Built by [Gamakon](https://gamakon.ai). Support, integration help, and
 collaboration enquiries are welcome — reach out via [gamakon.ai](https://gamakon.ai).
+
+---
+
+<a id="version-francaise"></a>
+
+# Version française
+
+## HFF — Fonctions de fitness hypersphériques
+
+Une bibliothèque Rust pour l'optimisation à grand nombre d'objectifs,
+utilisable depuis Python (via PyO3, la couche de liaison Rust↔Python) et
+depuis C (via une ABI C — l'interface binaire, c'est-à-dire les fonctions
+appelables en C exportées par la bibliothèque partagée compilée). HFF projette
+un vecteur d'objectifs sur une hypersphère unité et utilise la **distance
+angulaire à un pôle de référence** comme mesure scalaire de fitness.
+
+La dominance de Pareto se dégrade à mesure que le nombre d'objectifs augmente :
+en grande dimension, presque toutes les solutions sont non dominées et la
+pression de sélection s'effondre. HFF remplace la relation de dominance par un
+scalaire unique qui passe naturellement à l'échelle avec le nombre d'objectifs,
+et reste utile en faible dimension (2 à 3 objectifs) comme alternative rigoureuse
+aux sommes pondérées.
+
+Ce dépôt contient la bibliothèque, trois notebooks de démonstration (régression
+symbolique, classification binaire et redécouverte d'équations) ainsi que le
+poster GECCO 2026 tel que soumis.
+
+---
+
+## Contenu du dépôt
+
+```
+hff/
+├── src/                       cœur Rust (HF1 Balanced/TrueNorth, HIGD, GPU optionnel)
+├── python/hff/                module PyO3 + wrappers Python de confort
+├── include/hff.h              en-tête C pour la fonctionnalité optionnelle c-api
+├── notebooks/
+│   ├── hff_geppy_helpers.py   utilitaires partagés (primitives, LSM, rerankers, HIGD)
+│   ├── hff_sr_engine.py       moteur de régression symbolique réutilisable
+│   ├── v1.0.4_Multidemic_SymbolicLinearRegression.ipynb    UCI PowerPlant
+│   ├── v1.0.4_Multidemic_SymbolicLogisticReg.ipynb         UCI Heart Disease
+│   ├── v1.0.4_Multidemic_SymbolicEquationRecovery.ipynb    redécouverte d'équations
+│   └── data/                  CSV UCI PowerPlant + dictionnaire
+├── srbench_submission/        dossier de soumission au concours SRBench (AI-Feynman)
+├── benchmark/                 banc d'essai pymoo à grand nombre d'objectifs (voir plus bas)
+├── docs/                      notes de recherche et figures
+├── papers/
+│   ├── GECCO_..._Poster_SUBMITTED.pdf
+│   └── hff-gecco2026-poster_Submitted.tex
+├── CLAUDE.md                  notes pour les contributeurs assistés par IA
+└── README.md                  ce fichier
+```
+
+---
+
+## Installation
+
+HFF est une extension Rust construite avec
+[maturin](https://github.com/PyO3/maturin) ; installez-la depuis les sources
+dans votre environnement actif :
+
+```bash
+pip install maturin
+maturin develop --release      # compile le cœur Rust et installe le module hff
+```
+
+Ou en installation éditable :
+
+```bash
+pip install -e .
+```
+
+### Dépendances des notebooks / du banc d'essai
+
+Le cœur `hff` ne requiert que numpy. Les notebooks de démonstration et le banc
+d'essai ont leurs propres groupes de dépendances, déclarés comme extras
+optionnels PEP 621 dans `pyproject.toml` (compatible pip, poetry, uv, pdm) :
+
+```bash
+pip install -e ".[notebooks]"            # notebooks de régression symbolique
+pip install -e ".[notebooks,datasets]"   # + chargeurs de jeux de données PMLB/Feynman
+pip install -e ".[fuller]"               # + opérateurs symboliques egglog (voir plus bas)
+pip install -r benchmark/requirements.txt  # banc d'essai pymoo
+```
+
+De simples fichiers `requirements-*.txt` sont également fournis pour la voie
+non éditable (`requirements-notebooks.txt`, `requirements-datasets.txt`,
+`benchmark/requirements.txt`). À noter : le banc d'essai épingle **numpy < 2**
+(pymoo 0.6.x utilise `np.row_stack`, supprimé dans numpy 2.0).
+
+L'accélération GPU optionnelle (expérimentale) est conditionnée par la
+fonctionnalité Cargo `gpu` — voir [Accélération GPU](#accélération-gpu)
+ci-dessous.
+
+### Prérequis
+
+- Python ≥ 3.9
+- Chaîne d'outils Rust (pour la compilation depuis les sources)
+- `geppy`, `deap`, `multiprocess`, `scikit-learn`, `pandas`, `matplotlib`,
+  `seaborn`, `graphviz`, `sympy` — pour exécuter les notebooks de démonstration
+  (non requis pour utiliser la bibliothèque elle-même)
+
+---
+
+## Prise en main
+
+```python
+import numpy as np
+import hff
+
+# Problème aléatoire : 100 individus, 50 objectifs
+objectives = np.random.random((100, 50))
+
+# HF1 Balanced — pôle de référence à compromis égal (1/√m, ..., 1/√m)
+fitness_balanced = hff.calculate_fitness_hf1(objectives)
+
+# HF1 TrueNorth — minimisation directe via l'espace augmenté (0, ..., 0, 1)
+fitness_truenorth = hff.calculate_fitness_hf1_enhanced(
+    objectives, normalize=True, north_pole_method="truenorth"
+)
+
+# HIGD — IGD angulaire corrigé par CDF (métrique de qualité au niveau de l'ensemble)
+higd_score = hff.calculate_higd(
+    objectives.tolist(),
+    n_reference_points=10000,
+    dimensions=50,
+    seed=42,
+    positive_orthant=True,
+)
+```
+
+### Choisir `normalize`
+
+| Type d'entrée | Réglage | Raison |
+|-|-|-|
+| Objectifs non bornés (p. ex. MSE, coût brut) | `normalize=True` (défaut) | HFF remet chaque colonne à l'échelle [0, 1] avant projection. |
+| Objectifs déjà bornés dans [0, 1] (p. ex. AUC, F1, exactitude) | `normalize=False` | Sinon le meilleur individu de la colonne est envoyé sur le vecteur tout-à-un et s'effondre sur le pôle de référence. |
+
+---
+
+## API
+
+| Fonction | Rôle |
+|---|---|
+| `calculate_fitness_hf1(F)` | HF1 Balanced — distance angulaire au pôle diagonal `(1/√m, …, 1/√m)`. |
+| `calculate_fitness_hf1_enhanced(F, normalize=, north_pole_method=)` | HF1 avec choix de méthode : `"balanced"` ou `"truenorth"`, plus un indicateur `normalize` optionnel. |
+| `calculate_fitness_hf1_with_ranges(F, decrowding=, north_pole_method=, normalize=)` | HF1 qui renvoie aussi les min/max par colonne utilisés, afin de réappliquer la même normalisation plus tard (p. ex. à un jeu de validation). |
+| `calculate_fitness_hf1_fixed(F, col_min, col_max, decrowding=, north_pole_method=)` | HF1 avec plages de colonnes fournies par l'appelant plutôt que recalculées — évaluer de nouveaux points sur une échelle fixe déjà observée. |
+| `calculate_higd(solutions, n_reference_points, dimensions, seed, positive_orthant)` | Indicateur de qualité au niveau de l'ensemble. IGD angulaire corrigé par CDF, robuste à la dimension. |
+| `calculate_angular_igd(solutions, n_reference_points, dimensions, seed, positive_orthant)` | IGD angulaire brut (sans correction CDF). |
+
+La même surface est aussi exposée via une ABI C lors d'une compilation avec
+`--features c-api` ; voir `include/hff.h`.
+
+---
+
+## Accélération GPU
+
+Un backend GPU expérimental calcule la fitness HF1 TrueNorth pour de grands
+lots sur le GPU via [`wgpu`](https://github.com/gfx-rs/wgpu)
+(Vulkan / Metal / DX12). Il est désactivé par défaut et conditionné par la
+fonctionnalité Cargo `gpu` :
+
+```bash
+maturin develop --release --features gpu
+```
+
+Le chemin CPU (parallélisé avec Rayon) reste celui par défaut et fait autorité
+sur le plan numérique ; le noyau GPU est validé contre lui dans les tests
+unitaires de `src/gpu.rs`. Considérez ce backend comme expérimental.
+
+---
+
+## Banc d'essai
+
+`benchmark/` contient le banc d'essai à grand nombre d'objectifs fondé sur
+[pymoo](https://pymoo.org) et utilisé pour l'article GECCO 2026 — une évolution
+sous boucle NSGA-II dont l'opérateur de survie classe par distance angulaire
+HFF, comparée aux NSGA-II/III standards sur les problèmes WFG/DTLZ et GNBG-II,
+de 1 à 500 objectifs.
+
+> **⚠️ Pas encore exécutable en l'état.** Les sources du banc d'essai sont
+> intégrées, mais les runners qui produisent les figures et le moteur de
+> problèmes GNBG-II ne sont pas encore raccordés. Voir
+> [`docs/PHASE_TWO_BENCHMARK_PLAN.md`](docs/PHASE_TWO_BENCHMARK_PLAN.md) pour
+> le détail de ce qui reste à faire. Aucune donnée de résultat n'est livrée :
+> les exécutions la régénèrent.
+
+Les figures WFG ne nécessitent que pymoo + `hff` ; les figures GNBG requièrent
+en plus le crate `gnbg-gpu`
+([`Gamakon/GNBG-II`](https://github.com/Gamakon/GNBG-II)).
+
+---
+
+## Notebooks de démonstration
+
+Trois notebooks dans `notebooks/`, partageant une même architecture :
+
+> Faire évoluer une **équation symbolique** avec geppy GEP-RNC. L'envelopper
+> dans une **régression linéaire** qui ajuste les constantes `a, b` par moindres
+> carrés sur chaque individu (de sorte que l'évolution cherche une *forme*, pas
+> des constantes numériques). Calculer les métriques du modèle sur
+> l'**apprentissage ET la validation**, projeter le vecteur multi-objectif
+> obtenu à travers la bibliothèque Rust **HFF** vers une fitness scalaire
+> unique. Faire évoluer sous un modèle en îles multidémique. Après l'évolution,
+> simplifier avec sympy, ramener les constantes flottantes vers des constantes
+> physiques / mathématiques connues, puis réécrire dans la « forme de Feynman »
+> canonique que Feynman lui-même aurait écrite.
+
+### `v1.0.4_Multidemic_SymbolicLinearRegression.ipynb`
+
+**Régression symbolique sur cibles continues.** Jeu de données par défaut : UCI
+Combined Cycle Power Plant (`AT, V, AP, RH → PE`). Le notebook fait évoluer une
+équation qui prédit la production de la centrale à partir des conditions
+environnementales, le mécanisme de validation-dans-la-fitness prévenant le
+surapprentissage. Résultat marquant : R² sur holdout ≈ 0,93 avec une équation
+évoluée de 4 lignes, sans contrainte de parcimonie, et un écart de MSE
+apprentissage/holdout inférieur à 1 %.
+
+Utilisez ce modèle pour toute tâche de régression réelle et bruitée — prévision
+de production, étalonnage de capteurs, dose-réponse, valorisation financière.
+Le réécriveur en forme de Feynman met la forme découverte dans l'équation
+canonique la plus lisible possible.
+
+### `v1.0.4_Multidemic_SymbolicLogisticReg.ipynb`
+
+**Classification binaire symbolique.** Même architecture, avec une enveloppe
+sigmoïde autour du scaler linéaire pour produire des probabilités et un seuil
+de décision réglé par la statistique J. Jeu de données par défaut : UCI Heart
+Disease (Cleveland), 297 patients. Résultat marquant : AUC sur holdout ≈ 0,91,
+F1 ≈ 0,86, écart de généralisation (AUC apprentissage − AUC holdout) ≈ −0,01 —
+le holdout dépasse en fait l'apprentissage, ce à quoi ressemble l'absence totale
+de surapprentissage sur un petit jeu de données bruité.
+
+Utilisez ce modèle pour la classification binaire explicable — détection de
+fraude, score de risque clinique, attrition, détection d'anomalies.
+
+### `v1.0.4_Multidemic_SymbolicEquationRecovery.ipynb`
+
+**Redécouverte d'équations à partir de données synthétiques.** Étant donné
+qu'une équation connue engendre un jeu de données, l'évolution peut-elle
+retrouver cette équation ? Le notebook est livré avec un registre de six
+problèmes de démonstration (aire du cercle, gravitation de Newton, loi de
+Coulomb, pendule simple, troisième loi de Kepler, gaz parfait), une génération
+de données mise en cache à la demande, les 120 équations de la base AI-Feynman
+Symbolic Regression Database, et la prise en charge d'équations personnelles.
+Le vecteur de fitness ajoute un objectif d'**extrapolation** — apprendre sur une
+plage d'entrées, évaluer sur une région jamais vue par le modèle — de sorte que
+redécouvrir signifie « avoir trouvé la loi », et non « avoir ajusté la courbe ».
+
+Après l'évolution, la bibliothèque de recalage associe les constantes numériques
+à des constantes physiques / mathématiques connues (`π`, `e`, `G`, `M_sun`,
+`R`, `k_e`, `g`, …) et le **réécriveur en forme de Feynman** transforme les
+formes GEP compactes en la forme canonique — p. ex. `5.45e-10·a·√a` →
+`√((4π²/GM)·a³)`. Le contrôle d'équivalence structurelle prouve ensuite que
+l'équation découverte est égale à la vérité de référence.
+
+Utilisez ce modèle pour la régression symbolique en *science* — découvrir des
+lois à partir d'instruments, extraire des expressions propres de systèmes
+simulés, se comparer à des références de vérité connue. C'est aussi le notebook
+adapté aux comparaisons de reproductibilité au niveau d'un article.
+
+### Mécanisme partagé
+
+Les trois notebooks lisent leur configuration depuis une unique cellule
+🔴 CONFIGURE HERE, respectent Restart-Kernel-Run-All pour des valeurs par
+défaut reproductibles, et exposent une cellule d'évolution ré-exécutable
+permettant de prolonger interactivement une recherche de *N* générations
+supplémentaires. Ils partagent `hff_geppy_helpers.py` (bibliothèque de recalage,
+réécriveur de Feynman, rerankers du HOF, diagnostic HIGD au niveau de
+l'ensemble).
+
+Pour les exécuter :
+
+```bash
+maturin develop --release
+cd notebooks
+jupyter notebook v1.0.4_Multidemic_SymbolicLinearRegression.ipynb
+```
+
+## Intégration optionnelle : fuller (opérateurs symboliques egglog)
+
+[fuller](https://github.com/Gamakon/fuller) (MIT) est un moteur d'e-graphes
+[egglog](https://github.com/egraphs-good/egglog) qui réduit les expressions
+symboliques **sans en changer le calcul, et de façon prouvée**. Le moteur de
+redécouverte d'équations le détecte à l'exécution et, lorsqu'il est présent,
+gagne trois opérateurs génétiques que le GEP simple n'a pas :
+
+- **Débruitage** — réécrire un chromosome vers une forme équivalente plus
+  petite, conservée uniquement si le R² ne baisse pas sur les données. La
+  structure redondante (`x·1 + 0·y`, constantes absorbées dans les
+  coefficients) est supprimée pendant l'évolution plutôt qu'à la seule
+  extraction.
+- **Recalage ⇄ concrétisation** — basculer les nombres ajustés vers des
+  constantes nommées (`π`, `G`, `k_e`, …) et inversement, sous forme de paire
+  de mutations réversibles. La population porte les deux représentations et la
+  sélection détermine laquelle survit, si bien que l'expression découverte
+  correspond directement à la forme de référence.
+- **Mutation à prior physique** — réécritures structurelles issues de l'idiome
+  physique (facteurs en inverse du carré, réappariement de variables entre
+  axes, identités trigonométriques), à taux limité et jugées par la même
+  sélection HFF que tous les autres opérateurs.
+
+Comme chaque réécriture de fuller est soit prouvée équivalente par saturation
+d'égalité, soit filtrée par les données, ces opérateurs sont sains au sein de la
+boucle évolutionnaire : une simplification, une fois trouvée, est héritée par
+croisement plutôt qu'appliquée en post-traitement.
+
+L'intégration est une dépendance douce : sans fuller installé, ces opérateurs
+sont désactivés et le moteur exécute du GEP simple. Activez-les avec
+`pip install -e ".[fuller]"` (ou placez une copie des sources de fuller sur le
+`PYTHONPATH`).
+
+---
+
+## Citer ces travaux
+
+Merci de citer le poster GECCO 2026 lorsque vous utilisez HFF dans une
+recherche publiée. Les entrées BibTeX ne sont pas dupliquées ici, afin d'éviter
+toute divergence : utilisez celles de la section anglaise
+[Citing this work](#citing-this-work) ci-dessus.
+
+- **La méthode** — clé `morgan2026hff` (poster GECCO 2026). Le PDF et les
+  sources LaTeX du poster soumis sont dans [`papers/`](papers/).
+- **Le dépôt de code** — clé `morgan2026hff_repo`, si vous référencez
+  l'implémentation (cœur Rust, wrappers Python, ABI C, notebooks) plutôt que la
+  méthode sous-jacente.
+- **Les notebooks de démonstration** — clé `morgan2026hff_notebooks`, si vos
+  travaux s'appuient sur les modèles de régression symbolique / classification
+  de `notebooks/`.
+- **Les jeux de données** — les notebooks utilisent des jeux de données UCI
+  publics ; citez également `uci_powerplant` et `uci_heart_cleveland`.
+
+### Dépendances qu'il convient de créditer
+
+Les notebooks reposent largement sur :
+
+- [`geppy`](https://github.com/ShuhuaGao/geppy) — Gene Expression Programming
+  au-dessus de DEAP.
+- [`DEAP`](https://github.com/DEAP/deap) — Distributed Evolutionary Algorithms
+  in Python.
+- [`PyO3`](https://github.com/PyO3/pyo3) et
+  [`maturin`](https://github.com/PyO3/maturin) — pont Rust ↔ Python et outils
+  de compilation.
+
+Leurs citations respectives figurent dans les dépôts liés.
+
+---
+
+## Licence
+
+MIT.
+
+---
+
+Réalisé par [Gamakon](https://gamakon.ai). Les demandes de support,
+d'aide à l'intégration et de collaboration sont les bienvenues — écrivez-nous
+via [gamakon.ai](https://gamakon.ai).
