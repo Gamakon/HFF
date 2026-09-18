@@ -2595,7 +2595,12 @@ CUSTOM_SYMBOLIC_FUNCTION_MAP["protected_log"]  = lambda x: sp.log(sp.Abs(x))
 
 # Per-gene simplify + linker assembly — skips the top-level sp.simplify()
 # inside gep.simplify(), which is the slow path on multi-gene chromosomes.
-from geppy.support.simplification import _simplify_kexpression as _simplify_kexpr
+# Bounded replacement for geppy's _simplify_kexpression, which calls
+# sp.simplify at EVERY internal node and goes exponential on deep multi-gene
+# chromosomes (measured 30+ min hangs; SIGALRM cannot interrupt sympy's C
+# code). _bounded_simplify builds the expression without per-node simplify and
+# simplifies once at the end under a node-count bound. See _bounded_simplify.py.
+from _bounded_simplify import simplify_kexpression_bounded as _simplify_kexpr
 _per_gene_sym = [_simplify_kexpr(g.kexpression, CUSTOM_SYMBOLIC_FUNCTION_MAP)
                  for g in best_ind]
 _linker_for_sym = CUSTOM_SYMBOLIC_FUNCTION_MAP.get(
