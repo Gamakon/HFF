@@ -41,3 +41,10 @@ notebooks/*_files/
 notebooks/SphericalSymbolicRegression-run*.md
 notebooks/SphericalSymbolicRegression-run*.py
 notebooks/SphericalSymbolicRegression-run*.ipynb
+
+# sr_logs: keep the results, manifest, scoreboard and progress log in git —
+# they are small JSON and the record of how the challenge is going. The raw
+# per-batch stdout and the sympy corpus are bulky and regenerable.
+notebooks/sr_logs/batches/
+notebooks/sr_logs/simplify_corpus.jsonl
+notebooks/sr_logs/.staging_*/
