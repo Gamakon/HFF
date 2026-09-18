@@ -20,18 +20,20 @@ notebooks/data/equations/
 notebooks/data/figures/
 notebooks/sweep.log
 notebooks/circle_test.log
-notebooks/_test_feynman_load.py          # smoke test, not a source artefact
 
 # Scratch scripts, logs, ledgers, sweep outputs — kept local, never committed
 *.log
-notebooks/_*.py
-notebooks/_*.sh
-# ...but real underscore-prefixed modules are tracked; exempt them explicitly.
-!notebooks/_fold_op.py
-!notebooks/_recovery.py
-!notebooks/_bounded_simplify.py
+# Ignore by PURPOSE, not by prefix. The leading underscore does not mean
+# "scratch" here: _denoise_op is imported by 11 files, _sympy_to_karva and
+# _gene_decompose by 6 each. A blanket notebooks/_*.py silently excluded every
+# NEW module (it only bites files not already tracked), which is how
+# _bounded_simplify.py first shipped untracked.
+notebooks/_tmp_*.py
+notebooks/_tmp_*.sh
+notebooks/*.sh
 notebooks/_ledgers/
 notebooks/_sweep_logs/
+notebooks/_audit_*/
 data/
 
 # Notebook render artefacts (jupytext pairs + rendered output dirs)
