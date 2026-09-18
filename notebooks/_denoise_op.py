@@ -13,7 +13,8 @@ API:
                 rng_seed=0, _stats=None) -> (individual,)
 
 Stats dict (caller-supplied, mutated in place):
-    {"calls", "changed_any", "swapped", "rejected_safety", "inexpressible"}
+    {"calls", "changed_any", "swapped", "rejected_safety", "inexpressible",
+#     "skipped_rnc"}
 """
 from __future__ import annotations
 import random
@@ -96,6 +97,14 @@ def _token_tuple(tok) -> tuple:
     raise ValueError(f"unknown token type: {tok}")
 
 
+class InexpressibleConstant(ValueError):
+    """fuller produced a numeric constant this pset cannot represent.
+
+    Raised instead of silently substituting a different token. See the note in
+    _rebuild_tokens for the bug this replaced.
+    """
+
+
 def _rebuild_tokens(token_tuples: list, pset) -> list:
     """fuller token tuples → geppy tokens (for re-injecting into a Gene)."""
     name_to_fn = {f.name: f for f in _all_decodable_functions(pset)}
@@ -118,14 +127,23 @@ def _rebuild_tokens(token_tuples: list, pset) -> list:
                 except (TypeError, ValueError):
                     continue
             if matched is None:
-                # Pick a deterministic-ish fallback: first numeric terminal.
-                for t in name_to_term.values():
-                    if getattr(t, "value", None) is not None:
-                        matched = t
-                        break
-            if matched is None:
-                # Last resort: first terminal.
-                matched = next(iter(name_to_term.values()))
+                # BUG FIX: previously this fell back to "first numeric terminal"
+                # and then to "first terminal" — which silently substituted an
+                # ARBITRARY token, usually a VARIABLE, for a constant fuller had
+                # proved the expression equal to. A rewrite of
+                # protected_div_zero(c, c) -> 1 was re-encoded as `m_0`, so the
+                # gene computed a different function and _safety_recheck rejected
+                # it. Measured on I_10_7 seed 11: 543 of 566 edits (95.9%)
+                # failed the recheck for this reason, and the two effects of the
+                # operator (simplification) were swamped by wasted work.
+                #
+                # An unrepresentable constant means the rewrite is not
+                # expressible in this pset. Say so and keep the original gene:
+                # mut_denoise's caller already wraps _rebuild_tokens in
+                # try/except and falls back to the unedited gene.
+                raise InexpressibleConstant(
+                    f"fuller emitted constant {val!r} with no matching terminal "
+                    f"in the pset; refusing to substitute an arbitrary token")
             out.append(matched)
         else:
             raise ValueError(f"unknown token kind: {kind}")
@@ -167,9 +185,36 @@ def mut_denoise(individual, toolbox, pset, X_train_df, y_train,
     if _stats is not None:
         _stats["calls"] = _stats.get("calls", 0) + 1
 
-    variables = [t.name for t in pset.terminals if (isinstance(t, SymbolTerminal) or t.value is None)]
+    # BUG FIX: geppy's RNC placeholder terminal is named "?" and has
+    # value None, so the old predicate swept it in here as an ordinary
+    # variable. "?" is NOT a variable: it is an INDEX into the gene's Dc
+    # domain, and each occurrence resolves to a DIFFERENT numeric constant
+    # depending on its position. Handing it to fuller as a single free symbol
+    # lets equality saturation "prove" rewrites that are false once the
+    # placeholders resolve — e.g. square(add(exp(m_0), c)) was rewritten to
+    # square(exp(c)), dropping an operand outright (13.4672 -> 20.4913).
+    # Measured on I_10_7 seed 11 against an independent karva decoder: 30 of
+    # 40 rewrites reported as `changed` computed a different function.
+    # A gene containing "?" cannot be soundly rewritten without also modelling
+    # the Dc domain, so refuse those genes and leave them untouched.
+    RNC_PLACEHOLDER = "?"
+    variables = [t.name for t in pset.terminals
+                 if (isinstance(t, SymbolTerminal) or t.value is None)
+                 and t.name != RNC_PLACEHOLDER]
     rnc_values = sorted({float(t.value) for t in pset.terminals
                           if getattr(t, "value", None) is not None})
+    # The resolved Dc constants (below) are legitimate numeric atoms for this
+    # individual, so fuller must be allowed to emit them back. Without this the
+    # rewrite is expressible going in but not coming out, and _rebuild_tokens
+    # raises InexpressibleConstant on every gene carrying a "?".
+    for _g in individual:
+        _ra = getattr(_g, "rnc_array", None)
+        if _ra:
+            try:
+                rnc_values.extend(float(x) for x in _ra)
+            except (TypeError, ValueError):
+                pass
+    rnc_values = sorted(set(rnc_values))
     functions = _build_functions_dict(pset)
 
     # Convert ALL training rows once; denoise will subsample internally as
@@ -189,6 +234,50 @@ def mut_denoise(individual, toolbox, pset, X_train_df, y_train,
         except Exception:
             new_genes.append(gene)
             continue
+        # RESOLVE the Dc domain before rewriting. See RNC_PLACEHOLDER above:
+        # "?" is an index, not a symbol, so it must become the actual number it
+        # denotes at that position or fuller will "prove" false equalities.
+        # geppy's own rule (GeneDc.kexpression): walk the tokens in level
+        # order and, for the n-th RNC terminal encountered, take
+        # rnc_array[dc[n]]. We apply it to head then tail, in that order,
+        # which is the same order kexpression consumes them.
+        dc = list(getattr(gene, "dc", []) or [])
+        rnc_array = list(getattr(gene, "rnc_array", []) or [])
+        if any(k == "var" and v == RNC_PLACEHOLDER
+               for k, v in head_tuples + tail_tuples):
+            if not dc or not rnc_array:
+                # Placeholders with no Dc domain to resolve them: unsound.
+                if _stats is not None:
+                    _stats["skipped_rnc"] = _stats.get("skipped_rnc", 0) + 1
+                new_genes.append(gene)
+                continue
+            n_rnc = 0
+            resolved_ok = True
+
+            def _resolve(tuples):
+                nonlocal n_rnc, resolved_ok
+                out_t = []
+                for k, v in tuples:
+                    if k == "var" and v == RNC_PLACEHOLDER:
+                        try:
+                            out_t.append(("num", float(rnc_array[dc[n_rnc]])))
+                        except (IndexError, TypeError, ValueError):
+                            resolved_ok = False
+                            out_t.append((k, v))
+                        n_rnc += 1
+                    else:
+                        out_t.append((k, v))
+                return out_t
+
+            head_tuples = _resolve(head_tuples)
+            tail_tuples = _resolve(tail_tuples)
+            if not resolved_ok:
+                if _stats is not None:
+                    _stats["skipped_rnc"] = _stats.get("skipped_rnc", 0) + 1
+                new_genes.append(gene)
+                continue
+            if _stats is not None:
+                _stats["resolved_rnc"] = _stats.get("resolved_rnc", 0) + 1
         try:
             out = denoise_karva(
                 head_tuples, tail_tuples,
