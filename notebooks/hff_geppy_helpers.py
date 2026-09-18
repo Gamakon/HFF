@@ -1537,9 +1537,33 @@ def equation_recovery_report(
     # symbolic constants via the snap library; the truth typically has
     # the literal numbers. Without this substitution, the lambdify
     # later sees M_sun as a free variable and returns nan/inf.
-    _phys_subs = {sp.Symbol(n): v for n, v in NAMED_CONSTANT_VALUES.items()}
+    # NEVER substitute a name the problem uses as a VARIABLE. Feynman reuses
+    # physics letters as inputs — I_34_27's variables are (omega, h), and
+    # replacing that h with Planck's constant on both sides destroyed the
+    # comparison and produced max_rel_err = inf on an expression that was
+    # exactly right.
+    _protected = set(variables or ())
+    _phys_subs = {
+        sp.Symbol(n): v
+        for n, v in NAMED_CONSTANT_VALUES.items()
+        if n not in _protected
+    }
     discovered = discovered.subs(_phys_subs)
     truth = truth.subs(_phys_subs)
+
+    # Put BOTH sides in the real domain before comparing. sympy symbols default
+    # to complex, and a Symbol('x') is NOT equal to a Symbol('x', real=True) —
+    # so a discovered expression built with real symbols cannot cancel against
+    # a truth parsed from the registry string with complex ones, and
+    # simplify(discovered - truth) never reaches 0 however correct the answer
+    # is. That showed up as exact=False alongside max_rel_err=0.0.
+    def _realify(e):
+        subs = {s: sp.Symbol(s.name, real=True)
+                for s in e.free_symbols if s.is_Symbol and not s.is_real}
+        return e.subs(subs) if subs else e
+
+    discovered = _realify(discovered)
+    truth = _realify(truth)
 
     # Structural check — strip Abs() from discovered before comparing
     # because protected_sqrt → sqrt(Abs(x)) and sympy can't prove
