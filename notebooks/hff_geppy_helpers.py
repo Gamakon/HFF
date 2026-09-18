@@ -1176,7 +1176,17 @@ def snap_constants(
                 return False
             if not node.args:
                 return False
-            return node.is_constant() and not any(s.is_Symbol for s in node.free_symbols)
+            # An expression with no free symbols IS constant, so this test
+            # alone decides it. sympy's is_constant() answers the same
+            # question by running a full simplify() — including
+            # trigsimp/futrig — and replace() calls this predicate on EVERY
+            # node of the tree. Measured 48.8ms for a bare sqrt(3); a wedged
+            # I_14_3 run sat 15+ minutes at 100% CPU inside futrig on a
+            # 67-node expression whose truth (m*g*z) has no trig in it at all.
+            # Verified identical verdicts, including sin(x)**2+cos(x)**2 —
+            # is_constant() calls it True, but it has free symbols so both
+            # forms correctly reject it.
+            return not any(s.is_Symbol for s in node.free_symbols)
         expr = expr.replace(_is_pure_constant_subtree, lambda n: sp.Float(n.evalf()))
     except Exception:
         pass

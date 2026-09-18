@@ -56,6 +56,24 @@ def register_atoms_in_pset(pset) -> None:
 # Lattice lookup
 # ---------------------------------------------------------------------------
 
+_LATTICE_CACHE: Optional[list] = None
+
+
+def _lattice() -> list:
+    """The constant lattice, fetched once.
+
+    fuller.master_lattice() is documented read-once and deterministic — the
+    table is embedded in the crate — but it rebuilds 7,006 (value, sexpr,
+    label) tuples and marshals every string across PyO3 on each call, at
+    ~8ms a time. _lattice_lookup runs per fitted coefficient, so a profiled
+    60-generation run spent 11.1s of 82.3s (13%) rebuilding a constant.
+    """
+    global _LATTICE_CACHE
+    if _LATTICE_CACHE is None:
+        _LATTICE_CACHE = list(master_lattice())
+    return _LATTICE_CACHE
+
+
 def _lattice_lookup(x: float, tolerance: float = 1e-3) -> Optional[dict]:
     """Find a lattice entry matching x within tolerance."""
     if not FULLER_AVAILABLE:
@@ -65,7 +83,7 @@ def _lattice_lookup(x: float, tolerance: float = 1e-3) -> Optional[dict]:
     try:
         best = None
         best_err = float("inf")
-        for value, math_sexpr, label in master_lattice():
+        for value, math_sexpr, label in _lattice():
             if abs(value) < 1e-15:
                 continue
             err = abs(value - x) / max(abs(x), abs(value), 1e-300)

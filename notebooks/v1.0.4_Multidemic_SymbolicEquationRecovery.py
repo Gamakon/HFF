@@ -196,7 +196,11 @@ settings = hgh.GeppySettings(
     n_genes=3,
     rnc_array_length=10,
     # Evolution
-    n_gen=400,
+    # Generation budget. HFF_N_GEN overrides, so the budget can be swept
+    # without editing this file. 400 was chosen when a single chromosome's
+    # end-phase simplify could cost minutes; that cost is gone, so the
+    # budget is worth re-tuning against measured recovery.
+    n_gen=int(os.environ.get("HFF_N_GEN", "400")),
     population_size=25,    # per island; 10 islands × 25 = 250 inds/gen
     tournament_size=3,
     num_elites=2,
@@ -1952,8 +1956,11 @@ population_size = settings.population_size
 #  - intake islands act as the explore stage, wider net catches diversity
 #  - champion islands act as the elite distiller, kept small + tight
 # Single-int population_size still applies for non-pump topologies.
-POP_INTAKE = 100      # E20: 1 intake (100) + 1 champion (50) = 150
-POP_CHAMPION = 50
+# HFF_POP_SCALE multiplies both, so population can be swept without editing
+# this file (e.g. HFF_POP_SCALE=2 -> intake 200, champion 100).
+_POP_SCALE = float(os.environ.get("HFF_POP_SCALE", "1"))
+POP_INTAKE = int(100 * _POP_SCALE)   # E20: 1 intake (100) + 1 champion (50)
+POP_CHAMPION = int(50 * _POP_SCALE)
 TOURN_INTAKE = 8      # wider net per 100-pop intake
 TOURN_CHAMPION = 5    # slightly wider on the bigger champion pool
 def _island_pop_size(island_idx):
@@ -2364,7 +2371,12 @@ extra_gen = settings.n_gen
 # For equation recovery we're looking for R² = 1.0 (truth recovered). The
 # 1e-9 tolerance lets float-precision rounding through but refuses any
 # approximation. val_R² is read from the logbook as 1 - one_minus_r2_va.
-EARLY_STOP_VAL_R2 = 1.0 - 1e-9
+# Early-stop threshold on validation R^2, confirmed on holdout.
+# HFF_EARLY_STOP overrides; set it to 2 to disable early stop entirely
+# (no R^2 can reach 2), which lets a run keep searching for a SIMPLER
+# form after it already fits. Relevant because a bloated expression can
+# clear any R^2 bar while being symbolically wrong.
+EARLY_STOP_VAL_R2 = float(os.environ.get("HFF_EARLY_STOP", 1.0 - 1e-9))
 _early_stop_triggered = False
 
 if number_islands == 0:
@@ -2595,7 +2607,12 @@ CUSTOM_SYMBOLIC_FUNCTION_MAP["protected_log"]  = lambda x: sp.log(sp.Abs(x))
 
 # Per-gene simplify + linker assembly — skips the top-level sp.simplify()
 # inside gep.simplify(), which is the slow path on multi-gene chromosomes.
-from geppy.support.simplification import _simplify_kexpression as _simplify_kexpr
+# Bounded replacement for geppy's _simplify_kexpression, which calls
+# sp.simplify at EVERY internal node and goes exponential on deep multi-gene
+# chromosomes (measured 30+ min hangs; SIGALRM cannot interrupt sympy's C
+# code). _bounded_simplify builds the expression without per-node simplify and
+# simplifies once at the end under a node-count bound. See _bounded_simplify.py.
+from _bounded_simplify import simplify_kexpression_bounded as _simplify_kexpr
 _per_gene_sym = [_simplify_kexpr(g.kexpression, CUSTOM_SYMBOLIC_FUNCTION_MAP)
                  for g in best_ind]
 _linker_for_sym = CUSTOM_SYMBOLIC_FUNCTION_MAP.get(
