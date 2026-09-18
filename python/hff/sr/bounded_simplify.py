@@ -96,6 +96,19 @@ def _log(rec: dict) -> None:
         pass
 
 
+def _sym(name: str):
+    """A REAL-valued symbol.
+
+    sympy symbols default to complex, so simplify refuses real-domain
+    identities and hedges with re(), im() and Abs(): sqrt((g*m*z)**2) stays
+    sqrt(g**2*m**2*z**2), and a recovered result reads `1.0*re(g*m*z)` instead
+    of `g*m*z`. Our data is real by construction — every variable is a column
+    of floats — so declaring the symbols real is correct, not an assumption,
+    and it is what lets the truth print as the truth.
+    """
+    return sp.Symbol(name, real=True)
+
+
 def _node_count(e) -> int:
     """Cheap size proxy — number of nodes in the sympy tree."""
     try:
@@ -126,7 +139,7 @@ def simplify_kexpression_bounded(expr,
             'A K-expression of length 1 must only contain a terminal.'
         _bump("trivial")
         if t.value is None:      # an input variable
-            return sp.Symbol(t.name)
+            return _sym(t.name)
         return t.value
 
     expr = expr[:]  # upstream mutates its copy; do the same
@@ -148,7 +161,7 @@ def simplify_kexpression_bounded(expr,
                 t = expr.pop()
                 if isinstance(t, Terminal):
                     if isinstance(t, SymbolTerminal):
-                        args.append(sp.Symbol(t.name))
+                        args.append(_sym(t.name))
                     else:
                         # Coerce to a sympy number. Upstream gets this for
                         # free because its per-node sp.simplify sympifies as
