@@ -1855,6 +1855,110 @@ toolbox.register("mut_rnc_array_dc", gep.mutate_rnc_array_dc, rnc_gen=toolbox.rn
 toolbox.pbs["mut_rnc_array_dc"] = 1
 
 
+# === fuller (egglog) gene operators ===
+# The point of the exercise: rewrite the GENES during evolution, so a
+# simplified or physics-shaped form can be bred with, rather than tidying the
+# winner afterwards. All are karva-in / karva-out and DEAP-shaped —
+# (individual,) out — so the existing 'mut*' loop picks them up via toolbox.pbs.
+#
+# Gated by HFF_FULLER (default "1"). Set HFF_FULLER=0 for the A/B control arm:
+# same seed, same everything, no fuller.
+#
+# Rates mirror hff_sr_engine's defaults so the two paths are comparable.
+FULLER_ENABLED = os.environ.get("HFF_FULLER", "1") == "1"
+PB_DENOISE = float(os.environ.get("HFF_PB_DENOISE", "0.20"))
+PB_PHYSICS = float(os.environ.get("HFF_PB_PHYSICS", "0.20"))
+PB_SNAP = float(os.environ.get("HFF_PB_SNAP", "1.0"))
+PB_CONCRETIZE = float(os.environ.get("HFF_PB_CONCRETIZE", "0.05"))
+
+FULLER_STATS = {"denoise": {}, "physics": {}, "snap": {}, "concretize": {}}
+_fuller_seq = [0]
+
+if FULLER_ENABLED:
+    try:
+        from _denoise_op import mut_denoise as _mut_denoise
+        from _snap_op import snap_individual as _snap_individual
+        from _snap_op import concretize_individual as _concretize_individual
+        from _physics_op import mut_physics as _mut_physics
+        import fuller as _fuller_mod
+        _X_TRAIN_DF = train[list(finalTerminals)]
+
+        def mut_fuller_denoise(individual):
+            """Bounded egglog saturation, then keep the smallest form that still
+            fits. Behaviour-preserving: the candidate is re-checked against the
+            chromosome's own compiled callable before any swap."""
+            if random.random() >= PB_DENOISE:
+                return (individual,)
+            _fuller_seq[0] += 1
+            try:
+                return _mut_denoise(individual, toolbox, pset, _X_TRAIN_DF, Y,
+                                    rng_seed=_fuller_seq[0],
+                                    _stats=FULLER_STATS["denoise"])
+            except Exception:
+                return (individual,)
+
+        def mut_fuller_physics(individual):
+            """One-to-many physics-prior candidates (Lorentz, Coulomb, Gaussian,
+            harmonic, ...), scored on the data before adoption."""
+            if random.random() >= PB_PHYSICS:
+                return (individual,)
+            _fuller_seq[0] += 1
+            try:
+                return _mut_physics(individual, toolbox, pset, _X_TRAIN_DF, Y,
+                                    rng_seed=_fuller_seq[0],
+                                    _stats=FULLER_STATS["physics"])
+            except Exception:
+                return (individual,)
+
+        def mut_fuller_snap(individual):
+            """Replace float constants with NAMED constant tokens (pi, G, ...).
+            This is the one that matters most: a named constant in the karva can
+            be crossed over and inherited; 3.14159 cannot."""
+            if random.random() >= PB_SNAP:
+                return (individual,)
+            _fuller_seq[0] += 1
+            try:
+                new_ind, swapped = _snap_individual(
+                    individual, toolbox, pset, _X_TRAIN_DF, Y,
+                    k_variants=16, rel_tol=1e-3, r2_drop_tol=1e-4,
+                    rng_seed=_fuller_seq[0], _stats=FULLER_STATS["snap"])
+                return (new_ind if swapped else individual,)
+            except Exception:
+                return (individual,)
+
+        def mut_fuller_concretize(individual):
+            """The down-flip: named constants back to numbers, so both
+            representations compete under selection instead of the pipeline
+            committing to one."""
+            if random.random() >= PB_CONCRETIZE:
+                return (individual,)
+            _fuller_seq[0] += 1
+            try:
+                new_ind, changed = _concretize_individual(
+                    individual, toolbox, pset, _X_TRAIN_DF, Y,
+                    r2_drop_tol=1e-4, rng_seed=_fuller_seq[0],
+                    _stats=FULLER_STATS["concretize"])
+                return (new_ind if changed else individual,)
+            except Exception:
+                return (individual,)
+
+        toolbox.register("mut_fuller_snap", mut_fuller_snap)
+        toolbox.pbs["mut_fuller_snap"] = 1
+        toolbox.register("mut_fuller_concretize", mut_fuller_concretize)
+        toolbox.pbs["mut_fuller_concretize"] = 1
+        toolbox.register("mut_fuller_denoise", mut_fuller_denoise)
+        toolbox.pbs["mut_fuller_denoise"] = 1
+        toolbox.register("mut_fuller_physics", mut_fuller_physics)
+        toolbox.pbs["mut_fuller_physics"] = 1
+        print(f"[fuller] gene operators ACTIVE (denoise={PB_DENOISE} "
+              f"physics={PB_PHYSICS} snap={PB_SNAP} concretize={PB_CONCRETIZE})")
+    except ImportError as _e:
+        FULLER_ENABLED = False
+        print(f"[fuller] NOT ACTIVE - import failed: {_e}")
+else:
+    print("[fuller] disabled by HFF_FULLER=0 (control arm)")
+
+
 # === Chromosome-level wrapper operators ===
 # Operate on ind.wrapper_id (a single int), not gene contents. Picked up
 # by the existing 'mut*' / 'cx*' loops in the run cell via toolbox.pbs.
@@ -2941,6 +3045,8 @@ for _, row in ranked.iterrows():
             nsimplify_mode="shallow", verbose=False,
             var_ranges=_problem_var_ranges,
         )
+        if FULLER_ENABLED:
+            print(f"[fuller-stats] {FULLER_STATS}", flush=True)
         rec = hgh.equation_recovery_report(
             snapped_i, truth_expr,
             variables=problem.variables,
