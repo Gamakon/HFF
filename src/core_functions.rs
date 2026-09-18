@@ -13,8 +13,11 @@ use std::f64::consts::PI;
 /// 2. **Energy Calculation**: Compute squared magnitude of solution vector
 /// 3. **Fractional Energy**: Normalize each objective by total energy
 /// 4. **Hyperspherical Projection**: Take square root to get hyperspherical coordinates
-/// 5. **Balanced North Pole**: Use (1/√m, 1/√m, ..., 1/√m) representing balanced minimization
-/// 6. **Hyperspherical Fitness**: Calculate arccos of dot product with balanced north pole
+/// 5. **North Pole**: NORTH POLE IS ALWAYS ZEROS — the origin of objective space,
+///    lifted to the augmented sphere as (0, ..., 0, 1). The balanced pole
+///    (1/√m, ..., 1/√m) is BANNED: it does not work in practice, because it
+///    rewards equal trade-offs rather than outright minimisation.
+/// 6. **Hyperspherical Fitness**: Calculate arccos of dot product with that pole
 ///
 /// # Arguments
 ///
@@ -99,6 +102,12 @@ pub fn calculate_single_hyperspherical_fitness_f64_with_method(
     // North pole method selection: TrueNorth vs BalancedNorth
     let cos_theta: f64 = match north_pole_method {
         "balanced" => {
+// NORTH POLE IS ALWAYS ZEROS. Using the balanced pole (1/sqrt(m), ...) is
+// BANNED: it does not work in practice. The pole is the origin of objective
+// space — all objectives zero — lifted into the augmented sphere as
+// (0, ..., 0, 1). "Balanced" rewards equal trade-offs rather than outright
+// minimisation, which is not the objective. See the `truenorth` branch below
+// for the correct construction.
             // BalancedNorth: Use balanced north pole in m-dimensional space
             // North pole represents equal trade-offs: (1/√m, 1/√m, ..., 1/√m)
             let north_pole_coord = 1.0 / (n_objectives as f64).sqrt();
@@ -150,6 +159,12 @@ pub fn calculate_single_hyperspherical_fitness_f64_with_method(
                 .sum()
         },
         _ => {
+// NORTH POLE IS ALWAYS ZEROS. Using the balanced pole (1/sqrt(m), ...) is
+// BANNED: it does not work in practice. The pole is the origin of objective
+// space — all objectives zero — lifted into the augmented sphere as
+// (0, ..., 0, 1). "Balanced" rewards equal trade-offs rather than outright
+// minimisation, which is not the objective. See the `truenorth` branch below
+// for the correct construction.
             // Invalid method - default to balanced for safety
             let north_pole_coord = 1.0 / (n_objectives as f64).sqrt();
             let north_pole: Vec<f64> = vec![north_pole_coord; n_objectives];
