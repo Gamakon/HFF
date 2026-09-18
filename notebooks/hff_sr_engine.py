@@ -2162,7 +2162,12 @@ class HFFSREngine:
             # path hangs sympy native code (SIGALRM cannot escape it).
             # compress_gene caps sympy.simplify to sub-trees of <= sub_h
             # nodes per call, so cost is bounded regardless of head size.
-            from geppy.support.simplification import _simplify_kexpression as _simplify_kexpr
+            # Bounded replacement for geppy's _simplify_kexpression, which
+            # calls sp.simplify at EVERY internal node and compounds with
+            # gene depth (28x slower than necessary at head=48; SIGALRM
+            # cannot interrupt sympy's native code). Builds without the
+            # per-node simplify, then simplifies once under a node bound.
+            from hff.sr import simplify_kexpression_bounded as _simplify_kexpr
             from geppy.core.entity import Gene as _Gene
             from _gene_decompose import compress_gene as _compress_gene
             from _sympy_to_karva import visit_subtree as _visit_subtree
