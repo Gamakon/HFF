@@ -29,6 +29,7 @@ notebooks/_*.sh
 # ...but real underscore-prefixed modules are tracked; exempt them explicitly.
 !notebooks/_fold_op.py
 !notebooks/_recovery.py
+!notebooks/_bounded_simplify.py
 notebooks/_ledgers/
 notebooks/_sweep_logs/
 data/
