@@ -317,6 +317,11 @@ def main() -> int:
         print("no problems selected", file=sys.stderr)
         return 2
 
+    # Reclaim anything an interrupted run stranded in staging, BEFORE the
+    # status report or the todo computation — otherwise --status under-reports
+    # and a restart recomputes work that already finished.
+    recover_orphaned_staging()
+
     if args.status:
         print_status(problems)
         return 0
@@ -328,7 +333,6 @@ def main() -> int:
                 os.remove(f)
                 print(f"[redo] cleared {p}")
 
-    recover_orphaned_staging()
     done = done_problems()
     todo = [p for p in problems if p not in done]
     print(f"{len(problems)} selected, {len(done & set(problems))} already done, "
