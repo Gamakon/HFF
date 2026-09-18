@@ -1,8 +1,18 @@
 # HFF Symbolic Regression — method and results
 
-Status: **draft.** The method sections are written from the code. The results
-sections are being filled from a full Feynman sweep in progress; numbers marked
-_pending_ are not yet measured. Nothing here is a projection.
+Status: **draft.**
+
+**Correction (read first).** An earlier draft attributed the recovery results to
+fuller's in-loop gene operators. That was wrong. The recovery sweep runs
+`notebooks/v1.0.4_Multidemic_SymbolicEquationRecovery.py`, which is a
+standalone geppy/deap loop: it imports neither `hff_sr_engine` nor `fuller` nor
+any of the four operator modules (verified by grep — zero matches). The
+measured gains came from removing two sympy hangs from the code that sweep DOES
+use (§7). Section 5 describes the engine, which is the SRBench path, not the
+path that produced §6.1.
+
+The method sections are written from the code. Numbers marked _pending_ are not
+yet measured. Nothing here is a projection.
 
 ---
 
@@ -22,7 +32,9 @@ Three parts, in the order they matter:
 3. **fuller (egglog) as in-loop gene operators** — denoise, snap, concretize
    and physics-prior rewrites applied to chromosomes each generation.
 
-Part 3 is what changed most recently, and section 6 gives its measured effect.
+Parts 1 and 2 are in both implementations. Part 3 is in `hff_sr_engine`
+only — the recovery sweep behind §6.1 uses a separate notebook without it,
+so §6 does not yet measure part 3.
 
 ---
 
@@ -81,7 +93,15 @@ lowest angle wins.
 ### Why there is no parsimony term
 
 `parsimony_in_hff` defaults to **False**, and the recovery results in section 6
-were produced with it off.
+were produced with no parsimony term.
+
+The claim holds against bloat that OVERFITS. It does not hold against
+**neutral** bloat — terms that are near-harmless on both splits. ideal_gas
+returned `8.314462618*T*n/V - 1.66288754*V + 0.913282699` at holdout R²
+0.9999999999: correct structure, exact gas constant, two spurious terms that
+cost nothing in R² while destroying the symbolic form. Validation pairing
+cannot see those, because they do not diverge. That is handled by dropping
+additive terms under a data gate (fuller `extract`), not by a length penalty.
 
 Every metric family appears as a matched **train/validation pair**. A bloated
 expression that overfits the training rows diverges on validation, and so is
@@ -126,7 +146,12 @@ were tried and rejected. Notably:
 
 `fuller` is a Rust crate over **egglog 2.0** exposing an equality-saturation
 substrate for real-domain expression rewriting. Four operators call into it
-**inside the generation loop**, all karva-in / karva-out:
+**inside the generation loop**, all karva-in / karva-out.
+
+**Scope.** This describes `hff_sr_engine`, which is the path a benchmark
+harness calls. The equation-recovery sweep in §6.1 runs a separate notebook
+that does not use these operators, so the §6.1 numbers do not measure them.
+Running recovery through the engine is open work (§9).
 
 | operator | rate | what it does |
 |---|---|---|
@@ -140,9 +165,14 @@ population carries both forms of a constant and selection decides which is
 useful, rather than the pipeline committing to one.
 
 This is the substantive design claim: **the rewriting is a mutation operator,
-not a cleanup pass.** `q1*q2/(4*pi*epsilon*r**2)` is recoverable because `pi`
-was a token in the chromosome *during* evolution and could be bred with — not
-because sympy prettified a float afterwards.
+not a cleanup pass.** A named constant that is a token in the chromosome
+*during* evolution can be bred with; one produced by prettifying a float
+afterwards cannot.
+
+The claim is **not yet demonstrated on recovery.** The §6.1 run recovers
+`q1*q2/(4*pi*epsilon*r**2)` with `pi` symbolic, but via that notebook's own
+`snap_constants`, not these operators — an A/B through the engine is what would
+test it.
 
 `denoise` is behaviour-preserving by construction. When a rewrite fires, the
 candidate is re-evaluated through the chromosome's own compiled callable —
@@ -192,7 +222,9 @@ linear-sum → sum of pairwise products — was hand-prototyped in an earlier
 experiment and shown to reach truth exactly. It is now found by the search
 rather than supplied.
 
-**Caveats, stated plainly.** This is a 13-problem adversarial sample at one
+**Caveats, stated plainly.** These numbers do NOT measure fuller's in-loop
+operators — see the correction at the top. They measure the notebook path with
+two sympy hangs removed (§7). This is a 13-problem adversarial sample at one
 seed. The comparison is against the recorded prior figure on the same set, not
 a matched-configuration control arm run today. And on most hard problems the
 HOF's own pick is *not* truth (`hof_exact` is typically 0/29) — truth is
@@ -276,8 +308,13 @@ rather than restarting.
 ## 9. Open work
 
 - **Full Feynman recovery rate** (§6.2) — in progress.
-- **A matched-configuration A/B** — fuller on versus off, same seeds, to
-  attribute the recovery gain precisely rather than by strong inference.
+- **Run recovery through the engine.** The recovery notebook and
+  `hff_sr_engine` are separate implementations; only the engine carries the
+  fuller operators, and only the notebook has a recovery oracle. Until they
+  converge, no recovery number measures the method in §5. This is the single
+  most important open item.
+- **A matched-configuration A/B** — fuller on versus off, same seeds, once the
+  two paths have converged.
 - **Evaluation cost as a scored objective.** The e-class tournament ranks forms
   by structure and behaviour but has no timing axis; `node_count` is a poor
   proxy, since `exp(exp(exp(x)))` is five nodes. The forms are already being
