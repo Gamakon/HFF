@@ -198,10 +198,25 @@ def run_batch(batch: list[str], idx: int, args) -> None:
     t0 = time.perf_counter()
     log_event({"event": "batch_start", "batch": idx, "problems": batch})
     print(f"\n=== batch {idx}: {len(batch)} problems ===")
-    print("   ", ", ".join(batch))
+    print("   ", ", ".join(batch), flush=True)
+    # Tee: per-problem output goes to OUR stdout as it happens as well as to
+    # the batch file. Sending it only to the batch file meant the run's own log
+    # showed batch headers and nothing else, so a caller watching it saw no
+    # results for twenty minutes at a time.
     with open(log_path, "w") as lf:
-        proc = subprocess.run(argv, cwd=HERE, env=env, stdout=lf,
-                              stderr=subprocess.STDOUT)
+        proc = subprocess.Popen(argv, cwd=HERE, env=env,
+                                stdout=subprocess.PIPE,
+                                stderr=subprocess.STDOUT,
+                                text=True, bufsize=1)
+        for line in proc.stdout:
+            lf.write(line)
+            lf.flush()
+            # Forward the lines worth watching; the sweep also emits per-gen
+            # logbook rows, which would bury them.
+            if line.startswith(("=== ", "  exact", "  numerical", "  max rel err",
+                                "  discovered", "  elapsed", "  [")):
+                print(line.rstrip(), flush=True)
+        proc.wait()
     elapsed = time.perf_counter() - t0
 
     # Promote whatever completed into results/. A problem missing from staging
