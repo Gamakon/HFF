@@ -1124,6 +1124,30 @@ def _prune_tiny_additive(expr, rel_tol: float = 1e-3, seed: int = 0,
     return sp.Add(*pieces)
 
 
+def _snap_simple_rational(x: float, rel_tol: float = 1e-9):
+    """Return a sympy Integer/Rational if x is one to within rel_tol, else None.
+
+    Catches the residue of floating-point arithmetic: 0.999999999999999 is 1,
+    2.0000000000000004 is 2, 0.3333333333333333 is 1/3. Denominators are kept
+    small — a large denominator is not a "simple rational", it is a coincidence
+    of the tolerance.
+    """
+    import sympy as sp   # module imports sympy per-function, not at top level
+    if not (abs(x) < 1e12):
+        return None
+    r = round(x)
+    if r != 0 and abs(x - r) <= rel_tol * max(abs(x), 1.0):
+        return sp.Integer(int(r))
+    if abs(x) < rel_tol:
+        return sp.Integer(0)
+    for den in (2, 3, 4, 5, 6, 8, 10, 12, 16):
+        num = x * den
+        n = round(num)
+        if n != 0 and abs(num - n) <= rel_tol * max(abs(num), 1.0):
+            return sp.Rational(int(n), den)
+    return None
+
+
 def snap_constants(
     expr,
     library: dict,
@@ -1200,6 +1224,27 @@ def snap_constants(
     subs = {}
     for atom in list(expr.atoms(sp.Float)):
         x = float(atom)
+        # Simple rationals FIRST. A coefficient that is 1 to within 1e-15 is
+        # 1 — but the constant library holds only physics values and their
+        # composites, with no plain integers, so 0.999999999999999 matched
+        # nothing and survived into the reported equation (observed on I_8_14:
+        # 0.999999999999999*sqrt(...)). Worse, the nearest library forms for
+        # small integers are absurd — 2.0 as sqrt2^2, 0.5 as h/(4*pi*hbar) —
+        # so without this the search for a physics match can actively mangle
+        # an exact rational.
+        #
+        # Deliberately tight (1e-9 relative, not the library's 1e-3): this
+        # exists to recognise a rational the float arithmetic has nudged, not
+        # to round a genuinely different value into a tidy one.
+        rat = _snap_simple_rational(x)
+        if rat is not None:
+            subs[atom] = rat
+            report.append({
+                "atom": x, "matched_to": str(rat), "form": "rational",
+                "rel_err": abs(x - float(rat)) / max(abs(x), 1e-300),
+                "snapped_to": rat, "status": "matched",
+            })
+            continue
         result, top = _best_snap(x, library, rel_tol)
         if result is not None:
             name, sym, rel, label = result
