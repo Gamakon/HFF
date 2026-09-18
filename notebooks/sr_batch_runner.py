@@ -129,6 +129,46 @@ def select_problems(args) -> list[str]:
     return keys
 
 
+def recover_orphaned_staging() -> list[str]:
+    """Promote results left in a staging dir by an interrupted run.
+
+    run_batch only moves staging -> results when the whole batch finishes, so
+    a kill mid-batch strands every problem that HAD completed. Those are real
+    results — up to 9 problems at 200-900s each — and without this they are
+    silently discarded and recomputed. Called before computing what is left
+    to do. Only safe to call at STARTUP, before this run creates any staging
+    dir of its own: a concurrent run's staging dir would otherwise be raided
+    mid-batch. main() calls it once, before the first run_batch.
+    """
+    if not os.path.isdir(LOGS):
+        return []
+    staging = sorted(d for d in os.listdir(LOGS) if d.startswith(".staging_batch_"))
+    if not staging:
+        return []
+    os.makedirs(RESULTS, exist_ok=True)
+    recovered = []
+    for d in staging:
+        src = os.path.join(LOGS, d)
+        for f in sorted(os.listdir(src)):
+            if not f.endswith(".json"):
+                continue
+            dst = os.path.join(RESULTS, f)
+            if os.path.exists(dst):
+                continue
+            shutil.move(os.path.join(src, f), dst)
+            recovered.append(f[:-5])
+        try:
+            if not os.listdir(src):
+                os.rmdir(src)
+        except OSError:
+            pass
+    if recovered:
+        log_event({"event": "recovered_orphaned", "problems": recovered})
+        print(f"[recover] promoted {len(recovered)} result(s) stranded by an "
+              f"interrupted run: {', '.join(recovered)}")
+    return recovered
+
+
 def done_problems() -> set[str]:
     if not os.path.isdir(RESULTS):
         return set()
@@ -288,6 +328,7 @@ def main() -> int:
                 os.remove(f)
                 print(f"[redo] cleared {p}")
 
+    recover_orphaned_staging()
     done = done_problems()
     todo = [p for p in problems if p not in done]
     print(f"{len(problems)} selected, {len(done & set(problems))} already done, "

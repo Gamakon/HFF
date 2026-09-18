@@ -309,6 +309,14 @@ def detect_var_patterns(variables: Sequence[str]):
     """
     tags = set()
     vset = set(variables)
+    # Name-blind mode. These tags are derived from VARIABLE NAMES, not from
+    # data: "c" beside "u" suggests Lorentz, "epsilon" beside "r" suggests
+    # Coulomb. On Feynman, which uses physicists' conventional names, that is
+    # a prior about the answer that would not survive renaming the columns.
+    # HFF_NAME_BLIND=1 suppresses it so recovery can be measured without it.
+    # (SRBench renames columns to col_N anyway, so these go silent there.)
+    if os.environ.get("HFF_NAME_BLIND") == "1":
+        return {"no_pattern"}, [], [], [], {}
     xs = sorted(v for v in variables if re.match(r"^x\d+$", v))
     ys = sorted(v for v in variables if re.match(r"^y\d+$", v))
     zs = sorted(v for v in variables if re.match(r"^z\d+$", v))
