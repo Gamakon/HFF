@@ -49,14 +49,55 @@ pub fn calculate_single_hyperspherical_fitness_f64(
     decrowding: bool,
     population_stats: Option<(f64, f64)>
 ) -> f64 {
-    // Default to BalancedNorth for backward compatibility
+    // NORTH POLE IS ALWAYS ZEROS: default to TrueNorth. This used to default to
+    // "balanced" for backward compatibility, which silently gave every caller of
+    // this entry point the banned pole — it rewards equal trade-offs instead of
+    // minimisation, so a candidate at 0.5 on every objective scored as perfect.
     calculate_single_hyperspherical_fitness_f64_with_method(
         individual,
         n_objectives,
         decrowding,
         population_stats,
-        "balanced"
+        "truenorth"
     )
+}
+
+/// TrueNorth cos(theta): the ONLY correct pole for HFF.
+///
+/// Lifts the m objectives into R^(m+1) as
+///   (y_1*sqrt(1-e^2), ..., y_m*sqrt(1-e^2), e)
+/// and takes the dot product with the pole (0, ..., 0, 1) -- the ORIGIN of
+/// objective space, i.e. all objectives zero. `e` is the energy score, 1.0 at
+/// perfect minimisation. Shared by the "truenorth" arm and the fallback arm so
+/// there is exactly one implementation of the pole.
+fn true_north_cos_theta(
+    geometric_coords: &[f64],
+    n_objectives: usize,
+    energy_sum: f64,
+) -> f64 {
+    // Energy score: lower energy = higher score = closer to the pole.
+    let max_possible_energy = n_objectives as f64;
+    let energy_score = if energy_sum <= f64::EPSILON {
+        1.0 // perfect minimisation
+    } else {
+        let normalized_energy = energy_sum / max_possible_energy;
+        (1.0 - normalized_energy.min(1.0)).max(0.0)
+    };
+
+    // Scale onto the unit sphere, then append the energy dimension.
+    let scale_factor = (1.0 - energy_score * energy_score).sqrt();
+    let mut augmented_coords: Vec<f64> =
+        geometric_coords.iter().map(|&c| c * scale_factor).collect();
+    augmented_coords.push(energy_score);
+
+    // Pole is (0, ..., 0, 1), so the dot product is just the last component.
+    let mut north_pole = vec![0.0; n_objectives];
+    north_pole.push(1.0);
+    augmented_coords
+        .iter()
+        .zip(north_pole.iter())
+        .map(|(&sol, &pole)| sol * pole)
+        .sum()
 }
 
 /// Enhanced HF1 with TrueNorth vs BalancedNorth method selection
@@ -120,60 +161,15 @@ pub fn calculate_single_hyperspherical_fitness_f64_with_method(
                 .map(|(&sol, &pole)| sol * pole)
                 .sum()
         },
-        "truenorth" => {
-            // TrueNorth: Energy-based augmented space method for direct minimization
-            // Solution: (y₁×√(1-e²), y₂×√(1-e²), ..., yₘ×√(1-e²), e) in ℝ^(m+1)
-            // North pole: (0, 0, ..., 0, 1) in ℝ^(m+1)
-            // Where e = energy_score based on distance from perfect minimization
-
-            // Calculate energy score: lower energy = higher score (closer to north pole)
-            let max_possible_energy = n_objectives as f64; // Max energy after normalization
-            let current_energy = energy_sum;
-            let energy_score = if current_energy <= f64::EPSILON {
-                1.0  // Perfect minimization
-            } else {
-                // Energy score: higher is better (closer to north pole)
-                let normalized_energy = current_energy / max_possible_energy;
-                (1.0 - normalized_energy.min(1.0)).max(0.0)
-            };
-
-            // Scale geometric coordinates by √(1 - energy_score²) to maintain unit sphere
-            let scale_factor = (1.0 - energy_score * energy_score).sqrt();
-            let mut augmented_coords: Vec<f64> = geometric_coords
-                .iter()
-                .map(|&coord| coord * scale_factor)
-                .collect();
-
-            // Append energy score as final dimension
-            augmented_coords.push(energy_score);
-
-            // Create augmented north pole: (0, 0, ..., 0, 1)
-            let mut north_pole = vec![0.0; n_objectives];
-            north_pole.push(1.0);
-
-            // Calculate dot product in augmented space
-            augmented_coords
-                .iter()
-                .zip(north_pole.iter())
-                .map(|(&sol, &pole)| sol * pole)
-                .sum()
-        },
+        "truenorth" => true_north_cos_theta(&geometric_coords, n_objectives, energy_sum),
         _ => {
-// NORTH POLE IS ALWAYS ZEROS. Using the balanced pole (1/sqrt(m), ...) is
-// BANNED: it does not work in practice. The pole is the origin of objective
-// space — all objectives zero — lifted into the augmented sphere as
-// (0, ..., 0, 1). "Balanced" rewards equal trade-offs rather than outright
-// minimisation, which is not the objective. See the `truenorth` branch below
-// for the correct construction.
-            // Invalid method - default to balanced for safety
-            let north_pole_coord = 1.0 / (n_objectives as f64).sqrt();
-            let north_pole: Vec<f64> = vec![north_pole_coord; n_objectives];
-
-            geometric_coords
-                .iter()
-                .zip(north_pole.iter())
-                .map(|(&sol, &pole)| sol * pole)
-                .sum()
+            // NORTH POLE IS ALWAYS ZEROS. An unrecognised method name falls
+            // through to TrueNorth, never to the balanced pole. This arm used to
+            // duplicate the balanced branch and call it "safety"; there is no
+            // safety argument — balanced is simply the wrong pole, and defaulting
+            // to it turned a typo in a method name into a silently different
+            // objective.
+            true_north_cos_theta(&geometric_coords, n_objectives, energy_sum)
         }
     };
 
@@ -266,4 +262,55 @@ pub fn apply_decrowding_transform(
             (1.0 + z_score.exp()).ln()
         }
     })
+}
+
+#[cfg(test)]
+mod north_pole_tests {
+    use super::*;
+    use ndarray::arr1;
+
+    /// The default entry point must use TrueNorth, never the balanced pole.
+    #[test]
+    fn default_is_true_north() {
+        let v = arr1(&[0.5, 0.5, 0.5]);
+        let default = calculate_single_hyperspherical_fitness_f64(&v, 3, false, None);
+        let truenorth = calculate_single_hyperspherical_fitness_f64_with_method(
+            &v, 3, false, None, "truenorth");
+        let balanced = calculate_single_hyperspherical_fitness_f64_with_method(
+            &v, 3, false, None, "balanced");
+        assert_eq!(default, truenorth, "default must be truenorth");
+        assert_ne!(default, balanced, "default must NOT be the balanced pole");
+    }
+
+    /// An unrecognised method name falls through to TrueNorth, not balanced.
+    #[test]
+    fn unknown_method_falls_through_to_true_north() {
+        let v = arr1(&[0.2, 0.9, 0.4]);
+        let unknown = calculate_single_hyperspherical_fitness_f64_with_method(
+            &v, 3, false, None, "not-a-real-method");
+        let truenorth = calculate_single_hyperspherical_fitness_f64_with_method(
+            &v, 3, false, None, "truenorth");
+        assert_eq!(unknown, truenorth);
+    }
+
+    /// All-zero objectives sit AT the pole: angle 0.
+    #[test]
+    fn zeros_are_the_pole() {
+        let v = arr1(&[0.0, 0.0, 0.0, 0.0]);
+        let a = calculate_single_hyperspherical_fitness_f64(&v, 4, false, None);
+        assert!(a.abs() < 1e-12, "all-zero must be angle 0, got {a}");
+    }
+
+    /// The balanced pole scores a uniformly-mediocre point as perfect; TrueNorth
+    /// does not. This is the reason balanced is banned.
+    #[test]
+    fn balanced_rewards_mediocrity_true_north_does_not() {
+        let mediocre = arr1(&[0.5, 0.5, 0.5]);
+        let bal = calculate_single_hyperspherical_fitness_f64_with_method(
+            &mediocre, 3, false, None, "balanced");
+        let tn = calculate_single_hyperspherical_fitness_f64_with_method(
+            &mediocre, 3, false, None, "truenorth");
+        assert!(bal.abs() < 1e-9, "balanced calls 0.5-everywhere perfect: {bal}");
+        assert!(tn > 0.1, "truenorth must penalise it: {tn}");
+    }
 }
