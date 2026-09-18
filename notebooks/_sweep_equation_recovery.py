@@ -230,7 +230,7 @@ def _result_to_row(pid, result):
         "exact": result.get("recovery_exact"),
         "numerical": result.get("recovery_numerical"),
         "max_rel_err": result.get("recovery_max_rel_err"),
-        "discovered": str(result.get("discovered_expr"))[:70],
+        "discovered": str(result.get("discovered_expr")),  # full: it is the last column
         "hof_exact": f"{result.get('hof_exact_recoveries')}/{result.get('hof_size')}",
         "elapsed_s": result.get("elapsed_s", 0),
     }
@@ -308,15 +308,19 @@ def main():
                 rows.append(_result_to_row(pid, result))
 
     print("\n" + "=" * 100)
+    # t(s) sits BEFORE discovered: the expression is variable-width and
+    # frequently exceeds its column, which shoved the old trailing time column
+    # out of alignment on exactly the rows worth reading. Expression last means
+    # every fixed-width column stays in line.
     print(f"{'problem':<14} {'exact':<7} {'numerical':<11} {'max_rel_err':<14} "
-          f"{'hof_exact':<10} {'discovered':<30} {'t(s)':<7}")
+          f"{'hof_exact':<10} {'t(s)':>8}  {'discovered'}")
     print("-" * 100)
     for r in rows:
         rel = r["max_rel_err"]
         rel_s = f"{rel:.2e}" if isinstance(rel, float) else str(rel)
         print(f"{r['problem']:<14} {str(r['exact']):<7} {str(r['numerical']):<11} "
               f"{rel_s:<14} {r.get('hof_exact','—'):<10} "
-              f"{r['discovered']:<30} {r['elapsed_s']:<7.1f}")
+              f"{r['elapsed_s']:>8.1f}  {r['discovered']}")
 
     n = len(rows)
     n_exact = sum(1 for r in rows if r["exact"] is True)
