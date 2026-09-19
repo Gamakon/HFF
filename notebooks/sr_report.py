@@ -66,6 +66,16 @@ def table(rows: dict, title: str = "", width: int = 46) -> str:
     if title:
         out.append(title)
     out.append(f"  {ex}/{n} exact ({100*ex/n:.0f}%)   {nu}/{n} numerical")
+    # How the exact ones were won. "evolved" is the search; anything else is a
+    # static rule, and a rate that mixes them cannot be compared with a peer's.
+    how = {}
+    for r in rows.values():
+        if r.get("recovery_exact"):
+            k = r.get("won_via", "unrecorded")
+            how[k] = how.get(k, 0) + 1
+    if how:
+        out.append("  exact, by how it was won: " + ", ".join(
+            f"{k} {v}" for k, v in sorted(how.items(), key=lambda kv: -kv[1])))
     out.append("")
     out.append(f"  {'problem':11s} {'':3s} {'rel err':>8s} {'t':>6s}  expression")
     out.append(f"  {'-'*11} {'-'*3} {'-'*8} {'-'*6}  {'-'*width}")

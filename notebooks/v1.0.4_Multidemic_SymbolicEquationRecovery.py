@@ -1674,6 +1674,7 @@ _STATIC_RULE_CANDIDATES = []   # list of {wrapper_id, vec, a, b, metrics, label}
 #                    compared with the evolved best at report time.
 #   all:             the previous behaviour, kept for A/B.
 RULE_SLOTS = os.environ.get("HFF_RULE_SLOTS", "exact")
+RULE_FAMILIES = os.environ.get("HFF_RULES", "all")
 _RULES_FOR_SLOTS = []
 
 
@@ -1760,6 +1761,25 @@ def _build_static_candidates():
         # data-driven, name-blind
         ("power_law", _rule_power_law_static),
     ]
+    # Which families may run. Every family above the last two lines is gated
+    # on _detect_var_patterns(problem.variables) or tests names outright —
+    # they fire because a column is CALLED sigma, q1, omega_0, or because the
+    # inputs are exactly {q, a, epsilon, c} — and each docstring lists the
+    # Feynman problems it was written for. That is a per-problem template, and
+    # no SRBench peer has one: a recovery won that way cannot be compared with
+    # theirs. Audit of one full run (sr_logs/all_join_03, Feynman base set, 66
+    # exact): 12 evolved, 31 power_law, 23 from the name-gated families.
+    #   all (default): everything, as before.
+    #   generic:       only families that read the DATA and never a name.
+    #   none:          no static rules — the search alone.
+    _generic = {"sum_sq_all", "power_law"}
+    if RULE_FAMILIES == "none":
+        builders = []
+    elif RULE_FAMILIES == "generic":
+        builders = [b for b in builders if b[0] in _generic]
+    elif RULE_FAMILIES != "all":
+        raise ValueError(f"HFF_RULES must be all/generic/none, got {RULE_FAMILIES!r}")
+    print(f"[rules] HFF_RULES={RULE_FAMILIES}: {[b[0] for b in builders]}")
     for family_name, fn in builders:
         try:
             generated = fn()
@@ -2829,6 +2849,7 @@ experiment["population size"] = (str(POP_INTAKE + POP_CHAMPION)
 experiment["population per island"] = (f"intake={POP_INTAKE}, champion={POP_CHAMPION}"
                                        if settings.num_islands else "")
 experiment["gpu_join"] = os.environ.get("HFF_GPU") == "1"
+experiment["rule_families"] = os.environ.get("HFF_RULES", "all")
 experiment["eclass_k"] = ECLASS_K if os.environ.get("HFF_GPU") == "1" else 0
 experiment["number of elites"] = str(num_elites)
 experiment["number of generations"] = str(n_gen)
@@ -3567,6 +3588,10 @@ print(f"  HFF-chosen LSM kept: a={best_ind.a:.6g}, b={best_ind.b:.6g}")
 print(f"Chromosome wrapper: id={_best_wid}  →  {_best_wrapper_name}")
 experiment["wrapper_id"] = _best_wid
 experiment["wrapper_name"] = _best_wrapper_name
+# HOW the reported model was obtained: "evolved", or the rule family that
+# produced it. A recovery rate means nothing without this next to it.
+experiment["won_via"] = (f"rule:{getattr(best_ind, 'rule_family', '?')}"
+                         if _won_via_rule else "evolved")
 
 # Diagnostic: compare runtime val MSE (what fitness scored) with the val
 # MSE the sympified expression will give. Big divergence ⇒ gep.simplify is

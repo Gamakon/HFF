@@ -1,0 +1,137 @@
+/opt/anaconda3/lib/python3.12/site-packages/geppy/__init__.py:26: UserWarning: pkg_resources is deprecated as an API. See https://setuptools.pypa.io/en/latest/pkg_resources.html. The pkg_resources package is slated for removal as early as 2025-11-30. Refrain from using this package or pin to Setuptools<81.
+  from pkg_resources import get_distribution, DistributionNotFound
+hff library OK (test fitness: (0.1415394733244273,))
+registry: ['circle_area', 'gravity', 'coulomb', 'pendulum', 'keplers3', 'ideal_gas', 'I_6_2a', 'I_6_2', 'I_6_2b', 'I_8_14', 'I_9_18', 'I_10_7', 'I_11_19', 'I_12_1', 'I_12_2', 'I_12_4', 'I_12_5', 'I_12_11', 'I_13_4', 'I_13_12', 'I_14_3', 'I_14_4', 'I_15_3x', 'I_15_3t', 'I_15_1', 'I_16_6', 'I_18_4', 'I_18_12', 'I_18_14', 'I_24_6', 'I_25_13', 'I_26_2', 'I_27_6', 'I_29_4', 'I_29_16', 'I_30_3', 'I_30_5', 'I_32_5', 'I_32_17', 'I_34_8', 'I_34_1', 'I_34_14', 'I_34_27', 'I_37_4', 'I_38_12', 'I_39_1', 'I_39_11', 'I_39_22', 'I_40_1', 'I_41_16', 'I_43_16', 'I_43_31', 'I_43_43', 'I_44_4', 'I_47_23', 'I_48_2', 'I_50_26', 'II_2_42', 'II_3_24', 'II_4_23', 'II_6_11', 'II_6_15a', 'II_6_15b', 'II_8_7', 'II_8_31', 'II_10_9', 'II_11_3', 'II_11_17', 'II_11_20', 'II_11_27', 'II_11_28', 'II_13_17', 'II_13_23', 'II_13_34', 'II_15_4', 'II_15_5', 'II_21_32', 'II_24_17', 'II_27_16', 'II_27_18', 'II_34_2a', 'II_34_2', 'II_34_11', 'II_34_29a', 'II_34_29b', 'II_35_18', 'II_35_21', 'II_36_38', 'II_37_1', 'II_38_3', 'II_38_14', 'III_4_32', 'III_4_33', 'III_7_38', 'III_8_54', 'III_9_52', 'III_10_19', 'III_12_43', 'III_13_18', 'III_14_14', 'III_15_12', 'III_15_14', 'III_15_27', 'III_17_37', 'III_19_51', 'III_21_20', 'test_1', 'test_2', 'test_3', 'test_4', 'test_5', 'test_6', 'test_7', 'test_8', 'test_9', 'test_10', 'test_11', 'test_12', 'test_13', 'test_14', 'test_15', 'test_16', 'test_17', 'test_18', 'test_19', 'test_20']
+Selected problem: coulomb
+  Description : Coulomb's law:  F = k_e·q1·q2 / r²
+  Variables   : ['q1', 'q2', 'r']
+  Train range : {'q1': (0.1, 1.0), 'q2': (0.1, 1.0), 'r': (0.5, 5.0)}
+  Extrap range: {'q1': (0.1, 1.0), 'q2': (0.1, 1.0), 'r': (5.0, 10.0)}
+  Truth       : k_e * q1 * q2 / r**2
+  ✓ cache hit  (data/equations/coulomb, key=2def5ce52f3a54cb)
+  train           (800, 4)  target range=[9.218e+06, 1.823e+10]
+  val             (200, 4)  target range=[1.321e+07, 1.635e+10]
+  holdout         (200, 4)  target range=[1.349e+07, 1.573e+10]
+  extrapolation   (200, 4)  target range=[3.656e+06, 2.356e+08]
+  saved figure → data/figures/coulomb/eda_pairplot.png
+[E22 rules] variable pattern tags: {'paired_numbered'}
+[E22/23 rules] static candidate count: 4
+[E22/23 rules] allowed to take a fitness slot (exact): 1
+  [sum_sq_all/sum_sq] a=-133789359.9106 b=2.4339e+09 1-R²_va=8.5829e-01
+  [prefix_sum_sq/q1^2+q2^2] a=1693632478.0085 b=-1.0592e+08 1-R²_va=8.9577e-01
+  [harmonic/1/(1/q1+1/q2)] a=7006649693.2436 b=-5.4920e+08 1-R²_va=9.0506e-01
+  [power_law/q1^1*q2^1*r^-2] a=8987551792.3000 b=1.5159e-07 1-R²_va=8.2548e-32
+[fuller] denoise + snap IN THE JOIN (every gene, every generation, K=8); mutation operators: physics=0.2 concretize=0.05
+Wrapper scope: per_island  (island → wrapper map: ['identity', 'identity'])
+[wgpu] process pool disabled — Metal cannot survive fork(); the population is evaluated in one dispatch instead
+Genes: head_length=16, n_genes=3, rnc_array_length=10
+Population: (per-island, see below), elites: 2, generations: 400, migration FREQ: 30
+  pump per-island sizes: intake=100 (tournsize=8), champion=50 (tournsize=5)
+Initialising evolution at 2026-09-19 07:09:16.499614
+ gen  deme   evals     min fitness          mse_tr          mse_va         max_err      mse_extrap  one_minus_r2_tr  one_minus_r2_va
+   0     0     100               0  2.22044405e-13  3.09016302e-13  3.81469727e-06  2.20392498e-14  4.22681913e-32  8.25483231e-32
+   0     1      50               0  2.22044405e-13  3.09016302e-13  3.81469727e-06  2.20392498e-14  4.22681913e-32  8.25483231e-32
+          wgpu 1d 434g 373c x3w 11ms | egraph 208g->223v+0snap 165ms | graft 60 (-255n, 0 snap) cpu 0 | f64 0 | gen 0.0s | dropped inexpr 6 oversz 0 unbuild 0 {}
+Extending evolution: gen 1 → 400 (+400 generations)
+   1     0     100               0  2.22044405e-13  3.09016302e-13  3.81469727e-06  2.20392498e-14  4.22681913e-32  8.25483231e-32
+   1     1      50               0  2.22044405e-13  3.09016302e-13  3.81469727e-06  2.20392498e-14  4.22681913e-32  8.25483231e-32
+          wgpu 1d 300g 285c x3w 5ms | egraph 112g->138v+0snap 42ms | graft 26 (-132n, 0 snap) cpu 0 | f64 0 | gen 0.2s | dropped inexpr 7 oversz 0 unbuild 1 {'length': 1}
+  early-stop: rule q1^1*q2^1*r^-2 confirmed on holdout (R²=1.0000000000)
+
+*** Early stop at generation 1: best val_R² = 1.0000000000 ≥ 0.9999999990, holdout_R² = 1.0000000000 confirmed
+
+This sub-run: 2026-09-19 07:09:16.750380 → 2026-09-19 07:09:16.966013
+Now at generation 1 (HOF size: 31)
+[join] 2 dispatches, 734 genes, 1,974 candidates scored in 0.02s GPU+host; e-graph 320 trees -> 361 variants + 0 snaps in 0.21s; 86 grafts (0 snap), 387 nodes removed; cpu-path individuals 0, f64-rejected 0, snaps refused for naming an input 0
+[join]   inexpressible:     13  no pset token for semantic id "pow" with arity 2
+[join]   unbuildable:      1  length
+>>> hof[0] won via static RULE: power_law/q1^1*q2^1*r^-2
+    rule sym_expr: q1*q2/r**2
+  HFF-chosen LSM kept: a=8.98755e+09, b=1.51591e-07
+Chromosome wrapper: id=0  →  identity
+hof[0] runtime val (rule): mse=2.857e-13  R²=1.000000
+Pre-snap expression (after sympify + LSM compose):
+  8987551792.3*q1*q2/r**2 + 1.51590912919444e-7
+
+Per-level snap results (before MSE scoring):
+  strict      →  8987551792.3*q1*q2/r**2
+  default     →  8987551792.3*q1*q2/r**2
+  aggressive  →  8987551792.3*q1*q2/r**2
+
+Snap-level comparison (sorted by holdout MSE, lowest first)
+------------------------------------------------------------------------------------------
+  level       MSE            R²         expression                                        
+------------------------------------------------------------------------------------------
+★ strict      7.104e-14      1.0000     8987551792.3*q1*q2/r**2                           
+  default     7.104e-14      1.0000     8987551792.3*q1*q2/r**2                           
+  aggressive  7.104e-14      1.0000     8987551792.3*q1*q2/r**2                           
+
+Winning snap level: 'strict'  →  8987551792.3*q1*q2/r**2
+
+Canonical discovered expression: 8987551792.3*q1*q2/r**2
+[38;2;0;50;255m
+############################################################ [38;2;255;255;255m
+[38;2;0;50;255m Equation Recovery: COULOMB [38;2;255;255;255m
+[38;2;0;50;255m Truth: k_e * q1 * q2 / r**2 [38;2;255;255;255m
+[38;2;0;50;255m [38;2;255;255;255m
+[38;2;255;0;255m     Exact recovery     : True [38;2;255;255;255m
+[38;2;255;0;255m     Numerical recovery : True (max rel_err 0.00e+00 on 10k samples) [38;2;255;255;255m
+[38;2;255;0;255m     Discovered         : 8987551792.3*q1*q2/r**2 [38;2;255;255;255m
+[38;2;255;0;255m     LSM (a, b)         : (8.98755e+09, 1.51591e-07) [38;2;255;255;255m
+[38;2;0;50;255m
+############################################################ [38;2;255;255;255m
+In-range holdout : MSE=1.691e-13  MAE=2.059e-07  R²=1.0000
+Extrapolation    : MSE=2.18e-14  MAE=1.474e-07  R²=1.0000
+
+Top 10 HOF models (north_pole=truenorth) (★ = Pareto-optimal)
+(deduped HOF: 1 unique chromosomes from 31 raw HOF entries)
+ ----------------------------------------------------------------------------------------------------------------
+       model     wrapper      length   train_mse     val_mse     max_err    train_r2      val_r2 angular_distance
+ ----------------------------------------------------------------------------------------------------------------
+★           0        rule           3      0.0000      0.0000      0.0000      1.0000      1.0000      0.0000
+
+Pareto-optimal in top 1: 1    Pareto-optimal in full HOF: 1 / 1
+
+Recovery sweep across 1/1 unique HOF chromosomes (capped):
+  Structural / exact     : 1/1  (100.0%)
+  Numerical (≤1e-6 err)  : 1/1  (100.0%)
+{
+    "date": "2026/09/19",
+    "seed": "5",
+    "task": "equation_recovery",
+    "north_pole_method": "truenorth",
+    "hff_include_val": true,
+    "problem": "coulomb",
+    "truth_expr": "k_e * q1 * q2 / r**2",
+    "final_terminal_inputs": [
+        "q1",
+        "q2",
+        "r"
+    ],
+    "wide_primitives": false,
+    "head_length": "16",
+    "n_genes": "3",
+    "rnc_array_length": "10",
+    "tournament size": "intake=8, champion=5",
+    "population size": "150",
+    "population per island": "intake=100, champion=50",
+    "gpu_join": true,
+    "eclass_k": 8,
+    "number of elites": "2",
+    "number of generations": "400",
+    "number of islands": "2",
+    "migration FREQ": "30",
+    "wrapper_id": 0,
+    "wrapper_name": "identity",
+    "recovery_exact": true,
+    "recovery_numerical": true,
+    "recovery_max_rel_err": 0.0,
+    "discovered_expr": "8987551792.3*q1*q2/r**2",
+    "holdout_mse": 1.6910419245452778e-13,
+    "holdout_r2": 1.0,
+    "extrap_mse": 2.1795035394511775e-14,
+    "extrap_r2": 1.0,
+    "hof_size": 1,
+    "hof_exact_recoveries": 1,
+    "hof_numerical_recoveries": 1
+}
