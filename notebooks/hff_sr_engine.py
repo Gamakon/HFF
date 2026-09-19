@@ -824,6 +824,182 @@ def _predict_per_gene(individual, df, terminals, pset) -> list[np.ndarray] | Non
     return out
 
 
+# ---------------------------------------------------------------------------
+# THE JOIN (HFF_GPU=1): the whole population, every linker x wrapper, one
+# dispatch per evaluation.
+# ---------------------------------------------------------------------------
+# _compute_raw_metrics scores ONE individual: per-gene predictions by a Python
+# row loop over each dataframe, then linker x wrapper x LSM x metrics in numpy.
+# Here every unique expressed gene in the population goes to the device ONCE,
+# against train+val(+extrap) rows held resident for the whole fit, and fuller
+# links, wraps, scales and reduces every (individual, linker, wrapper)
+# candidate in parallel on the host. The candidate dicts are the same shape
+# _compute_raw_metrics returns, so _assign_fitness_batch is unchanged.
+#
+# An individual the device cannot take (diff_sq has no Math constructor; a
+# gene over the kernel's node limit) is scored by _compute_raw_metrics and
+# COUNTED. A session or dispatch failure raises.
+
+JOIN_STATS = {"dispatches": 0, "genes": 0, "candidates": 0, "seconds": 0.0,
+              "cpu_individuals": 0}
+
+
+def join_stats_line() -> str:
+    if os.environ.get("HFF_GPU") != "1":
+        return ""
+    s = JOIN_STATS
+    return (f"[join] {s['dispatches']} dispatches, {s['genes']:,} genes, "
+            f"{s['candidates']:,} candidates in {s['seconds']:.2f}s GPU+host; "
+            f"cpu-path individuals {s['cpu_individuals']}")
+
+
+def _join_session(bundle: "_Bundle"):
+    sess = getattr(bundle, "_join_session", None)
+    if sess is None:
+        import fuller as _f
+        cols = list(bundle.variables)
+        parts = [bundle.train[cols].values, bundle.validation[cols].values]
+        ys = [bundle.Y, bundle.Y_val]
+        if bundle.config.mode != "wild_regression":
+            parts.append(bundle.extrapolation[cols].values)
+            ys.append(bundle.Y_extrap)
+        fns = {n: (n, a) for n, a in _f.master_pset()}
+        sess = _f._fuller.GpuSession(cols, fns, [1.0],
+                                     np.vstack(parts).astype(np.float64).tolist())
+        bundle._join_session = sess
+        bundle._join_y = np.concatenate(ys).astype(np.float64).tolist()
+    return sess
+
+
+def _evaluate_population(population, toolbox, bundle: "_Bundle"):
+    """raw_results for _assign_fitness_batch."""
+    if os.environ.get("HFF_GPU") != "1":
+        return [_compute_raw_metrics(ind, toolbox, bundle) for ind in population]
+    if not population:
+        return []
+    cfg = bundle.config
+    is_wild = cfg.mode == "wild_regression"
+    use_val = cfg.use_validation_in_hff
+    sess = _join_session(bundle)
+    active_l = list(globals().get("_ACTIVE_LINKER_IDS", range(N_LINKERS)))
+    active_w = list(globals().get("_ACTIVE_WRAPPER_IDS", range(N_WRAPPERS)))
+
+    index, genes, chroms, owners, cpu = {}, [], [], [], []
+    for i, ind in enumerate(population):
+        devs = [hgh._resolve_rnc(g, bundle.variables) for g in ind]
+        if any(d is None for d in devs):
+            cpu.append(i)
+            continue
+        row = []
+        for d in devs:
+            k = str(d)
+            if k not in index:
+                index[k] = len(genes)
+                genes.append(d)
+            row.append(index[k])
+        chroms.append(row)
+        owners.append(i)
+
+    raw_results = [None] * len(population)
+    if chroms:
+        n_ex = 0 if is_wild else len(bundle.Y_extrap)
+        t0 = time.perf_counter()
+        scores, decoded = sess.score_chromosomes(
+            genes, chroms, [LINKER_NAMES[l] for l in active_l],
+            [WRAPPER_NAMES[w] for w in active_w],
+            len(bundle.Y), len(bundle.Y_val), n_ex, bundle._join_y,
+            bool(cfg.enable_linear_scaling))
+        JOIN_STATS["seconds"] += time.perf_counter() - t0
+        JOIN_STATS["dispatches"] += 1
+        JOIN_STATS["genes"] += len(genes)
+        JOIN_STATS["candidates"] += len(chroms) * len(active_l) * len(active_w)
+
+        S = np.asarray(scores, dtype=np.float64).reshape(
+            len(chroms), len(active_l), len(active_w), 9)
+        var_tr, var_va = float(np.var(bundle.Y)), float(np.var(bundle.Y_val))
+        var_ex = 0.0 if is_wild else float(np.var(bundle.Y_extrap))
+        for i, c, block in zip(owners, chroms, S):
+            if not all(decoded[g] for g in c):
+                cpu.append(i)
+                continue
+            ind = population[i]
+            pinned = getattr(ind, "pinned_wrapper_id", None)
+            n_nodes = (sum(len(g.kexpression) for g in ind)
+                       if cfg.parsimony_in_hff else 0)
+            cands = []
+            for li, l_id in enumerate(active_l):
+                for wi, w_id in enumerate(active_w):
+                    if pinned is not None and w_id != int(pinned) % N_WRAPPERS:
+                        continue
+                    a, b, mse_tr, mse_va, _mx, mse_ex, mae_tr, mae_va, mae_ex = block[li, wi]
+                    if not np.isfinite(a):
+                        continue
+                    r_tr = mse_tr / var_tr if var_tr > 0 else float("inf")
+                    r_va = mse_va / var_va if var_va > 0 else float("inf")
+                    if is_wild:
+                        if use_val:
+                            vec = [mse_tr, mse_va, r_tr, r_va, mae_tr, mae_va]
+                            names = WILD_REGRESSION_METRIC_NAMES
+                        else:
+                            vec = [mse_tr, r_tr, mae_tr]
+                            names = WILD_REGRESSION_METRIC_NAMES_TRAIN_ONLY
+                    else:
+                        r_ex = mse_ex / var_ex if var_ex > 0 else float("inf")
+                        if use_val:
+                            vec = [mse_tr, mse_va, mse_ex, r_tr, r_va, r_ex,
+                                   mae_tr, mae_va, mae_ex]
+                            names = METRIC_NAMES
+                        else:
+                            vec = [mse_tr, mse_ex, r_tr, r_ex, mae_tr, mae_ex]
+                            names = METRIC_NAMES_TRAIN_ONLY
+                    if cfg.parsimony_in_hff:
+                        vec = vec + [float(n_nodes) / cfg.parsimony_normaliser]
+                        names = list(names) + [PARSIMONY_METRIC_NAME]
+                    if not all(np.isfinite(vec)):
+                        continue
+                    cands.append({"wrapper_id": w_id, "linker_id": l_id, "vec": vec,
+                                  "a": float(a), "b": float(b),
+                                  "metrics": dict(zip(names, vec))})
+            raw_results[i] = {"candidates": cands} if cands else None
+
+    for i in cpu:
+        raw_results[i] = _compute_raw_metrics(population[i], toolbox, bundle)
+    JOIN_STATS["cpu_individuals"] += len(cpu)
+    if os.environ.get("HFF_JOIN_CHECK") == "1":
+        _join_parity_check(population, raw_results, toolbox, bundle)
+    return raw_results
+
+
+def _join_parity_check(population, raw_results, toolbox, bundle, n=40):
+    """HFF_JOIN_CHECK=1: score the same individuals on the CPU reference path
+    and print every disagreement with the device. Off by default — it is the
+    row loop the join replaces."""
+    var = float(np.var(bundle.Y)) or 1.0
+    bad = total = 0
+    for i, ind in enumerate(population[:n]):
+        ref = _compute_raw_metrics(ind, toolbox, bundle)
+        key = lambda c: (c["linker_id"], c["wrapper_id"])
+        rw = {key(c): c for c in (ref or {}).get("candidates", [])}
+        gw = {key(c): c for c in (raw_results[i] or {}).get("candidates", [])}
+        for k in sorted(set(rw) | set(gw)):
+            total += 1
+            r, g = rw.get(k), gw.get(k)
+            if r is None or g is None:
+                bad += 1
+                print(f"[join-check] ind {i} linker/wrapper {k}: cpu "
+                      f"{'scored' if r else 'REJECTED'}, device "
+                      f"{'scored' if g else 'REJECTED'}  "
+                      f"{[str(x.kexpression) for x in ind]}"[:260])
+                continue
+            d = abs(r["vec"][0] - g["vec"][0])
+            if d / var > 1e-9 and d / max(abs(r["vec"][0]), 1e-12) > 1e-3:
+                bad += 1
+                print(f"[join-check] ind {i} {k}: mse_tr cpu {r['vec'][0]:.6g} device "
+                      f"{g['vec'][0]:.6g}  {[str(x.kexpression) for x in ind]}"[:260])
+    print(f"[join-check] {total} (individual, linker, wrapper) candidates: "
+          f"{bad} disagreements", flush=True)
+
+
 def _compute_raw_metrics(individual, toolbox, bundle: _Bundle):
     """Per-individual fitness eval — score the chromosome under every
     (linker × wrapper) slot, return the candidate list. Vec construction
@@ -1388,6 +1564,11 @@ class HFFSREngine:
 
         def evaluate_one(ind):
             return _compute_raw_metrics(ind, toolbox, bundle)
+        # Whole-population evaluation: one device dispatch under HFF_GPU=1,
+        # the per-individual loop otherwise. Every call site evaluates a list.
+        evaluate_one.batch = lambda pop: _evaluate_population(pop, toolbox, bundle)
+        for _k in JOIN_STATS:
+            JOIN_STATS[_k] = 0 if _k != "seconds" else 0.0
         toolbox.register("evaluate", evaluate_one)
 
         # Reset HFF range cache + global state BEFORE gen 0, so a fresh
@@ -1402,14 +1583,7 @@ class HFFSREngine:
 
         # Gen 0 evaluation.
         for idx, deme in enumerate(demes):
-            # ONE dispatch for the whole deme, against each dataframe the
-            # objective vector needs, before any per-individual work.
-            _gpu_prefill_population(deme, bundle.train, bundle.variables, pset)
-            _gpu_prefill_population(deme, bundle.validation, bundle.variables, pset)
-            if bundle.extrapolation is not None:
-                _gpu_prefill_population(deme, bundle.extrapolation,
-                                        bundle.variables, pset)
-            raw_results = [evaluate_one(ind) for ind in deme]
+            raw_results = evaluate_one.batch(deme)
             _assign_fitness_batch(deme, raw_results, cfg, pset=pset)
             hof.update(deme)
 
@@ -1509,15 +1683,7 @@ class HFFSREngine:
                 deme[:] = elites + offspring
                 invalid_ind = [ind for ind in deme if not ind.fitness.valid]
                 if invalid_ind:
-                    _gpu_prefill_population(invalid_ind, bundle.train,
-                                            bundle.variables, pset)
-                    _gpu_prefill_population(invalid_ind, bundle.validation,
-                                            bundle.variables, pset)
-                    if bundle.extrapolation is not None:
-                        _gpu_prefill_population(invalid_ind,
-                                                bundle.extrapolation,
-                                                bundle.variables, pset)
-                    raw_results = [evaluate_one(ind) for ind in invalid_ind]
+                    raw_results = evaluate_one.batch(invalid_ind)
                     _assign_fitness_batch(invalid_ind, raw_results, cfg, pset=pset)
                 hof.update(deme)
 
@@ -1989,7 +2155,7 @@ class HFFSREngine:
         for deme in demes:
             invalid = [ind for ind in deme if not ind.fitness.valid]
             if invalid:
-                _assign_fitness_batch(invalid, [evaluate_one(i) for i in invalid], cfg, pset=self._pset)
+                _assign_fitness_batch(invalid, evaluate_one.batch(invalid), cfg, pset=self._pset)
 
     def _migrate_pump_cross(self, demes, toolbox, pairs, evaluate_one, *, gen: int = 0):
         cfg = self.config
@@ -2044,7 +2210,7 @@ class HFFSREngine:
         for deme in demes:
             invalid = [ind for ind in deme if not ind.fitness.valid]
             if invalid:
-                _assign_fitness_batch(invalid, [evaluate_one(i) for i in invalid], cfg, pset=self._pset)
+                _assign_fitness_batch(invalid, evaluate_one.batch(invalid), cfg, pset=self._pset)
 
     def _dedup_all_demes(self, demes, toolbox, evaluate_one, *, gen: int = 0):
         cfg = self.config
@@ -2060,7 +2226,7 @@ class HFFSREngine:
         for deme in demes:
             invalid = [ind for ind in deme if not ind.fitness.valid]
             if invalid:
-                _assign_fitness_batch(invalid, [evaluate_one(i) for i in invalid], cfg, pset=self._pset)
+                _assign_fitness_batch(invalid, evaluate_one.batch(invalid), cfg, pset=self._pset)
 
     def _adapt_intake_size(self, demes, roles, toolbox, gen, target_gen,
                            elapsed: float, gen_times: list, verbose: bool,

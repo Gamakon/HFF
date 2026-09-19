@@ -2096,7 +2096,7 @@ def _nb_evaluate_population(population):
         linker = getattr(population[0], "linker", None)
         t0 = time.perf_counter()
         scores, decoded = sess.score_chromosomes(
-            gene_list, chroms, getattr(linker, "__name__", "avgval"),
+            gene_list, chroms, [getattr(linker, "__name__", "avgval")],
             list(WRAPPER_NAMES), len(Y), len(Y_val), len(Y_extrap),
             _NB_GPU["y"], bool(settings.enable_linear_scaling))
         _NB_GPU_STATS["seconds"] += time.perf_counter() - t0
@@ -2105,7 +2105,10 @@ def _nb_evaluate_population(population):
         _NB_GPU_STATS["chromosomes"] += len(chroms)
         _NB_GPU_STATS["candidates"] += len(chroms) * N_WRAPPERS
 
-        S = np.asarray(scores, dtype=np.float64).reshape(len(chroms), N_WRAPPERS, 6)
+        # [a, b, mse_tr, mse_va, max_err, mse_ex, mae_tr, mae_va, mae_ex] per
+        # (chromosome, linker, wrapper); one linker here, and the MAEs unused.
+        S = np.asarray(scores, dtype=np.float64).reshape(
+            len(chroms), N_WRAPPERS, 9)[:, :, :6]
         var_tr, var_va = float(np.var(Y)), float(np.var(Y_val))
         cands = [[] for _ in population]
         undecoded = set()
