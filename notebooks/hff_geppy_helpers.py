@@ -581,20 +581,15 @@ def compile_and_predict(individual, df: pd.DataFrame, terminals: Sequence[str], 
             if linked is not None and np.all(np.isfinite(linked)):
                 return linked
 
-    # Per-individual GPU dispatch is disabled inside a forked worker.
-    # Initialising Metal touches Objective-C runtime state, and a fork after
-    # that crashes the child outright:
-    #   "+[NSCheapMutableString initialize] may have been in progress in
-    #    another thread when fork() was called ... Crashing instead."
-    # Every pool worker dies and the run produces no generations at all. The
-    # GPU therefore only ever runs in the parent, via the prefill.
-    if _GPU_ENABLED and not _in_forked_worker():
-        out = _gpu_predict(individual, df, terminals)
-        if out is not None:
-            return out
-        # Fall through to CPU. Not a silent fallback: _gpu_predict records the
-        # reason in GPU_STATS, so a run that quietly reverted to CPU is
-        # visible rather than looking like a GPU result.
+    # NO per-individual GPU dispatch. _gpu_predict calls the module-level
+    # gpu_predict_karva, which builds a fresh GpuEvaluator — a new Metal
+    # device AND a new shader module — on EVERY call. That is the source of
+    # the "Context leak detected" messages (54 in a single problem), and it
+    # was measured 3.4x slower than this CPU row loop besides.
+    #
+    # A forked-worker guard was not enough: with the pool disabled under
+    # HFF_GPU=1 everything runs in the main process, so the guard never
+    # fired. The population-level prefill above is the only GPU path.
 
     func = toolbox.compile(individual)
     arrays = [df[term].values for term in terminals]
