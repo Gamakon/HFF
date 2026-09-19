@@ -1665,7 +1665,21 @@ def score_snap_levels(
     scored = []
     for name, (expr, _report) in level_results.items():
         try:
-            fn = sp.lambdify(syms, _strip_abs_positive_domain(expr), modules="numpy")
+            # Do NOT strip Abs before EVALUATING. protected_sqrt maps to
+            # sqrt(Abs(x)) and protected_log to log(Abs(x)); removing the Abs
+            # turns a total function into a partial one, and any subexpression
+            # that goes negative then yields NaN:
+            #   sqrt(exp(Nn*mu) - 2)   invalid value encountered in sqrt
+            #   log(cos(...))          invalid value encountered in log
+            # The justification for stripping — "our registry problems all
+            # have positive input domains" — is about INPUTS. It does not make
+            # SUBEXPRESSIONS positive: exp(Nn*mu) - 2 is negative whenever
+            # Nn*mu < ln 2, whatever the inputs. The NaNs are then masked out
+            # below, so the expression is scored on a subset of rows.
+            #
+            # Stripping stays where it is sound: structural comparison against
+            # a truth that carries no Abs (line ~1882).
+            fn = sp.lambdify(syms, expr, modules="numpy")
             y_pred = np.asarray(fn(*inputs), dtype=np.float64)
             mask = np.isfinite(y_pred)
             if mask.sum() < len(y_true) / 2:

@@ -2603,7 +2603,7 @@ else:
         hof.update(deme)
         if idx == 0:
             print(hgh.format_log_header(METRIC_NAMES))
-        print(hgh.format_log_row(log[-1], METRIC_NAMES))
+        print(hgh.format_log_row(log[-1], METRIC_NAMES) + _nb_gpu_gen_delta())
     gen = 1
 
 # %% [markdown]
@@ -2672,7 +2672,7 @@ else:
             log.record(gen=gen, deme=idx, evals=len(deme),
                        **stats.compile(deme), **per_metric_mins(deme))
             hof.update(deme)
-            print(hgh.format_log_row(log[-1], METRIC_NAMES))
+            print(hgh.format_log_row(log[-1], METRIC_NAMES) + _nb_gpu_gen_delta())
 
         # Early-stop: any deme produced an individual with val_R² ≥ threshold
         # AND that same individual scores ≥ threshold on the held-out holdout
