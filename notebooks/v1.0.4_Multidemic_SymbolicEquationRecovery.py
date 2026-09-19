@@ -1731,6 +1731,7 @@ _build_static_candidates()
 ECLASS_K = int(os.environ.get("HFF_ECLASS_K", "8"))
 # Fitness is an angular distance (radians). Equivalent forms differ only by
 # f32 rounding on the device; inside this band the smaller gene wins.
+FULLER_SNAP_IN_JOIN = os.environ.get("HFF_SNAP_IN_JOIN", "1") == "1"
 ECLASS_TIE_TOL = float(os.environ.get("HFF_ECLASS_TIE_TOL", "1e-6"))
 _NB_ECLASS_CACHE_MAX = 200_000
 
@@ -1743,7 +1744,7 @@ _NB_GPU_STATS = {"dispatches": 0, "genes": 0, "chromosomes": 0, "candidates": 0,
                  "seconds": 0.0, "expand_seconds": 0.0, "expanded": 0,
                  "variants": 0, "expand_errors": 0, "inexpressible": 0,
                  "oversized": 0, "unbuildable": 0, "cpu_individuals": 0,
-                 "grafts": 0, "nodes_saved": 0, "f64_polished": 0,
+                 "grafts": 0, "nodes_saved": 0, "f64_polished": 0, "snaps": 0, "snap_grafts": 0,
                  "f64_rejected": 0, "gen_seconds": 0.0}
 _NB_GPU_LAST = dict(_NB_GPU_STATS)
 _NB_EXPAND_ERRORS: dict = {}
@@ -1809,6 +1810,7 @@ def _nb_expand_genes(genes):
     keeps that gene's own dormant region and rnc_array.
     """
     from _denoise_op import _build_functions_dict
+    from _snap_op import _build_functions_dict_for_snap, _augment_pset_with_constants
     from _gene_utils import build_variant_gene, VariantNotExpressible
     from geppy.core.symbol import SymbolTerminal
     import fuller as _f
@@ -1851,22 +1853,48 @@ def _nb_expand_genes(genes):
                 _NB_EXPAND_ERRORS[why] = _NB_EXPAND_ERRORS.get(why, 0) + 1
             _NB_GPU_STATS["inexpressible"] += res["n_inexpressible"]
             _NB_GPU_STATS["oversized"] += res["n_oversized"]
-            props = [(c["head"], c["tail"], int(c["cost"]))
+            props = [(c["head"], c["tail"], int(c["cost"]), (), False)
                      for c in sorted(res["candidates"], key=lambda c: c["cost"])
-                     if not c["is_original"]]
+                     if not c["is_original"]][:ECLASS_K]
             if props and res["orig_cost"] is None:
                 raise RuntimeError(
                     "fuller returned e-class candidates but no cost for the "
                     f"original; cannot cost a graft for {okey}")
             _NB_ECLASS_CACHE[okey] = (res["orig_cost"], props)
 
+        # Constant snapping, same batch, same dispatch: a fitted 3.14159 may
+        # be pi. fuller proposes the named-constant forms (verified in the
+        # e-graph, not merely close); the device scores them with everything
+        # else. Only trees holding a numeric literal are sent.
+        with_num = {k: v for k, v in todo.items()
+                    if any(kind == "num" for kind, _ in v[0] + v[1])}
+        if with_num and FULLER_SNAP_IN_JOIN:
+            t0 = time.perf_counter()
+            sres = _f._fuller.snap_karva_batch(
+                [(v[0], v[1]) for v in with_num.values()], variables,
+                _build_functions_dict_for_snap(pset), k_variants=ECLASS_K,
+                rel_tol=1e-3, rng_seed=0, target_head_length=settings.head_length)
+            _NB_GPU_STATS["expand_seconds"] += time.perf_counter() - t0
+            for okey, res in zip(with_num, sres):
+                if res["error"]:
+                    _NB_GPU_STATS["expand_errors"] += 1
+                    why = "snap-" + res["error"].split(":")[0]
+                    _NB_EXPAND_ERRORS[why] = _NB_EXPAND_ERRORS.get(why, 0) + 1
+                _NB_GPU_STATS["inexpressible"] += res["n_inexpressible"]
+                _NB_GPU_STATS["oversized"] += res["n_oversized"]
+                oc, props = _NB_ECLASS_CACHE[okey]
+                props = props + [(c["head"], c["tail"], None,
+                                  tuple(map(tuple, c["constants"])), True)
+                                 for c in res["candidates"][:ECLASS_K]]
+                _NB_ECLASS_CACHE[okey] = (oc, props)
+
     out = {}
     for gkey, (gene, okey) in expandable.items():
         orig_cost, props = _NB_ECLASS_CACHE[okey]
         entries, seen = [], {str(hgh._resolve_rnc(gene))}
-        for head, tail, cost in props:
-            if len(entries) >= ECLASS_K:
-                break
+        for head, tail, cost, consts, is_snap in props:
+            if consts:
+                _augment_pset_with_constants(pset, list(consts))
             try:
                 new_gene = build_variant_gene(gene, head, tail, pset)
             except VariantNotExpressible as e:
@@ -1881,9 +1909,12 @@ def _nb_expand_genes(genes):
             if str(dev) in seen:
                 continue
             seen.add(str(dev))
-            entries.append((new_gene, dev, orig_cost - cost))
+            # A snap is not a simplification: it saves no nodes. It wins on
+            # fitness, or on a tie as the named form (see the graft).
+            entries.append((new_gene, dev, 0 if is_snap else orig_cost - cost, is_snap))
         out[gkey] = entries
-        _NB_GPU_STATS["variants"] += len(entries)
+        _NB_GPU_STATS["variants"] += sum(1 for e in entries if not e[3])
+        _NB_GPU_STATS["snaps"] += sum(1 for e in entries if e[3])
     return out
 
 
@@ -1911,13 +1942,13 @@ def _nb_evaluate_population(population):
             continue
         base = [gidx(d) for d in devs]
         chroms.append(base)
-        meta.append((i, None, None, 0))
+        meta.append((i, None, None, (0, False)))
         for j, gene in enumerate(ind):
-            for new_gene, dev, saving in variants.get(hgh._gene_cache_key(gene), ()):
+            for new_gene, dev, saving, is_snap in variants.get(hgh._gene_cache_key(gene), ()):
                 c = list(base)
                 c[j] = gidx(dev)
                 chroms.append(c)
-                meta.append((i, j, new_gene, saving))
+                meta.append((i, j, new_gene, (saving, is_snap)))
 
     raw_results = [None] * len(population)
     if chroms:
@@ -1986,9 +2017,9 @@ def _nb_gpu_gen_delta() -> str:
     _NB_GPU_LAST.update(_NB_GPU_STATS)
     out = (f"  wgpu {d['dispatches']}d {d['genes']}g {d['chromosomes']}c "
            f"x{N_WRAPPERS}w {d['seconds'] * 1000:.0f}ms"
-           f" | egraph {d['expanded']}g->{d['variants']}v "
+           f" | egraph {d['expanded']}g->{d['variants']}v+{d['snaps']}snap "
            f"{d['expand_seconds'] * 1000:.0f}ms"
-           f" | graft {d['grafts']} (-{d['nodes_saved']}n) cpu {d['cpu_individuals']}"
+           f" | graft {d['grafts']} (-{d['nodes_saved']}n, {d['snap_grafts']} snap) cpu {d['cpu_individuals']}"
            f" | f64 {d['f64_polished']} | gen {d['gen_seconds']:.1f}s")
     if d["f64_rejected"]:
         out += f" F64-REJECT {d['f64_rejected']}"
@@ -2175,6 +2206,9 @@ def assign_fitness_batch(population, raw_results):
         p = cand_payload[k]
         if "saving" not in p:
             continue
+        # saving is (nodes saved, is a named-constant snap): most nodes first,
+        # and between equals the form carrying the named constant — pi can be
+        # crossed over and inherited, 3.14159 cannot.
         if (float(fitness[k]) <= best_join[owner][0] + ECLASS_TIE_TOL
                 and p["saving"] > graft_for[owner][1]["saving"]):
             graft_for[owner] = (float(fitness[k]), p)
@@ -2183,7 +2217,8 @@ def assign_fitness_batch(population, raw_results):
             continue
         j, new_gene = p["variant"]
         _NB_GPU_STATS["grafts"] += 1
-        _NB_GPU_STATS["nodes_saved"] += max(0, p["saving"])
+        _NB_GPU_STATS["snap_grafts"] += int(p["saving"][1])
+        _NB_GPU_STATS["nodes_saved"] += max(0, p["saving"][0])
         population[owner][j] = copy.deepcopy(new_gene)
         # If this individual's fitness slot is a join candidate, it must be the
         # one describing the genes it now has.
@@ -2370,16 +2405,28 @@ if FULLER_ENABLED:
             except Exception:
                 return (individual,)
 
-        toolbox.register("mut_fuller_snap", mut_fuller_snap)
-        toolbox.pbs["mut_fuller_snap"] = 1
+        # Under the join, denoise and snap are NOT mutation operators: every
+        # gene's e-class and snap forms are proposed in one batch and scored in
+        # the generation's single dispatch. Run here as well they were one
+        # gene per call, serial, scored by a CPU row loop — profiled at 53 s
+        # of a 3-generation run against 0.15 s of GPU work.
+        _FULLER_IN_JOIN = os.environ.get("HFF_GPU") == "1"
+        if not _FULLER_IN_JOIN:
+            toolbox.register("mut_fuller_snap", mut_fuller_snap)
+            toolbox.pbs["mut_fuller_snap"] = 1
+            toolbox.register("mut_fuller_denoise", mut_fuller_denoise)
+            toolbox.pbs["mut_fuller_denoise"] = 1
         toolbox.register("mut_fuller_concretize", mut_fuller_concretize)
         toolbox.pbs["mut_fuller_concretize"] = 1
-        toolbox.register("mut_fuller_denoise", mut_fuller_denoise)
-        toolbox.pbs["mut_fuller_denoise"] = 1
         toolbox.register("mut_fuller_physics", mut_fuller_physics)
         toolbox.pbs["mut_fuller_physics"] = 1
-        print(f"[fuller] gene operators ACTIVE (denoise={PB_DENOISE} "
-              f"physics={PB_PHYSICS} snap={PB_SNAP} concretize={PB_CONCRETIZE})")
+        if _FULLER_IN_JOIN:
+            print(f"[fuller] denoise + snap IN THE JOIN (every gene, every "
+                  f"generation, K={os.environ.get('HFF_ECLASS_K', '8')}); mutation "
+                  f"operators: physics={PB_PHYSICS} concretize={PB_CONCRETIZE}")
+        else:
+            print(f"[fuller] gene operators ACTIVE (denoise={PB_DENOISE} "
+                  f"physics={PB_PHYSICS} snap={PB_SNAP} concretize={PB_CONCRETIZE})")
     except ImportError as _e:
         FULLER_ENABLED = False
         print(f"[fuller] NOT ACTIVE - import failed: {_e}")

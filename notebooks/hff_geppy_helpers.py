@@ -1430,7 +1430,7 @@ def _prune_tiny_additive(expr, rel_tol: float = 1e-3, seed: int = 0,
     return sp.Add(*pieces)
 
 
-def _snap_simple_rational(x: float, rel_tol: float = 1e-9):
+def _snap_simple_rational(x: float, rel_tol: float = 1e-6):
     """Return a sympy Integer/Rational if x is one to within rel_tol, else None.
 
     Catches the residue of floating-point arithmetic: 0.999999999999999 is 1,
@@ -1539,9 +1539,13 @@ def snap_constants(
         # so without this the search for a physics match can actively mangle
         # an exact rational.
         #
-        # Deliberately tight (1e-9 relative, not the library's 1e-3): this
-        # exists to recognise a rational the float arithmetic has nudged, not
-        # to round a genuinely different value into a tidy one.
+        # Tight (1e-6 relative, not the library's 1e-3): this recognises a
+        # rational that float arithmetic has nudged, not a genuinely different
+        # value. It was 1e-9, sized for f64 rounding — but the device predicts
+        # in f32, and an LSM fitted on f32 predictions lands ~5e-9 off:
+        # 1.00000000451181*Ef*q2 slipped through and an exact recovery was
+        # reported inexact. 1e-6 covers f32 (eps 6e-8) with margin and is
+        # still a thousand times tighter than the physics library's tolerance.
         rat = _snap_simple_rational(x)
         if rat is not None:
             subs[atom] = rat
