@@ -1,7 +1,0 @@
-{
-  "problem": "I_29_4",
-  "error": "exit -9; no parseable experiment JSON in stdout",
-  "stderr_tail": "",
-  "stdout_tail": "Context leak detected, CoreAnalytics returned false\nContext leak detected, CoreAnalytics returned false\nContext leak detected, CoreAnalytics returned false\nContext leak detected, CoreAnalytics returned false\n   3     1     250               0     0.887600617      1.11712763      4.67193457       1.5457485     0.450315226     0.433903848\nContext leak detected, CoreAnalytics returned false\nContext leak detected, CoreAnalytics returned false\nContext leak detected, CoreAnalytics returned false\nContext leak detected, CoreAnalytics returned false\nContext leak detected, CoreAnalytics returned false\nContext leak detected, CoreAnalytics returned false\nContext leak detected, CoreAnalytics returned false\nContext leak detected, CoreAnalytics returned false\nContext leak detected, CoreAnalytics returned false\nContext leak detected, CoreAnalytics returned false",
-  "elapsed_s": 237.69921583298128
-}

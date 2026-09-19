@@ -25,73 +25,57 @@ Wrapper scope: per_island  (island → wrapper map: ['identity', 'identity'])
 Genes: head_length=48, n_genes=3, rnc_array_length=10
 Population size: 25, tournament: 3, elites: 2, generations: 400, migration FREQ: 30
   pump per-island sizes: intake=500 (tournsize=40), champion=250 (tournsize=25)
-Initialising evolution at 2026-09-19 01:56:46.465349
+Initialising evolution at 2026-09-19 02:14:55.375263
 [wgpu] process pool disabled — Metal cannot survive fork(); the population is evaluated in one dispatch instead
  gen  deme   evals     min fitness          mse_tr          mse_va         max_err      mse_extrap  one_minus_r2_tr  one_minus_r2_va
-   0     0     500  0.000446057815     0.154022705     0.145716601      1.64850992     0.703577193   0.00585316999   0.00659347947
-   0     1     250               0     0.108250166     0.114074927     0.928941952      1.14723894    0.0041137222   0.00516173646
+   0     0     500  0.000567004687     0.154022711     0.145716601      1.64850941     0.703577263   0.00585317019   0.00659347948
+   0     1     250               0     0.108250159     0.114074925     0.928941662      1.14723909   0.00411372193   0.00516173636
 [wgpu] process pool disabled — Metal cannot survive fork(); the population is evaluated in one dispatch instead
 Extending evolution: gen 1 → 400 (+400 generations)
-Context leak detected, CoreAnalytics returned false
-Context leak detected, CoreAnalytics returned false
-Context leak detected, CoreAnalytics returned false
-Context leak detected, CoreAnalytics returned false
-Context leak detected, CoreAnalytics returned false
-Context leak detected, CoreAnalytics returned false
-Context leak detected, CoreAnalytics returned false
-Context leak detected, CoreAnalytics returned false
-Context leak detected, CoreAnalytics returned false
-Context leak detected, CoreAnalytics returned false
-Context leak detected, CoreAnalytics returned false
-/Users/andrewmorgan/Dev/gamakon/hff/notebooks/v1.0.4_Multidemic_SymbolicEquationRecovery.py:1829: RuntimeWarning: overflow encountered in square
+/Users/andrewmorgan/Dev/gamakon/hff/notebooks/v1.0.4_Multidemic_SymbolicEquationRecovery.py:1856: RuntimeWarning: overflow encountered in square
   mse_extrap = float(np.mean((Y_extrap - pred_extr) ** 2))
-   1     0     500               0  2.49757634e-13  2.07446457e-13  1.64227074e-06  7.21985908e-13   9.4912882e-15  9.38667213e-15
-Context leak detected, CoreAnalytics returned false
-Context leak detected, CoreAnalytics returned false
-Context leak detected, CoreAnalytics returned false
-Context leak detected, CoreAnalytics returned false
-Context leak detected, CoreAnalytics returned false
-   1     1     250               0     0.108250166     0.114074927     0.928941952      1.14723894    0.0041137222   0.00516173646
+   1     0     500               0  3.08723797e-29  2.46348935e-29   1.0658141e-14  1.03513342e-28    1.173212e-30  1.11469567e-30
+   1     1     250               0     0.108250159     0.114074925     0.928941662      1.14723909   0.00411372193   0.00516173636
 
 *** Early stop at generation 1: best val_R² = 1.0000000000 ≥ 0.9999999990, holdout_R² = 1.0000000000 confirmed
 
-This sub-run: 2026-09-19 01:56:47.481843 → 2026-09-19 01:57:09.306016
+This sub-run: 2026-09-19 02:14:57.068984 → 2026-09-19 02:15:17.455615
 Now at generation 1 (HOF size: 31)
   HFF-chosen LSM kept: a=1.5, b=-1.125
 Chromosome wrapper: id=0  →  identity
-hof[0] runtime val: mse=2.074e-13  R²=1.000000
+hof[0] runtime val: mse=2.463e-29  R²=1.000000
 Pre-snap expression (after sympify + LSM compose):
-  1.00000000559421*Nn*mu - 2.3396375503637e-8
+  1.0*Nn*mu - 1.11022302462516e-15
 
 Per-level snap results (before MSE scoring):
-  strict      →  1.00000000559421*Nn*mu
-  default     →  1.00000000559421*Nn*mu
-  aggressive  →  0.75*pi**(1/4)*Nn*mu
+  strict      →  Nn*mu
+  default     →  Nn*mu
+  aggressive  →  Nn*mu
 
 Snap-level comparison (sorted by holdout MSE, lowest first)
 ------------------------------------------------------------------------------------------
   level       MSE            R²         expression                                        
 ------------------------------------------------------------------------------------------
-★ strict      3.176e-15      1.0000     1.00000000559421*Nn*mu                            
-  default     3.176e-15      1.0000     1.00000000559421*Nn*mu                            
-  aggressive  0.0002279      1.0000     0.75*pi**(1/4)*Nn*mu                              
+★ strict      4.531e-31      1.0000     Nn*mu                                             
+  default     4.531e-31      1.0000     Nn*mu                                             
+  aggressive  4.531e-31      1.0000     Nn*mu                                             
 
-Winning snap level: 'strict'  →  1.00000000559421*Nn*mu
+Winning snap level: 'strict'  →  Nn*mu
 
-Canonical discovered expression: 1.00000000559421*Nn*mu
+Canonical discovered expression: Nn*mu
 [38;2;0;50;255m
 ############################################################ [38;2;255;255;255m
 [38;2;0;50;255m Equation Recovery: I_12_1 [38;2;255;255;255m
 [38;2;0;50;255m Truth: mu*Nn [38;2;255;255;255m
 [38;2;0;50;255m [38;2;255;255;255m
-[38;2;255;0;255m     Exact recovery     : False [38;2;255;255;255m
-[38;2;255;0;255m     Numerical recovery : True (max rel_err 5.59e-09 on 10k samples) [38;2;255;255;255m
-[38;2;255;0;255m     Discovered         : 1.00000000559421*Nn*mu [38;2;255;255;255m
+[38;2;255;0;255m     Exact recovery     : True [38;2;255;255;255m
+[38;2;255;0;255m     Numerical recovery : True (max rel_err 0.00e+00 on 10k samples) [38;2;255;255;255m
+[38;2;255;0;255m     Discovered         : Nn*mu [38;2;255;255;255m
 [38;2;255;0;255m     LSM (a, b)         : (1.5, -1.125) [38;2;255;255;255m
 [38;2;0;50;255m
 ############################################################ [38;2;255;255;255m
-In-range holdout : MSE=2.276e-13  MAE=3.316e-07  R²=1.0000
-Extrapolation    : MSE=7.22e-13  MAE=5.924e-07  R²=1.0000
+In-range holdout : MSE=2.677e-29  MAE=4.701e-15  R²=1.0000
+Extrapolation    : MSE=1.035e-28  MAE=8.72e-15  R²=1.0000
 
 Top 10 HOF models (north_pole=truenorth) (★ = Pareto-optimal)
 (deduped HOF: 27 unique chromosomes from 31 raw HOF entries)
@@ -110,14 +94,89 @@ Top 10 HOF models (north_pole=truenorth) (★ = Pareto-optimal)
            17     log_abs          52      0.0561      0.0570      0.7478      0.9979      0.9974      0.5377
 
 Pareto-optimal in top 10: 1    Pareto-optimal in full HOF: 1 / 27
-[fuller-stats] {'denoise': {'calls': 151, 'resolved_rnc': 453}, 'physics': {'calls': 152, 'generated': 291, 'swapped_genes': 92, 'rule_E3': 82, 'spec_gated_in': 82, 'swapped_individuals': 73, 'rule_F': 9, 'rule_TR10-cos': 1}, 'snap': {'calls': 746, 'candidates_seen': 2208, 'no_baseline': 10}, 'concretize': {'calls': 28}}
-[fuller-stats] {'denoise': {'calls': 151, 'resolved_rnc': 453}, 'physics': {'calls': 152, 'generated': 291, 'swapped_genes': 92, 'rule_E3': 82, 'spec_gated_in': 82, 'swapped_individuals': 73, 'rule_F': 9, 'rule_TR10-cos': 1}, 'snap': {'calls': 746, 'candidates_seen': 2208, 'no_baseline': 10}, 'concretize': {'calls': 28}}
-<lambdifygenerated-135>:2: RuntimeWarning: invalid value encountered in sqrt
-  return -Nn*mu + 2.09900690277279*log(Nn + mu + sqrt(exp(Nn*mu) - 2) + log(mu) - 2 + sin(mu)/(Nn*mu)) - 2.09900690277279*log(3) + 1.55519858266826
-[fuller-stats] {'denoise': {'calls': 151, 'resolved_rnc': 453}, 'physics': {'calls': 152, 'generated': 291, 'swapped_genes': 92, 'rule_E3': 82, 'spec_gated_in': 82, 'swapped_individuals': 73, 'rule_F': 9, 'rule_TR10-cos': 1}, 'snap': {'calls': 746, 'candidates_seen': 2208, 'no_baseline': 10}, 'concretize': {'calls': 28}}
-<lambdifygenerated-139>:2: RuntimeWarning: invalid value encountered in log
-  return -Nn*mu + 1.91935092967469*log((1/3)*Nn + (1/3)*mu - 1/3*sqrt(2)*exp((1/2)*Nn*mu) + (1/3)*log(mu) + (1/3)*log(cos(Nn - exp(sin(sqrt(mu))) - sin(Nn) + 8)) - 2/3) + 2.03393310678783
-[fuller-stats] {'denoise': {'calls': 151, 'resolved_rnc': 453}, 'physics': {'calls': 152, 'generated': 291, 'swapped_genes': 92, 'rule_E3': 82, 'spec_gated_in': 82, 'swapped_individuals': 73, 'rule_F': 9, 'rule_TR10-cos': 1}, 'snap': {'calls': 746, 'candidates_seen': 2208, 'no_baseline': 10}, 'concretize': {'calls': 28}}
-[fuller-stats] {'denoise': {'calls': 151, 'resolved_rnc': 453}, 'physics': {'calls': 152, 'generated': 291, 'swapped_genes': 92, 'rule_E3': 82, 'spec_gated_in': 82, 'swapped_individuals': 73, 'rule_F': 9, 'rule_TR10-cos': 1}, 'snap': {'calls': 746, 'candidates_seen': 2208, 'no_baseline': 10}, 'concretize': {'calls': 28}}
-<lambdifygenerated-149>:2: RuntimeWarning: invalid value encountered in log
+[fuller-stats] {'denoise': {'calls': 151, 'resolved_rnc': 453}, 'physics': {'calls': 152, 'generated': 291, 'swapped_genes': 92, 'rule_E3': 82, 'spec_gated_in': 82, 'swapped_individuals': 73, 'rule_F': 9, 'rule_TR10-cos': 1}, 'snap': {'calls': 746, 'candidates_seen': 2193, 'no_baseline': 15}, 'concretize': {'calls': 28}}
+[fuller-stats] {'denoise': {'calls': 151, 'resolved_rnc': 453}, 'physics': {'calls': 152, 'generated': 291, 'swapped_genes': 92, 'rule_E3': 82, 'spec_gated_in': 82, 'swapped_individuals': 73, 'rule_F': 9, 'rule_TR10-cos': 1}, 'snap': {'calls': 746, 'candidates_seen': 2193, 'no_baseline': 15}, 'concretize': {'calls': 28}}
+<lambdifygenerated-129>:2: RuntimeWarning: invalid value encountered in sqrt
+  return -Nn*mu + 2.09900686235811*log(Nn + mu + sqrt(exp(Nn*mu) - 2) + log(mu) - 2 + sin(mu)/(Nn*mu)) - 2.09900686235811*log(3) + 1.55519861654092
+[fuller-stats] {'denoise': {'calls': 151, 'resolved_rnc': 453}, 'physics': {'calls': 152, 'generated': 291, 'swapped_genes': 92, 'rule_E3': 82, 'spec_gated_in': 82, 'swapped_individuals': 73, 'rule_F': 9, 'rule_TR10-cos': 1}, 'snap': {'calls': 746, 'candidates_seen': 2193, 'no_baseline': 15}, 'concretize': {'calls': 28}}
+<lambdifygenerated-133>:2: RuntimeWarning: invalid value encountered in log
+  return -Nn*mu + 1.9193508927115*log((1/3)*Nn + (1/3)*mu - 1/3*sqrt(2)*exp((1/2)*Nn*mu) + (1/3)*log(mu) + (1/3)*log(cos(Nn - exp(sin(sqrt(mu))) - sin(Nn) + 8)) - 2/3) + 2.03393313505685
+[fuller-stats] {'denoise': {'calls': 151, 'resolved_rnc': 453}, 'physics': {'calls': 152, 'generated': 291, 'swapped_genes': 92, 'rule_E3': 82, 'spec_gated_in': 82, 'swapped_individuals': 73, 'rule_F': 9, 'rule_TR10-cos': 1}, 'snap': {'calls': 746, 'candidates_seen': 2193, 'no_baseline': 15}, 'concretize': {'calls': 28}}
+[fuller-stats] {'denoise': {'calls': 151, 'resolved_rnc': 453}, 'physics': {'calls': 152, 'generated': 291, 'swapped_genes': 92, 'rule_E3': 82, 'spec_gated_in': 82, 'swapped_individuals': 73, 'rule_F': 9, 'rule_TR10-cos': 1}, 'snap': {'calls': 746, 'candidates_seen': 2193, 'no_baseline': 15}, 'concretize': {'calls': 28}}
+<lambdifygenerated-143>:2: RuntimeWarning: invalid value encountered in log
   return -Nn*mu + 1.92232065980447*log((1/3)*Nn + (1/3)*mu - 1/3*sqrt(2)*exp((1/2)*Nn*mu) + (1/3)*log(mu) + (1/3)*log(cos(Nn - exp(sin(log(mu))) - sin(Nn) + 8)) - 2/3) + 0.638659913562117*pi
+[fuller-stats] {'denoise': {'calls': 151, 'resolved_rnc': 453}, 'physics': {'calls': 152, 'generated': 291, 'swapped_genes': 92, 'rule_E3': 82, 'spec_gated_in': 82, 'swapped_individuals': 73, 'rule_F': 9, 'rule_TR10-cos': 1}, 'snap': {'calls': 746, 'candidates_seen': 2193, 'no_baseline': 15}, 'concretize': {'calls': 28}}
+<lambdifygenerated-147>:2: RuntimeWarning: invalid value encountered in sqrt
+  return -Nn*mu + 1.92232065980447*log((1/3)*Nn + (1/3)*mu - 1/3*sqrt(exp(Nn*mu) - 2) + (1/3)*log(mu)*cos(mu) + (1/3)*log(cos(Nn - exp(sin(log(mu))) - sin(Nn) + 8)) - 2/3) + 2*pi**(1/4)
+<lambdifygenerated-147>:2: RuntimeWarning: invalid value encountered in log
+  return -Nn*mu + 1.92232065980447*log((1/3)*Nn + (1/3)*mu - 1/3*sqrt(exp(Nn*mu) - 2) + (1/3)*log(mu)*cos(mu) + (1/3)*log(cos(Nn - exp(sin(log(mu))) - sin(Nn) + 8)) - 2/3) + 2*pi**(1/4)
+[fuller-stats] {'denoise': {'calls': 151, 'resolved_rnc': 453}, 'physics': {'calls': 152, 'generated': 291, 'swapped_genes': 92, 'rule_E3': 82, 'spec_gated_in': 82, 'swapped_individuals': 73, 'rule_F': 9, 'rule_TR10-cos': 1}, 'snap': {'calls': 746, 'candidates_seen': 2193, 'no_baseline': 15}, 'concretize': {'calls': 28}}
+<lambdifygenerated-151>:2: RuntimeWarning: invalid value encountered in sqrt
+  return -Nn*mu + 1.89830159630753*log((1/3)*Nn + (1/3)*mu - 1/3*sqrt(exp(Nn*mu) - 2) + (1/3)*log(mu) + (1/3)*log(cos(Nn - log(Nn) - sin(sin(Nn)) + 8)) - 2/3) + 2.83879652912515
+<lambdifygenerated-151>:2: RuntimeWarning: invalid value encountered in log
+  return -Nn*mu + 1.89830159630753*log((1/3)*Nn + (1/3)*mu - 1/3*sqrt(exp(Nn*mu) - 2) + (1/3)*log(mu) + (1/3)*log(cos(Nn - log(Nn) - sin(sin(Nn)) + 8)) - 2/3) + 2.83879652912515
+[fuller-stats] {'denoise': {'calls': 151, 'resolved_rnc': 453}, 'physics': {'calls': 152, 'generated': 291, 'swapped_genes': 92, 'rule_E3': 82, 'spec_gated_in': 82, 'swapped_individuals': 73, 'rule_F': 9, 'rule_TR10-cos': 1}, 'snap': {'calls': 746, 'candidates_seen': 2193, 'no_baseline': 15}, 'concretize': {'calls': 28}}
+<lambdifygenerated-155>:2: RuntimeWarning: invalid value encountered in sqrt
+  return -Nn*mu + 1.90575181569995*log((1/3)*Nn + (1/3)*mu - 1/3*sqrt(exp(Nn*mu) - 2) + (1/3)*log(mu)*cos(mu) + (1/3)*log(cos(Nn - exp(sin(log(Nn))) - 2*sin(Nn) + 8)) - 2/3) + 2.76139538770549
+<lambdifygenerated-155>:2: RuntimeWarning: invalid value encountered in log
+  return -Nn*mu + 1.90575181569995*log((1/3)*Nn + (1/3)*mu - 1/3*sqrt(exp(Nn*mu) - 2) + (1/3)*log(mu)*cos(mu) + (1/3)*log(cos(Nn - exp(sin(log(Nn))) - 2*sin(Nn) + 8)) - 2/3) + 2.76139538770549
+[fuller-stats] {'denoise': {'calls': 151, 'resolved_rnc': 453}, 'physics': {'calls': 152, 'generated': 291, 'swapped_genes': 92, 'rule_E3': 82, 'spec_gated_in': 82, 'swapped_individuals': 73, 'rule_F': 9, 'rule_TR10-cos': 1}, 'snap': {'calls': 746, 'candidates_seen': 2193, 'no_baseline': 15}, 'concretize': {'calls': 28}}
+<lambdifygenerated-159>:2: RuntimeWarning: invalid value encountered in sqrt
+  return -1.0*Nn*mu + 1.92232065980447*log(Nn + mu - sqrt(exp(Nn*mu) - 2) + log(cos(Nn + 7.72058450180107)) + log(cos(Nn - exp(sin(log(mu))) - sin(Nn) + 8)) - 2) - 1.92232065980447*log(3) + 2.0*pi**(1/4)
+<lambdifygenerated-159>:2: RuntimeWarning: invalid value encountered in log
+  return -1.0*Nn*mu + 1.92232065980447*log(Nn + mu - sqrt(exp(Nn*mu) - 2) + log(cos(Nn + 7.72058450180107)) + log(cos(Nn - exp(sin(log(mu))) - sin(Nn) + 8)) - 2) - 1.92232065980447*log(3) + 2.0*pi**(1/4)
+[fuller-stats] {'denoise': {'calls': 151, 'resolved_rnc': 453}, 'physics': {'calls': 152, 'generated': 291, 'swapped_genes': 92, 'rule_E3': 82, 'spec_gated_in': 82, 'swapped_individuals': 73, 'rule_F': 9, 'rule_TR10-cos': 1}, 'snap': {'calls': 746, 'candidates_seen': 2193, 'no_baseline': 15}, 'concretize': {'calls': 28}}
+<lambdifygenerated-163>:2: RuntimeWarning: invalid value encountered in sqrt
+  return -Nn*mu + 1.91015946052102*log((1/3)*Nn + (1/3)*mu - 1/3*sqrt(exp(Nn*mu) - 2) + (1/3)*log(cos(Nn/(exp(sin(log(mu))) + sin(Nn) - 8))) + (1/3)*log(cos(Nn - exp(sin(log(mu))) - sin(Nn) + 8)) - 2/3) + 2.74678099845745
+<lambdifygenerated-163>:2: RuntimeWarning: invalid value encountered in log
+  return -Nn*mu + 1.91015946052102*log((1/3)*Nn + (1/3)*mu - 1/3*sqrt(exp(Nn*mu) - 2) + (1/3)*log(cos(Nn/(exp(sin(log(mu))) + sin(Nn) - 8))) + (1/3)*log(cos(Nn - exp(sin(log(mu))) - sin(Nn) + 8)) - 2/3) + 2.74678099845745
+[fuller-stats] {'denoise': {'calls': 151, 'resolved_rnc': 453}, 'physics': {'calls': 152, 'generated': 291, 'swapped_genes': 92, 'rule_E3': 82, 'spec_gated_in': 82, 'swapped_individuals': 73, 'rule_F': 9, 'rule_TR10-cos': 1}, 'snap': {'calls': 746, 'candidates_seen': 2193, 'no_baseline': 15}, 'concretize': {'calls': 28}}
+<lambdifygenerated-167>:2: RuntimeWarning: invalid value encountered in sqrt
+  return -Nn*mu + 1.90654549750136*log((1/3)*Nn + (1/3)*mu - 1/3*sqrt(exp(Nn*mu) - 2) + (1/3)*log(cos(Nn - exp(sin(log(mu))) - sin(Nn) + 8)) - 2/3) + 2.77148753933333
+<lambdifygenerated-167>:2: RuntimeWarning: invalid value encountered in log
+  return -Nn*mu + 1.90654549750136*log((1/3)*Nn + (1/3)*mu - 1/3*sqrt(exp(Nn*mu) - 2) + (1/3)*log(cos(Nn - exp(sin(log(mu))) - sin(Nn) + 8)) - 2/3) + 2.77148753933333
+[fuller-stats] {'denoise': {'calls': 151, 'resolved_rnc': 453}, 'physics': {'calls': 152, 'generated': 291, 'swapped_genes': 92, 'rule_E3': 82, 'spec_gated_in': 82, 'swapped_individuals': 73, 'rule_F': 9, 'rule_TR10-cos': 1}, 'snap': {'calls': 746, 'candidates_seen': 2193, 'no_baseline': 15}, 'concretize': {'calls': 28}}
+<lambdifygenerated-171>:2: RuntimeWarning: invalid value encountered in sqrt
+  return -Nn*mu + 1.92232065980447*log((1/3)*Nn + (1/3)*mu - 1/3*sqrt(exp(Nn*mu) - 2) + (1/3)*log(cos(Nn - exp(sin(log(mu))) - sin(Nn) + 8)) + (1/3)*log(cos(-Nn + exp(sin(log(Nn))) + sin(Nn) + sin(mu) - 8)) - 2/3) + 2*pi**(1/4)
+<lambdifygenerated-171>:2: RuntimeWarning: invalid value encountered in log
+  return -Nn*mu + 1.92232065980447*log((1/3)*Nn + (1/3)*mu - 1/3*sqrt(exp(Nn*mu) - 2) + (1/3)*log(cos(Nn - exp(sin(log(mu))) - sin(Nn) + 8)) + (1/3)*log(cos(-Nn + exp(sin(log(Nn))) + sin(Nn) + sin(mu) - 8)) - 2/3) + 2*pi**(1/4)
+
+Recovery sweep across 12/27 unique HOF chromosomes (capped):
+  Structural / exact     : 1/12  (8.3%)
+  Numerical (≤1e-6 err)  : 1/12  (8.3%)
+{
+    "date": "2026/09/19",
+    "seed": "5",
+    "task": "equation_recovery",
+    "north_pole_method": "truenorth",
+    "hff_include_val": true,
+    "problem": "I_12_1",
+    "truth_expr": "mu*Nn",
+    "final_terminal_inputs": [
+        "mu",
+        "Nn"
+    ],
+    "wide_primitives": true,
+    "head_length": "48",
+    "n_genes": "3",
+    "rnc_array_length": "10",
+    "tournament size": "3",
+    "population size": "25",
+    "number of elites": "2",
+    "number of generations": "400",
+    "number of islands": "2",
+    "migration FREQ": "30",
+    "wrapper_id": 0,
+    "wrapper_name": "identity",
+    "recovery_exact": true,
+    "recovery_numerical": true,
+    "recovery_max_rel_err": 0.0,
+    "discovered_expr": "Nn*mu",
+    "holdout_mse": 2.676999481867504e-29,
+    "holdout_r2": 1.0,
+    "extrap_mse": 1.0351334190696964e-28,
+    "extrap_r2": 1.0,
+    "hof_size": 27,
+    "hof_exact_recoveries": 1,
+    "hof_numerical_recoveries": 1
+}

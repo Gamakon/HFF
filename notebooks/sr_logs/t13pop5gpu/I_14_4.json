@@ -1,7 +1,0 @@
-{
-  "problem": "I_14_4",
-  "error": "exit -9; no parseable experiment JSON in stdout",
-  "stderr_tail": "",
-  "stdout_tail": "  pump per-island sizes: intake=500 (tournsize=40), champion=250 (tournsize=25)\nInitialising evolution at 2026-09-19 01:57:14.742017\n[wgpu] process pool disabled \u2014 Metal cannot survive fork(); the population is evaluated in one dispatch instead\n gen  deme   evals     min fitness          mse_tr          mse_va         max_err      mse_extrap  one_minus_r2_tr  one_minus_r2_va\n   0     0     500               0   2.7893767e-12  2.44831292e-12   8.8208222e-06  1.50778571e-11  1.66867494e-14  1.76679428e-14\n   0     1     250               0      6.51408431      5.70721978      7.28679279      291.553913    0.0389688822    0.0411854352\n[wgpu] process pool disabled \u2014 Metal cannot survive fork(); the population is evaluated in one dispatch instead\nExtending evolution: gen 1 \u2192 400 (+400 generations)\nContext leak detected, CoreAnalytics returned false\nContext leak detected, CoreAnalytics returned false\nContext leak detected, CoreAnalytics returned false\nContext leak detected, CoreAnalytics returned false\nContext leak detected, CoreAnalytics returned false\nContext leak detected, CoreAnalytics returned false\nContext leak detected, CoreAnalytics returned false",
-  "elapsed_s": 11.597405667009298
-}
