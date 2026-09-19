@@ -1,21 +1,16 @@
 {
-  "date": "2026/09/18",
+  "date": "2026/09/19",
   "seed": "5",
   "task": "equation_recovery",
   "north_pole_method": "truenorth",
   "hff_include_val": true,
-  "problem": "I_9_18",
-  "truth_expr": "G*m1*m2/((x2-x1)**2+(y2-y1)**2+(z2-z1)**2)",
+  "problem": "I_39_22",
+  "truth_expr": "n*kb*T/V",
   "final_terminal_inputs": [
-    "m1",
-    "m2",
-    "G",
-    "x1",
-    "x2",
-    "y1",
-    "y2",
-    "z1",
-    "z2"
+    "n",
+    "T",
+    "V",
+    "kb"
   ],
   "wide_primitives": true,
   "head_length": "48",
@@ -32,13 +27,13 @@
   "recovery_exact": false,
   "recovery_numerical": true,
   "recovery_max_rel_err": 0.0,
-  "discovered_expr": "1.0*G*m1*m2/((x1 - x2)**2 + (y1 - y2)**2 + (z1 - z2)**2)",
-  "holdout_mse": 2.112263666506701e-32,
+  "discovered_expr": "T*kb*n/V",
+  "holdout_mse": 6.1235944065363246e-30,
   "holdout_r2": 1.0,
-  "extrap_mse": 6.612969353545233e-32,
+  "extrap_mse": 3.6217220456278855e-29,
   "extrap_r2": 1.0,
-  "hof_size": 30,
+  "hof_size": 5,
   "hof_exact_recoveries": 0,
-  "hof_numerical_recoveries": 0,
-  "elapsed_s": 195.3839281250257
+  "hof_numerical_recoveries": 1,
+  "elapsed_s": 66.43700366700068
 }

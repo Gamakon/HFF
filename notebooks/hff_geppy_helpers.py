@@ -381,25 +381,17 @@ def _resolve_rnc(gene):
     head = [tup(t) for t in gene.head]
     tail = [tup(t) for t in gene.tail]
 
-    # diff_sq(a, b) is (a-b)^2 and has no Math constructor, so a gene carrying
-    # one cannot be decoded at all — it was the ONLY remaining cause of GPU
-    # fallback once the pset names were translated. Rewrite it in place as
-    # pow2 applied to sub: both are arity 2 where diff_sq was arity 2, so the
-    # level-order child accounting karva_to_terms performs is unchanged, and
-    # the extra pow2 node is consumed from the same slot.
-    def expand_diff_sq(tokens):
-        out = []
-        for k, v in tokens:
-            if k == "func" and v == "diff_sq":
-                out.append(("func", "pow2"))
-                out.append(("func", "sub"))
-            else:
-                out.append((k, v))
-        return out
-
+    # diff_sq(a, b) is (a-b)^2 and has no Math constructor. It CANNOT be
+    # expanded in place: the obvious rewrite to pow2(sub(a,b)) changes the
+    # arity consumed at that position — diff_sq takes 2 child slots, pow2
+    # takes 1 — so every following child slot shifts and the gene decodes to a
+    # different tree. Measured: a gene giving 286.6 on CPU gave 65.0 on the
+    # GPU under that rewrite, a 100% divergence that an earlier commit wrongly
+    # described as arity-preserving.
+    #
+    # Genes carrying diff_sq therefore go to the CPU path, unconverted.
     if any(k == "func" and v == "diff_sq" for k, v in head + tail):
-        head = expand_diff_sq(head)
-        tail = expand_diff_sq(tail)
+        return None
     dc = list(getattr(gene, "dc", []) or [])
     rnc = list(getattr(gene, "rnc_array", []) or [])
     n = [0]

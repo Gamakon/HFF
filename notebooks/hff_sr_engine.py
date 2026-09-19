@@ -671,6 +671,9 @@ def _gene_key(gene) -> tuple:
 
 
 _GPU_CACHE: dict = {}
+# Resident evaluators, one per dataframe. Keeps the dataset on the device
+# across generations instead of re-uploading it every dispatch.
+_GPU_SESSIONS: dict = {}
 GPU_BATCH_STATS: dict = {
     "dispatches": 0,
     "genes": 0,
@@ -727,19 +730,31 @@ def _gpu_prefill_population(population, df, terminals, pset) -> None:
     if not genes:
         return
 
-    fns = {n: (n, a) for n, a in _f.master_pset()}
-    rows = df[list(terminals)].values.tolist()
+    # ONE session per (dataset, variable order), held for the life of the fit.
+    # Building an evaluator per call means request_adapter,
+    # create_shader_module and a full re-upload of the dataset on every
+    # dispatch — which is not residency, and was most of the per-dispatch cost.
+    sess = _GPU_SESSIONS.get(key_df)
+    if sess is None:
+        fns = {n: (n, a) for n, a in _f.master_pset()}
+        rows = df[list(terminals)].values.tolist()
+        try:
+            sess = _f._fuller.GpuSession(list(terminals), fns, [1.0], rows)
+        except Exception:
+            return
+        _GPU_SESSIONS[key_df] = sess
+        GPU_BATCH_STATS["sessions"] = GPU_BATCH_STATS.get("sessions", 0) + 1
+
     try:
         t0 = time.perf_counter()
-        preds = _f._fuller.gpu_predict_karva(genes, list(terminals), fns,
-                                             [1.0], rows)
+        preds = sess.predict(genes)
         dt = time.perf_counter() - t0
     except Exception:
         return
 
     GPU_BATCH_STATS["dispatches"] += 1
     GPU_BATCH_STATS["genes"] += len(genes)
-    GPU_BATCH_STATS["row_evals"] += len(genes) * len(rows)
+    GPU_BATCH_STATS["row_evals"] += len(genes) * sess.n_rows
     GPU_BATCH_STATS["seconds"] += dt
     for k, p in zip(keys, preds):
         if p is not None:
@@ -747,7 +762,11 @@ def _gpu_prefill_population(population, df, terminals, pset) -> None:
 
 
 def _gpu_clear_cache() -> None:
-    """Drop cached predictions. Called when the population changes."""
+    """Drop cached predictions. Called when the population changes.
+
+    Sessions are NOT dropped: the dataset has not changed, and re-uploading it
+    is the cost this exists to avoid.
+    """
     _GPU_CACHE.clear()
 
 
