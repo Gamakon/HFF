@@ -47,4 +47,9 @@ notebooks/SphericalSymbolicRegression-run*.ipynb
 # per-batch stdout and the sympy corpus are bulky and regenerable.
 notebooks/sr_logs/batches/
 notebooks/sr_logs/simplify_corpus.jsonl
+# ...but a problem's own run log IS the evidence for its result — it carries
+# the generation-by-generation logbook and the per-gen wgpu columns — so it is
+# kept alongside the sidecar it explains. The blanket *.log rule above would
+# otherwise drop it.
+!notebooks/sr_logs/**/*.run.log
 notebooks/sr_logs/.staging_*/
