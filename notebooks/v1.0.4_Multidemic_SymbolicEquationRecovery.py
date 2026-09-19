@@ -1789,14 +1789,23 @@ def _nb_geppy_tokens(gene):
     return out[0], out[1]
 
 
-def _nb_expand_genes(genes):
-    """E-class variants for every gene not already cached.
+def _nb_orf_key(gene) -> tuple:
+    """The EXPRESSED tree, constants resolved. A gene's e-class depends on
+    nothing else: keying on the whole gene made every silent mutation in the
+    dormant region a cache miss (measured: 2236 of 2250 genes re-saturated in
+    generation 1)."""
+    return tuple(str(t) for t in gene.kexpression)
 
-    Cache entries: gene_key -> [(variant_gene, device_tokens, saving), ...],
-    original excluded; saving = nodes(original) - nodes(variant), in fuller's
-    node-count unit, and may be negative. Keyed on head+tail+dc+rnc_array, so a cached variant is
-    valid for every gene with that key. The e-class of a gene does not change
-    between generations, and most genes survive a generation unchanged.
+
+def _nb_expand_genes(genes):
+    """E-class variants for every gene: {gene_cache_key: [(variant_gene,
+    device_tokens, saving), ...]}, original excluded; saving =
+    nodes(original) - nodes(variant) in fuller's node-count unit.
+
+    fuller's PROPOSALS are cached by expressed tree (_nb_orf_key) across
+    generations — an e-class does not change, and most expressed trees
+    survive a generation. The geppy GENE is rebuilt per gene, because it
+    keeps that gene's own dormant region and rnc_array.
     """
     from _denoise_op import _build_functions_dict
     from _gene_utils import build_variant_gene, VariantNotExpressible
@@ -1805,52 +1814,60 @@ def _nb_expand_genes(genes):
 
     if len(_NB_ECLASS_CACHE) > _NB_ECLASS_CACHE_MAX:
         _NB_ECLASS_CACHE.clear()
-    todo, payload = {}, []
+
+    expandable, todo = {}, {}
     for gene in genes:
-        key = hgh._gene_cache_key(gene)
-        if key in _NB_ECLASS_CACHE or key in todo:
+        gkey = hgh._gene_cache_key(gene)
+        if gkey in expandable:
             continue
         toks = _nb_geppy_tokens(gene)
         if toks is None or hgh._resolve_rnc(gene) is None:
-            _NB_ECLASS_CACHE[key] = []      # not expandable; scored as it is
+            continue                        # not expandable; scored as it is
+        okey = _nb_orf_key(gene)
+        expandable[gkey] = (gene, okey)
+        if okey in _NB_ECLASS_CACHE or okey in todo:
             continue
-        rnc = sorted({float(t.value) for t in pset.terminals
-                      if getattr(t, "value", None) is not None}
-                     | {float(x) for x in (getattr(gene, "rnc_array", None) or [])})
-        todo[key] = gene
-        payload.append((toks[0], toks[1], rnc))
-    if not payload:
-        return
+        if len(okey) == 1:
+            _NB_ECLASS_CACHE[okey] = (1, [])    # a bare leaf has no variants
+            continue
+        todo[okey] = (toks[0], toks[1], [])
 
-    variables = [t.name for t in pset.terminals
-                 if (isinstance(t, SymbolTerminal) or t.value is None)
-                 and t.name != "?"]
-    t0 = time.perf_counter()
-    results = _f._fuller.denoise_karva_candidates_batch(
-        payload, variables, _build_functions_dict(pset), _NB_ECLASS_ROWS,
-        k_variants=ECLASS_K, rng_seed=0,
-        target_head_length=settings.head_length)
-    _NB_GPU_STATS["expand_seconds"] += time.perf_counter() - t0
-    _NB_GPU_STATS["expanded"] += len(payload)
+    if todo:
+        variables = [t.name for t in pset.terminals
+                     if (isinstance(t, SymbolTerminal) or t.value is None)
+                     and t.name != "?"]
+        t0 = time.perf_counter()
+        results = _f._fuller.denoise_karva_candidates_batch(
+            list(todo.values()), variables, _build_functions_dict(pset),
+            _NB_ECLASS_ROWS, k_variants=ECLASS_K, rng_seed=0,
+            target_head_length=settings.head_length)
+        _NB_GPU_STATS["expand_seconds"] += time.perf_counter() - t0
+        _NB_GPU_STATS["expanded"] += len(todo)
+        for okey, res in zip(todo, results):
+            if res["error"]:
+                _NB_GPU_STATS["expand_errors"] += 1
+                why = res["error"].split(":")[0]
+                _NB_EXPAND_ERRORS[why] = _NB_EXPAND_ERRORS.get(why, 0) + 1
+            _NB_GPU_STATS["inexpressible"] += res["n_inexpressible"]
+            _NB_GPU_STATS["oversized"] += res["n_oversized"]
+            props = [(c["head"], c["tail"], int(c["cost"]))
+                     for c in sorted(res["candidates"], key=lambda c: c["cost"])
+                     if not c["is_original"]]
+            if props and res["orig_cost"] is None:
+                raise RuntimeError(
+                    "fuller returned e-class candidates but no cost for the "
+                    f"original; cannot cost a graft for {okey}")
+            _NB_ECLASS_CACHE[okey] = (res["orig_cost"], props)
 
-    for (key, gene), res in zip(todo.items(), results):
-        if res["error"]:
-            _NB_GPU_STATS["expand_errors"] += 1
-            why = res["error"].split(":")[0]
-            _NB_EXPAND_ERRORS[why] = _NB_EXPAND_ERRORS.get(why, 0) + 1
-        _NB_GPU_STATS["inexpressible"] += res["n_inexpressible"]
-        _NB_GPU_STATS["oversized"] += res["n_oversized"]
-        orig_cost = res["orig_cost"]
-        if orig_cost is None and res["candidates"]:
-            raise RuntimeError(
-                "fuller returned e-class candidates but no cost for the "
-                f"original; cannot cost a graft for gene {key[0]}")
+    out = {}
+    for gkey, (gene, okey) in expandable.items():
+        orig_cost, props = _NB_ECLASS_CACHE[okey]
         entries, seen = [], {str(hgh._resolve_rnc(gene))}
-        for c in sorted(res["candidates"], key=lambda c: c["cost"]):
-            if c["is_original"] or len(entries) >= ECLASS_K:
-                continue
+        for head, tail, cost in props:
+            if len(entries) >= ECLASS_K:
+                break
             try:
-                new_gene = build_variant_gene(gene, c["head"], c["tail"], pset)
+                new_gene = build_variant_gene(gene, head, tail, pset)
             except VariantNotExpressible as e:
                 _NB_GPU_STATS["unbuildable"] += 1
                 _NB_UNBUILDABLE[e.reason] = _NB_UNBUILDABLE.get(e.reason, 0) + 1
@@ -1858,20 +1875,21 @@ def _nb_expand_genes(genes):
             dev = hgh._resolve_rnc(new_gene)
             if dev is None:
                 raise RuntimeError(
-                    f"rebuilt variant of gene {key[0]} does not resolve for the "
+                    f"rebuilt variant of {okey} does not resolve for the "
                     "device although its original did")
             if str(dev) in seen:
                 continue
             seen.add(str(dev))
-            entries.append((new_gene, dev, orig_cost - int(c["cost"])))
-        _NB_ECLASS_CACHE[key] = entries
+            entries.append((new_gene, dev, orig_cost - cost))
+        out[gkey] = entries
         _NB_GPU_STATS["variants"] += len(entries)
+    return out
 
 
 def _nb_evaluate_population(population):
     """raw_results for assign_fitness_batch, from ONE dispatch."""
     sess = _nb_gpu_session()
-    _nb_expand_genes([g for ind in population for g in ind])
+    variants = _nb_expand_genes([g for ind in population for g in ind])
 
     gene_index: dict = {}
     gene_list: list = []
@@ -1894,7 +1912,7 @@ def _nb_evaluate_population(population):
         chroms.append(base)
         meta.append((i, None, None, 0))
         for j, gene in enumerate(ind):
-            for new_gene, dev, saving in _NB_ECLASS_CACHE[hgh._gene_cache_key(gene)]:
+            for new_gene, dev, saving in variants.get(hgh._gene_cache_key(gene), ()):
                 c = list(base)
                 c[j] = gidx(dev)
                 chroms.append(c)
@@ -2131,27 +2149,43 @@ def assign_fitness_batch(population, raw_results):
         if prev is None or f < prev[0]:
             best_for_ind[owner] = (f, cand_payload[k])
 
-    # E-class tie-break. Equivalent forms of a gene score the same up to f32
-    # rounding, so HFF alone cannot prefer one. Inside ECLASS_TIE_TOL of the
-    # individual's best, the candidate that SAVES THE MOST NODES wins; the
-    # unswapped individual saves 0, so a graft always buys something. Only
-    # candidates from the join carry "saving" — if a static rule or a
-    # CPU-path candidate holds the slot, it is left alone.
+    # The graft. Decided among the individual's OWN join candidates —
+    # whoever holds its fitness slot. (A static rule that fits perfectly takes
+    # the slot of EVERY individual; gating the graft on the slot meant no gene
+    # was ever improved on exactly the problems the rules solve: I_15_3x, 386
+    # variants scored, 0 grafted.) Equivalent forms score the same up to f32
+    # rounding, so HFF alone cannot prefer one: inside ECLASS_TIE_TOL of the
+    # best join candidate, the one that SAVES THE MOST NODES wins. The
+    # unswapped individual saves 0, so a graft always buys something.
+    best_join = {}      # ind_idx -> (fitness, payload)
+    for k, owner in enumerate(cand_owner):
+        if "saving" in cand_payload[k]:
+            f = float(fitness[k])
+            prev = best_join.get(owner)
+            if prev is None or f < prev[0]:
+                best_join[owner] = (f, cand_payload[k])
+    graft_for = dict(best_join)
     for k, owner in enumerate(cand_owner):
         p = cand_payload[k]
-        bf, bp = best_for_ind[owner]
-        if "saving" not in p or "saving" not in bp:
+        if "saving" not in p:
             continue
-        if float(fitness[k]) <= bf + ECLASS_TIE_TOL and p["saving"] > bp["saving"]:
-            best_for_ind[owner] = (bf, p) if float(fitness[k]) > bf else (float(fitness[k]), p)
+        if (float(fitness[k]) <= best_join[owner][0] + ECLASS_TIE_TOL
+                and p["saving"] > graft_for[owner][1]["saving"]):
+            graft_for[owner] = (float(fitness[k]), p)
+    for owner, (f, p) in graft_for.items():
+        if p["variant"] is None:
+            continue
+        j, new_gene = p["variant"]
+        _NB_GPU_STATS["grafts"] += 1
+        _NB_GPU_STATS["nodes_saved"] += max(0, p["saving"])
+        population[owner][j] = copy.deepcopy(new_gene)
+        # If this individual's fitness slot is a join candidate, it must be the
+        # one describing the genes it now has.
+        if "saving" in best_for_ind[owner][1]:
+            best_for_ind[owner] = (f, p)
 
     for i, (f, payload) in best_for_ind.items():
         ind = population[i]
-        if payload.get("variant") is not None:
-            j, new_gene = payload["variant"]
-            _NB_GPU_STATS["grafts"] += 1
-            _NB_GPU_STATS["nodes_saved"] += payload["saving"]
-            ind[j] = copy.deepcopy(new_gene)
         ind.fitness.values = (f,)
         ind.metrics = payload["metrics"]
         ind.a = payload["a"]

@@ -95,8 +95,10 @@ def build_variant_gene(orig_gene, head_tuples: list, tail_tuples: list, pset):
     574 of 574 variants in one generation).
 
     Here a literal becomes: a pset constant terminal if one has that value;
-    otherwise "?" with a NEW Dc entry pointing at its slot in rnc_array; and
-    only if rnc_array does not hold it either is the variant not expressible.
+    otherwise "?" with a NEW Dc entry pointing at its slot in rnc_array. A
+    constant rnc_array does not hold yet is written into a slot the variant's
+    coding region does not read; only when the variant needs more distinct
+    constants than the array has slots is it not expressible.
     The Dc domain is REBUILT in tree order — keeping the original's would pair
     each "?" with some other constant's index.
 
@@ -143,6 +145,29 @@ def build_variant_gene(orig_gene, head_tuples: list, tail_tuples: list, pset):
     if n_orf > head_length + tail_length:
         raise VariantNotExpressible("length", f"{n_orf} nodes")
 
+    # Constants the pset has no terminal for must live in rnc_array. One
+    # already there keeps its slot; a NEW one (fuller folded 2*3 into 6) takes
+    # a slot no coding "?" of this variant reads. Slots only the dormant
+    # region refers to are free to overwrite: nothing expressed reads them.
+    needed = []
+    for kind, val in toks[:n_orf]:
+        if kind == "num" and float(val) not in const_by_value and float(val) not in needed:
+            needed.append(float(val))
+    slot_of = {}
+    for v in needed:
+        hit = next((i for i, r in enumerate(rnc_array)
+                    if float(r) == v and i not in slot_of.values()), None)
+        if hit is not None:
+            slot_of[v] = hit
+    free = [i for i in range(len(rnc_array)) if i not in slot_of.values()]
+    for v in needed:
+        if v not in slot_of:
+            if not free or rnc_term is None:
+                raise VariantNotExpressible(
+                    "constant", f"{len(needed)} constants, {len(rnc_array)} rnc slots")
+            slot_of[v] = free.pop(0)
+            rnc_array[slot_of[v]] = v
+
     coding, new_dc = [], []
     for pos, (kind, val) in enumerate(toks[:n_orf]):
         if kind == "func":
@@ -158,11 +183,10 @@ def build_variant_gene(orig_gene, head_tuples: list, tail_tuples: list, pset):
             if v in const_by_value:
                 coding.append(const_by_value[v])
                 continue
-            slot = next((i for i, r in enumerate(rnc_array) if float(r) == v), None)
-            if slot is None or rnc_term is None:
+            if rnc_term is None:
                 raise VariantNotExpressible("constant", repr(v))
             coding.append(rnc_term)
-            new_dc.append(slot)
+            new_dc.append(slot_of[v])
 
     body = coding + orig[n_orf:head_length + tail_length]
     # A function carried over from the original's dormant head must not land
