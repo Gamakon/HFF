@@ -424,15 +424,17 @@ def _resolve_rnc(gene):
             return ("num", float(tok.value))
         raise ValueError("unknown token")
 
-    head = [tup(t) for t in gene.head]
-    tail = [tup(t) for t in gene.tail]
-
     # Only the EXPRESSED tree (the ORF) is decoded by the device; everything
     # after it is dormant. Resolution used to walk every token, so a dormant
     # diff_sq, or more "?" in head+tail than the Dc domain has slots (the
     # domain is sized for the tail, not head+tail), rejected a gene whose
     # expressed tree was perfectly good — and a rebuilt e-class variant, which
     # can add constants, failed where its original had not.
+    #
+    # Only the ORF is TRANSLATED, too: a head_length=48 gene is 97 tokens and
+    # its expressed tree is typically 1-10, so translating all of them was 90%
+    # wasted (profiled: 52k calls, 2.2s of a 7-generation run). The dormant
+    # remainder is filled with an inert literal; the device never reads it.
     toks = list(gene.head) + list(gene.tail)
     need, n_orf = 1, 0
     while need > 0 and n_orf < len(toks):
@@ -440,6 +442,8 @@ def _resolve_rnc(gene):
         n_orf += 1
     if need > 0:
         return None
+    n_head = len(gene.head)
+    flat = [tup(t) for t in toks[:n_orf]]
 
     # diff_sq(a, b) is (a-b)^2 and has no Math constructor. It CANNOT be
     # expanded in place: the obvious rewrite to pow2(sub(a,b)) changes the
@@ -447,17 +451,13 @@ def _resolve_rnc(gene):
     # takes 1 — so every following child slot shifts and the gene decodes to a
     # different tree. Measured: a gene giving 286.6 on CPU gave 65.0 on the
     # GPU under that rewrite. Genes EXPRESSING diff_sq go to the CPU path.
-    flat = head + tail
-    if any(k == "func" and v == "diff_sq" for k, v in flat[:n_orf]):
+    if any(k == "func" and v == "diff_sq" for k, v in flat):
         return None
     dc = list(getattr(gene, "dc", []) or [])
     rnc = list(getattr(gene, "rnc_array", []) or [])
     out, n = [], 0
-    for pos, (k, v) in enumerate(flat):
+    for k, v in flat:
         if k == "var" and v == "?":
-            if pos >= n_orf:
-                out.append(("num", 0.0))       # dormant: never read
-                continue
             try:
                 out.append(("num", float(rnc[dc[n]])))
             except (IndexError, TypeError, ValueError):
@@ -465,7 +465,8 @@ def _resolve_rnc(gene):
             n += 1
         else:
             out.append((k, v))
-    return out[:len(head)], out[len(head):]
+    out += [("num", 0.0)] * (len(toks) - n_orf)     # dormant: never read
+    return out[:n_head], out[n_head:]
 
 
 _GPU_FNS = None

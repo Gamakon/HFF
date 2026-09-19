@@ -1826,15 +1826,14 @@ def _nb_expand_genes(genes):
         _NB_ECLASS_CACHE.clear()
 
     expandable, todo = {}, {}
-    for gene in genes:
-        gkey = hgh._gene_cache_key(gene)
-        if gkey in expandable:
-            continue
-        toks = _nb_geppy_tokens(gene)
-        if toks is None or hgh._resolve_rnc(gene) is None:
+    for gene, gkey, gdev in genes:
+        if gkey in expandable or gdev is None:
             continue                        # not expandable; scored as it is
+        toks = _nb_geppy_tokens(gene)
+        if toks is None:
+            continue
         okey = _nb_orf_key(gene)
-        expandable[gkey] = (gene, okey)
+        expandable[gkey] = (gene, okey, gdev)
         if okey in _NB_ECLASS_CACHE or okey in todo:
             continue
         if len(okey) == 1:
@@ -1900,9 +1899,9 @@ def _nb_expand_genes(genes):
                 _NB_ECLASS_CACHE[okey] = (oc, props)
 
     out = {}
-    for gkey, (gene, okey) in expandable.items():
+    for gkey, (gene, okey, gdev) in expandable.items():
         orig_cost, props = _NB_ECLASS_CACHE[okey]
-        entries, seen = [], {str(hgh._resolve_rnc(gene))}
+        entries, seen = [], {str(gdev)}
         for head, tail, cost, consts, is_snap in props:
             if consts:
                 _augment_pset_with_constants(pset, list(consts))
@@ -1932,7 +1931,10 @@ def _nb_expand_genes(genes):
 def _nb_evaluate_population(population):
     """raw_results for assign_fitness_batch, from ONE dispatch."""
     sess = _nb_gpu_session()
-    variants = _nb_expand_genes([g for ind in population for g in ind])
+    # Resolve every gene ONCE; both the expansion and the dispatch need it.
+    resolved = [[(g, hgh._gene_cache_key(g), hgh._resolve_rnc(g)) for g in ind]
+                for ind in population]
+    variants = _nb_expand_genes([t for ind in resolved for t in ind])
 
     gene_index: dict = {}
     gene_list: list = []
@@ -1947,15 +1949,15 @@ def _nb_evaluate_population(population):
 
     chroms, meta, cpu_inds = [], [], []
     for i, ind in enumerate(population):
-        devs = [hgh._resolve_rnc(g) for g in ind]
+        devs = [t[2] for t in resolved[i]]
         if any(d is None for d in devs):
             cpu_inds.append(i)
             continue
         base = [gidx(d) for d in devs]
         chroms.append(base)
         meta.append((i, None, None, (0, False)))
-        for j, gene in enumerate(ind):
-            for new_gene, dev, saving, is_snap in variants.get(hgh._gene_cache_key(gene), ()):
+        for j, (gene, gkey, _) in enumerate(resolved[i]):
+            for new_gene, dev, saving, is_snap in variants.get(gkey, ()):
                 c = list(base)
                 c[j] = gidx(dev)
                 chroms.append(c)
