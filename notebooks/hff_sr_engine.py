@@ -3059,6 +3059,51 @@ class HFFSREngine:
             return levels["default"][0] if "default" in levels else expr
 
 
+def hof_records(hof, variables, feature_names=None) -> list[dict]:
+    """The hall of fame as plain, durable records — no pickle, nothing cut off.
+
+    One dict per entry: the chromosome exactly as evolved (one string per gene,
+    in the pset's own function names), how the genes combine (linker), the
+    wrapper, the fitted scale and offset, the fitness, and every metric. That
+    is everything needed to read a model, re-evaluate it, or carry it into
+    another run, in JSON that does not depend on this code being importable.
+
+    The model is   y = a * WRAPPER( LINKER(gene_1 .. gene_n) ) + b.
+
+    `feature_names` maps the engine's col_0.. onto the dataset's own column
+    names in the rendered genes; the raw form is kept beside it.
+    """
+    names = list(feature_names) if feature_names is not None else list(variables)
+    out = []
+    for rank, ind in enumerate(hof):
+        genes_raw = [" ".join(str(g).split()) for g in ind]
+        genes = genes_raw
+        if names != list(variables):
+            import re as _re
+            genes = []
+            for g in genes_raw:
+                for v, n in sorted(zip(variables, names), key=lambda t: -len(t[0])):
+                    g = _re.sub(rf"\b{_re.escape(v)}\b", str(n), g)
+                genes.append(g)
+        lid = int(getattr(ind, "linker_id", 0)) % N_LINKERS
+        wid = int(getattr(ind, "wrapper_id", 0)) % N_WRAPPERS
+        fit = ind.fitness.values[0] if ind.fitness is not None and ind.fitness.valid else None
+        out.append({
+            "rank": rank,
+            "fitness_hff": None if fit is None else float(fit),
+            "linker": LINKER_NAMES[lid],
+            "wrapper": WRAPPER_NAMES[wid],
+            "a": float(getattr(ind, "a", 1.0)),
+            "b": float(getattr(ind, "b", 0.0)),
+            "genes": genes,
+            "genes_raw": genes_raw,
+            "n_nodes": int(sum(len(g.kexpression) for g in ind)),
+            "metrics": {k: float(v) for k, v in (getattr(ind, "metrics", None) or {}).items()},
+            "refit_in_f64": bool(getattr(ind, "_f64", False)),
+        })
+    return out
+
+
 def load_hof_dump(path: str = None, seed: int = None) -> dict:
     """Load a HOF pickle dumped by HFFSREngine.fit() before _extract_best.
 

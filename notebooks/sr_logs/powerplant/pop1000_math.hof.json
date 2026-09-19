@@ -1,0 +1,919 @@
+{
+ "dataset": "uci_powerplant",
+ "seed": 5,
+ "model_form": "y = a * WRAPPER( LINKER(genes) ) + b",
+ "features": [
+  "AT",
+  "V",
+  "AP",
+  "RH"
+ ],
+ "engine_variables": [
+  "col_0",
+  "col_1",
+  "col_2",
+  "col_3"
+ ],
+ "hof": [
+  {
+   "rank": 0,
+   "fitness_hff": 0.1892756555351916,
+   "linker": "mulval",
+   "wrapper": "identity",
+   "a": -0.10421951348449987,
+   "b": 504.5087873739353,
+   "genes": [
+    "_pset_inv(_pset_inv(mul(_pset_inv(AP), sub(AT, protected_log(sub(add(protected_exp(_pset_inv(protected_exp(sin(phi)))), sqrt2), AT))))))",
+    "_pset_inv(_pset_inv(mul(_pset_inv(AP), sub(AT, _pset_square(9)))))",
+    "sub(_pset_neg(protected_div_zero(_diff_sq(sub(AT, mul(sin(sub(protected_exp(protected_sqrt(sub(V, sub(-3, phi)))), protected_log(tanh(sin(pi))))), pi)), RH), protected_log(sqrt2))), _pset_square(_diff_sq(e, sub(gamma, mul(6, e)))))",
+    "protected_log(sub(V, mul(tanh(sin(V)), e)))"
+   ],
+   "genes_raw": [
+    "_pset_inv(_pset_inv(mul(_pset_inv(col_2), sub(col_0, protected_log(sub(add(protected_exp(_pset_inv(protected_exp(sin(phi)))), sqrt2), col_0))))))",
+    "_pset_inv(_pset_inv(mul(_pset_inv(col_2), sub(col_0, _pset_square(9)))))",
+    "sub(_pset_neg(protected_div_zero(_diff_sq(sub(col_0, mul(sin(sub(protected_exp(protected_sqrt(sub(col_1, sub(-3, phi)))), protected_log(tanh(sin(pi))))), pi)), col_3), protected_log(sqrt2))), _pset_square(_diff_sq(e, sub(gamma, mul(6, e)))))",
+    "protected_log(sub(col_1, mul(tanh(sin(col_1)), e)))"
+   ],
+   "n_nodes": 66,
+   "metrics": {
+    "mse_tr": 18.484726239574474,
+    "mse_va": 15.780672005134003,
+    "one_minus_r2_tr": 0.0625055733159577,
+    "one_minus_r2_va": 0.05364421392938263,
+    "mae_tr": 3.333868285413781,
+    "mae_va": 3.240204549950205
+   },
+   "refit_in_f64": false
+  },
+  {
+   "rank": 1,
+   "fitness_hff": 0.1892756555351916,
+   "linker": "mulval",
+   "wrapper": "identity",
+   "a": -0.10421951348449987,
+   "b": 504.5087873739353,
+   "genes": [
+    "_pset_inv(_pset_inv(mul(_pset_inv(AP), sub(AT, protected_log(sub(add(protected_exp(_pset_inv(protected_exp(sin(phi)))), sqrt2), AT))))))",
+    "_pset_inv(_pset_inv(mul(_pset_inv(AP), sub(AT, _pset_square(9)))))",
+    "sub(_pset_neg(protected_div_zero(_diff_sq(sub(AT, mul(sin(sub(protected_exp(protected_sqrt(sub(V, sub(-3, phi)))), protected_log(tanh(sin(pi))))), pi)), RH), protected_log(sqrt2))), _pset_square(_diff_sq(e, sub(gamma, mul(6, e)))))",
+    "protected_log(sub(V, mul(tanh(sin(V)), e)))"
+   ],
+   "genes_raw": [
+    "_pset_inv(_pset_inv(mul(_pset_inv(col_2), sub(col_0, protected_log(sub(add(protected_exp(_pset_inv(protected_exp(sin(phi)))), sqrt2), col_0))))))",
+    "_pset_inv(_pset_inv(mul(_pset_inv(col_2), sub(col_0, _pset_square(9)))))",
+    "sub(_pset_neg(protected_div_zero(_diff_sq(sub(col_0, mul(sin(sub(protected_exp(protected_sqrt(sub(col_1, sub(-3, phi)))), protected_log(tanh(sin(pi))))), pi)), col_3), protected_log(sqrt2))), _pset_square(_diff_sq(e, sub(gamma, mul(6, e)))))",
+    "protected_log(sub(col_1, mul(tanh(sin(col_1)), e)))"
+   ],
+   "n_nodes": 66,
+   "metrics": {
+    "mse_tr": 18.484726239574474,
+    "mse_va": 15.780672005134003,
+    "one_minus_r2_tr": 0.0625055733159577,
+    "one_minus_r2_va": 0.05364421392938263,
+    "mae_tr": 3.333868285413781,
+    "mae_va": 3.240204549950205
+   },
+   "refit_in_f64": false
+  },
+  {
+   "rank": 2,
+   "fitness_hff": 0.1892756555351916,
+   "linker": "mulval",
+   "wrapper": "identity",
+   "a": -0.10421951348449987,
+   "b": 504.5087873739353,
+   "genes": [
+    "_pset_inv(_pset_inv(mul(_pset_inv(AP), sub(AT, protected_log(sub(add(protected_exp(_pset_inv(protected_exp(sin(phi)))), sqrt2), AT))))))",
+    "_pset_inv(_pset_inv(mul(_pset_inv(AP), sub(AT, _pset_square(9)))))",
+    "sub(_pset_neg(protected_div_zero(_diff_sq(sub(AT, mul(sin(sub(protected_exp(protected_sqrt(sub(V, sub(-3, phi)))), protected_log(tanh(sin(pi))))), pi)), RH), protected_log(sqrt2))), _pset_square(_diff_sq(e, sub(gamma, mul(6, e)))))",
+    "protected_log(sub(V, mul(tanh(sin(V)), e)))"
+   ],
+   "genes_raw": [
+    "_pset_inv(_pset_inv(mul(_pset_inv(col_2), sub(col_0, protected_log(sub(add(protected_exp(_pset_inv(protected_exp(sin(phi)))), sqrt2), col_0))))))",
+    "_pset_inv(_pset_inv(mul(_pset_inv(col_2), sub(col_0, _pset_square(9)))))",
+    "sub(_pset_neg(protected_div_zero(_diff_sq(sub(col_0, mul(sin(sub(protected_exp(protected_sqrt(sub(col_1, sub(-3, phi)))), protected_log(tanh(sin(pi))))), pi)), col_3), protected_log(sqrt2))), _pset_square(_diff_sq(e, sub(gamma, mul(6, e)))))",
+    "protected_log(sub(col_1, mul(tanh(sin(col_1)), e)))"
+   ],
+   "n_nodes": 66,
+   "metrics": {
+    "mse_tr": 18.484726239574474,
+    "mse_va": 15.780672005134003,
+    "one_minus_r2_tr": 0.0625055733159577,
+    "one_minus_r2_va": 0.05364421392938263,
+    "mae_tr": 3.333868285413781,
+    "mae_va": 3.240204549950205
+   },
+   "refit_in_f64": false
+  },
+  {
+   "rank": 3,
+   "fitness_hff": 0.1892756555351916,
+   "linker": "mulval",
+   "wrapper": "identity",
+   "a": -0.10421951348449987,
+   "b": 504.5087873739353,
+   "genes": [
+    "_pset_inv(_pset_inv(mul(_pset_inv(AP), sub(AT, protected_log(sub(add(protected_exp(_pset_inv(protected_exp(sin(phi)))), sqrt2), AT))))))",
+    "_pset_inv(_pset_inv(mul(_pset_inv(AP), sub(AT, _pset_square(9)))))",
+    "sub(_pset_neg(protected_div_zero(_diff_sq(sub(AT, mul(sin(sub(protected_exp(protected_sqrt(sub(V, sub(-3, phi)))), protected_log(tanh(sin(pi))))), pi)), RH), protected_log(sqrt2))), _pset_square(_diff_sq(e, sub(gamma, mul(6, e)))))",
+    "protected_log(sub(V, mul(tanh(sin(V)), e)))"
+   ],
+   "genes_raw": [
+    "_pset_inv(_pset_inv(mul(_pset_inv(col_2), sub(col_0, protected_log(sub(add(protected_exp(_pset_inv(protected_exp(sin(phi)))), sqrt2), col_0))))))",
+    "_pset_inv(_pset_inv(mul(_pset_inv(col_2), sub(col_0, _pset_square(9)))))",
+    "sub(_pset_neg(protected_div_zero(_diff_sq(sub(col_0, mul(sin(sub(protected_exp(protected_sqrt(sub(col_1, sub(-3, phi)))), protected_log(tanh(sin(pi))))), pi)), col_3), protected_log(sqrt2))), _pset_square(_diff_sq(e, sub(gamma, mul(6, e)))))",
+    "protected_log(sub(col_1, mul(tanh(sin(col_1)), e)))"
+   ],
+   "n_nodes": 66,
+   "metrics": {
+    "mse_tr": 18.484726239574474,
+    "mse_va": 15.780672005134003,
+    "one_minus_r2_tr": 0.0625055733159577,
+    "one_minus_r2_va": 0.05364421392938263,
+    "mae_tr": 3.333868285413781,
+    "mae_va": 3.240204549950205
+   },
+   "refit_in_f64": false
+  },
+  {
+   "rank": 4,
+   "fitness_hff": 0.1892756555351916,
+   "linker": "mulval",
+   "wrapper": "identity",
+   "a": -0.10421951348449987,
+   "b": 504.5087873739353,
+   "genes": [
+    "_pset_inv(_pset_inv(mul(_pset_inv(AP), sub(AT, protected_log(sub(add(protected_exp(_pset_inv(protected_exp(sin(phi)))), sqrt2), AT))))))",
+    "_pset_inv(_pset_inv(mul(_pset_inv(AP), sub(AT, _pset_square(9)))))",
+    "sub(_pset_neg(protected_div_zero(_diff_sq(sub(AT, mul(sin(sub(protected_exp(protected_sqrt(sub(V, sub(-3, phi)))), protected_log(tanh(sin(pi))))), pi)), RH), protected_log(sqrt2))), _pset_square(_diff_sq(e, sub(gamma, mul(6, e)))))",
+    "protected_log(sub(V, mul(tanh(sin(V)), e)))"
+   ],
+   "genes_raw": [
+    "_pset_inv(_pset_inv(mul(_pset_inv(col_2), sub(col_0, protected_log(sub(add(protected_exp(_pset_inv(protected_exp(sin(phi)))), sqrt2), col_0))))))",
+    "_pset_inv(_pset_inv(mul(_pset_inv(col_2), sub(col_0, _pset_square(9)))))",
+    "sub(_pset_neg(protected_div_zero(_diff_sq(sub(col_0, mul(sin(sub(protected_exp(protected_sqrt(sub(col_1, sub(-3, phi)))), protected_log(tanh(sin(pi))))), pi)), col_3), protected_log(sqrt2))), _pset_square(_diff_sq(e, sub(gamma, mul(6, e)))))",
+    "protected_log(sub(col_1, mul(tanh(sin(col_1)), e)))"
+   ],
+   "n_nodes": 66,
+   "metrics": {
+    "mse_tr": 18.484726239574474,
+    "mse_va": 15.780672005134003,
+    "one_minus_r2_tr": 0.0625055733159577,
+    "one_minus_r2_va": 0.05364421392938263,
+    "mae_tr": 3.333868285413781,
+    "mae_va": 3.240204549950205
+   },
+   "refit_in_f64": false
+  },
+  {
+   "rank": 5,
+   "fitness_hff": 0.1892756555351916,
+   "linker": "mulval",
+   "wrapper": "identity",
+   "a": -0.10421951348449987,
+   "b": 504.5087873739353,
+   "genes": [
+    "_pset_inv(_pset_inv(mul(_pset_inv(AP), sub(AT, protected_log(sub(add(protected_exp(_pset_inv(protected_exp(sin(phi)))), sqrt2), AT))))))",
+    "_pset_inv(_pset_inv(mul(_pset_inv(AP), sub(AT, _pset_square(9)))))",
+    "sub(_pset_neg(protected_div_zero(_diff_sq(sub(AT, mul(sin(sub(protected_exp(protected_sqrt(sub(V, sub(-3, phi)))), protected_log(tanh(sin(pi))))), pi)), RH), protected_log(sqrt2))), _pset_square(_diff_sq(e, sub(gamma, mul(6, e)))))",
+    "protected_log(sub(V, mul(tanh(sin(V)), e)))"
+   ],
+   "genes_raw": [
+    "_pset_inv(_pset_inv(mul(_pset_inv(col_2), sub(col_0, protected_log(sub(add(protected_exp(_pset_inv(protected_exp(sin(phi)))), sqrt2), col_0))))))",
+    "_pset_inv(_pset_inv(mul(_pset_inv(col_2), sub(col_0, _pset_square(9)))))",
+    "sub(_pset_neg(protected_div_zero(_diff_sq(sub(col_0, mul(sin(sub(protected_exp(protected_sqrt(sub(col_1, sub(-3, phi)))), protected_log(tanh(sin(pi))))), pi)), col_3), protected_log(sqrt2))), _pset_square(_diff_sq(e, sub(gamma, mul(6, e)))))",
+    "protected_log(sub(col_1, mul(tanh(sin(col_1)), e)))"
+   ],
+   "n_nodes": 66,
+   "metrics": {
+    "mse_tr": 18.484726239574474,
+    "mse_va": 15.780672005134003,
+    "one_minus_r2_tr": 0.0625055733159577,
+    "one_minus_r2_va": 0.05364421392938263,
+    "mae_tr": 3.333868285413781,
+    "mae_va": 3.240204549950205
+   },
+   "refit_in_f64": false
+  },
+  {
+   "rank": 6,
+   "fitness_hff": 0.1892756555351916,
+   "linker": "mulval",
+   "wrapper": "identity",
+   "a": -0.10421951348449987,
+   "b": 504.5087873739353,
+   "genes": [
+    "_pset_inv(_pset_inv(mul(_pset_inv(AP), sub(AT, protected_log(sub(add(protected_exp(_pset_inv(protected_exp(sin(phi)))), sqrt2), AT))))))",
+    "_pset_inv(_pset_inv(mul(_pset_inv(AP), sub(AT, _pset_square(9)))))",
+    "sub(_pset_neg(protected_div_zero(_diff_sq(sub(AT, mul(sin(sub(protected_exp(protected_sqrt(sub(V, sub(-3, phi)))), protected_log(tanh(sin(pi))))), pi)), RH), protected_log(sqrt2))), _pset_square(_diff_sq(e, sub(gamma, mul(6, e)))))",
+    "protected_log(sub(V, mul(tanh(sin(V)), e)))"
+   ],
+   "genes_raw": [
+    "_pset_inv(_pset_inv(mul(_pset_inv(col_2), sub(col_0, protected_log(sub(add(protected_exp(_pset_inv(protected_exp(sin(phi)))), sqrt2), col_0))))))",
+    "_pset_inv(_pset_inv(mul(_pset_inv(col_2), sub(col_0, _pset_square(9)))))",
+    "sub(_pset_neg(protected_div_zero(_diff_sq(sub(col_0, mul(sin(sub(protected_exp(protected_sqrt(sub(col_1, sub(-3, phi)))), protected_log(tanh(sin(pi))))), pi)), col_3), protected_log(sqrt2))), _pset_square(_diff_sq(e, sub(gamma, mul(6, e)))))",
+    "protected_log(sub(col_1, mul(tanh(sin(col_1)), e)))"
+   ],
+   "n_nodes": 66,
+   "metrics": {
+    "mse_tr": 18.484726239574474,
+    "mse_va": 15.780672005134003,
+    "one_minus_r2_tr": 0.0625055733159577,
+    "one_minus_r2_va": 0.05364421392938263,
+    "mae_tr": 3.333868285413781,
+    "mae_va": 3.240204549950205
+   },
+   "refit_in_f64": false
+  },
+  {
+   "rank": 7,
+   "fitness_hff": 0.1892756555351916,
+   "linker": "mulval",
+   "wrapper": "identity",
+   "a": -0.10421951348449987,
+   "b": 504.5087873739353,
+   "genes": [
+    "_pset_inv(_pset_inv(mul(_pset_inv(AP), sub(AT, protected_log(sub(add(protected_exp(_pset_inv(protected_exp(sin(phi)))), sqrt2), AT))))))",
+    "_pset_inv(_pset_inv(mul(_pset_inv(AP), sub(AT, _pset_square(9)))))",
+    "sub(_pset_neg(protected_div_zero(_diff_sq(sub(AT, mul(sin(sub(protected_exp(protected_sqrt(sub(V, sub(-3, phi)))), protected_log(tanh(sin(pi))))), pi)), RH), protected_log(sqrt2))), _pset_square(_diff_sq(e, sub(gamma, mul(6, e)))))",
+    "protected_log(sub(V, mul(tanh(sin(V)), e)))"
+   ],
+   "genes_raw": [
+    "_pset_inv(_pset_inv(mul(_pset_inv(col_2), sub(col_0, protected_log(sub(add(protected_exp(_pset_inv(protected_exp(sin(phi)))), sqrt2), col_0))))))",
+    "_pset_inv(_pset_inv(mul(_pset_inv(col_2), sub(col_0, _pset_square(9)))))",
+    "sub(_pset_neg(protected_div_zero(_diff_sq(sub(col_0, mul(sin(sub(protected_exp(protected_sqrt(sub(col_1, sub(-3, phi)))), protected_log(tanh(sin(pi))))), pi)), col_3), protected_log(sqrt2))), _pset_square(_diff_sq(e, sub(gamma, mul(6, e)))))",
+    "protected_log(sub(col_1, mul(tanh(sin(col_1)), e)))"
+   ],
+   "n_nodes": 66,
+   "metrics": {
+    "mse_tr": 18.484726239574474,
+    "mse_va": 15.780672005134003,
+    "one_minus_r2_tr": 0.0625055733159577,
+    "one_minus_r2_va": 0.05364421392938263,
+    "mae_tr": 3.333868285413781,
+    "mae_va": 3.240204549950205
+   },
+   "refit_in_f64": false
+  },
+  {
+   "rank": 8,
+   "fitness_hff": 0.1892756555351916,
+   "linker": "mulval",
+   "wrapper": "identity",
+   "a": -0.10421951348449987,
+   "b": 504.5087873739353,
+   "genes": [
+    "_pset_inv(_pset_inv(mul(_pset_inv(AP), sub(AT, protected_log(sub(add(protected_exp(_pset_inv(protected_exp(sin(phi)))), sqrt2), AT))))))",
+    "_pset_inv(_pset_inv(mul(_pset_inv(AP), sub(AT, _pset_square(9)))))",
+    "sub(_pset_neg(protected_div_zero(_diff_sq(sub(AT, mul(sin(sub(protected_exp(protected_sqrt(sub(V, sub(-3, phi)))), protected_log(tanh(sin(pi))))), pi)), RH), protected_log(sqrt2))), _pset_square(_diff_sq(e, sub(gamma, mul(6, e)))))",
+    "protected_log(sub(V, mul(tanh(sin(V)), e)))"
+   ],
+   "genes_raw": [
+    "_pset_inv(_pset_inv(mul(_pset_inv(col_2), sub(col_0, protected_log(sub(add(protected_exp(_pset_inv(protected_exp(sin(phi)))), sqrt2), col_0))))))",
+    "_pset_inv(_pset_inv(mul(_pset_inv(col_2), sub(col_0, _pset_square(9)))))",
+    "sub(_pset_neg(protected_div_zero(_diff_sq(sub(col_0, mul(sin(sub(protected_exp(protected_sqrt(sub(col_1, sub(-3, phi)))), protected_log(tanh(sin(pi))))), pi)), col_3), protected_log(sqrt2))), _pset_square(_diff_sq(e, sub(gamma, mul(6, e)))))",
+    "protected_log(sub(col_1, mul(tanh(sin(col_1)), e)))"
+   ],
+   "n_nodes": 66,
+   "metrics": {
+    "mse_tr": 18.484726239574474,
+    "mse_va": 15.780672005134003,
+    "one_minus_r2_tr": 0.0625055733159577,
+    "one_minus_r2_va": 0.05364421392938263,
+    "mae_tr": 3.333868285413781,
+    "mae_va": 3.240204549950205
+   },
+   "refit_in_f64": false
+  },
+  {
+   "rank": 9,
+   "fitness_hff": 0.1892756555351916,
+   "linker": "mulval",
+   "wrapper": "identity",
+   "a": -0.10421951348449987,
+   "b": 504.5087873739353,
+   "genes": [
+    "_pset_inv(_pset_inv(mul(_pset_inv(AP), sub(AT, protected_log(sub(add(protected_exp(_pset_inv(protected_exp(sin(phi)))), sqrt2), AT))))))",
+    "_pset_inv(_pset_inv(mul(_pset_inv(AP), sub(AT, _pset_square(9)))))",
+    "sub(_pset_neg(protected_div_zero(_diff_sq(sub(AT, mul(sin(sub(protected_exp(protected_sqrt(sub(V, sub(-3, phi)))), protected_log(tanh(sin(pi))))), pi)), RH), protected_log(sqrt2))), _pset_square(_diff_sq(e, sub(gamma, mul(6, e)))))",
+    "protected_log(sub(V, mul(tanh(sin(V)), e)))"
+   ],
+   "genes_raw": [
+    "_pset_inv(_pset_inv(mul(_pset_inv(col_2), sub(col_0, protected_log(sub(add(protected_exp(_pset_inv(protected_exp(sin(phi)))), sqrt2), col_0))))))",
+    "_pset_inv(_pset_inv(mul(_pset_inv(col_2), sub(col_0, _pset_square(9)))))",
+    "sub(_pset_neg(protected_div_zero(_diff_sq(sub(col_0, mul(sin(sub(protected_exp(protected_sqrt(sub(col_1, sub(-3, phi)))), protected_log(tanh(sin(pi))))), pi)), col_3), protected_log(sqrt2))), _pset_square(_diff_sq(e, sub(gamma, mul(6, e)))))",
+    "protected_log(sub(col_1, mul(tanh(sin(col_1)), e)))"
+   ],
+   "n_nodes": 66,
+   "metrics": {
+    "mse_tr": 18.484726239574474,
+    "mse_va": 15.780672005134003,
+    "one_minus_r2_tr": 0.0625055733159577,
+    "one_minus_r2_va": 0.05364421392938263,
+    "mae_tr": 3.333868285413781,
+    "mae_va": 3.240204549950205
+   },
+   "refit_in_f64": false
+  },
+  {
+   "rank": 10,
+   "fitness_hff": 0.1892756555351916,
+   "linker": "mulval",
+   "wrapper": "identity",
+   "a": -0.10421951348449987,
+   "b": 504.5087873739353,
+   "genes": [
+    "_pset_inv(_pset_inv(mul(_pset_inv(AP), sub(AT, protected_log(sub(add(protected_exp(_pset_inv(protected_exp(sin(phi)))), sqrt2), AT))))))",
+    "_pset_inv(_pset_inv(mul(_pset_inv(AP), sub(AT, _pset_square(9)))))",
+    "sub(_pset_neg(protected_div_zero(_diff_sq(sub(AT, mul(sin(sub(protected_exp(protected_sqrt(sub(V, sub(-3, phi)))), protected_log(tanh(sin(pi))))), pi)), RH), protected_log(sqrt2))), _pset_square(_diff_sq(e, sub(gamma, mul(6, e)))))",
+    "protected_log(sub(V, mul(tanh(sin(V)), e)))"
+   ],
+   "genes_raw": [
+    "_pset_inv(_pset_inv(mul(_pset_inv(col_2), sub(col_0, protected_log(sub(add(protected_exp(_pset_inv(protected_exp(sin(phi)))), sqrt2), col_0))))))",
+    "_pset_inv(_pset_inv(mul(_pset_inv(col_2), sub(col_0, _pset_square(9)))))",
+    "sub(_pset_neg(protected_div_zero(_diff_sq(sub(col_0, mul(sin(sub(protected_exp(protected_sqrt(sub(col_1, sub(-3, phi)))), protected_log(tanh(sin(pi))))), pi)), col_3), protected_log(sqrt2))), _pset_square(_diff_sq(e, sub(gamma, mul(6, e)))))",
+    "protected_log(sub(col_1, mul(tanh(sin(col_1)), e)))"
+   ],
+   "n_nodes": 66,
+   "metrics": {
+    "mse_tr": 18.484726239574474,
+    "mse_va": 15.780672005134003,
+    "one_minus_r2_tr": 0.0625055733159577,
+    "one_minus_r2_va": 0.05364421392938263,
+    "mae_tr": 3.333868285413781,
+    "mae_va": 3.240204549950205
+   },
+   "refit_in_f64": false
+  },
+  {
+   "rank": 11,
+   "fitness_hff": 0.1892756555351916,
+   "linker": "mulval",
+   "wrapper": "identity",
+   "a": -0.10421951348449987,
+   "b": 504.5087873739353,
+   "genes": [
+    "_pset_inv(_pset_inv(mul(_pset_inv(AP), sub(AT, protected_log(sub(add(protected_exp(_pset_inv(protected_exp(sin(phi)))), sqrt2), AT))))))",
+    "_pset_inv(_pset_inv(mul(_pset_inv(AP), sub(AT, _pset_square(9)))))",
+    "sub(_pset_neg(protected_div_zero(_diff_sq(sub(AT, mul(sin(sub(protected_exp(protected_sqrt(sub(V, sub(-3, phi)))), protected_log(tanh(sin(pi))))), pi)), RH), protected_log(sqrt2))), _pset_square(_diff_sq(e, sub(gamma, mul(6, e)))))",
+    "protected_log(sub(V, mul(tanh(sin(V)), e)))"
+   ],
+   "genes_raw": [
+    "_pset_inv(_pset_inv(mul(_pset_inv(col_2), sub(col_0, protected_log(sub(add(protected_exp(_pset_inv(protected_exp(sin(phi)))), sqrt2), col_0))))))",
+    "_pset_inv(_pset_inv(mul(_pset_inv(col_2), sub(col_0, _pset_square(9)))))",
+    "sub(_pset_neg(protected_div_zero(_diff_sq(sub(col_0, mul(sin(sub(protected_exp(protected_sqrt(sub(col_1, sub(-3, phi)))), protected_log(tanh(sin(pi))))), pi)), col_3), protected_log(sqrt2))), _pset_square(_diff_sq(e, sub(gamma, mul(6, e)))))",
+    "protected_log(sub(col_1, mul(tanh(sin(col_1)), e)))"
+   ],
+   "n_nodes": 66,
+   "metrics": {
+    "mse_tr": 18.484726239574474,
+    "mse_va": 15.780672005134003,
+    "one_minus_r2_tr": 0.0625055733159577,
+    "one_minus_r2_va": 0.05364421392938263,
+    "mae_tr": 3.333868285413781,
+    "mae_va": 3.240204549950205
+   },
+   "refit_in_f64": false
+  },
+  {
+   "rank": 12,
+   "fitness_hff": 0.1892756555351916,
+   "linker": "mulval",
+   "wrapper": "identity",
+   "a": -0.10421951348449987,
+   "b": 504.5087873739353,
+   "genes": [
+    "_pset_inv(_pset_inv(mul(_pset_inv(AP), sub(AT, protected_log(sub(add(protected_exp(_pset_inv(protected_exp(sin(phi)))), sqrt2), AT))))))",
+    "_pset_inv(_pset_inv(mul(_pset_inv(AP), sub(AT, _pset_square(9)))))",
+    "sub(_pset_neg(protected_div_zero(_diff_sq(sub(AT, mul(sin(sub(protected_exp(protected_sqrt(sub(V, sub(-3, phi)))), protected_log(tanh(sin(pi))))), pi)), RH), protected_log(sqrt2))), _pset_square(_diff_sq(e, sub(gamma, mul(6, e)))))",
+    "protected_log(sub(V, mul(tanh(sin(V)), e)))"
+   ],
+   "genes_raw": [
+    "_pset_inv(_pset_inv(mul(_pset_inv(col_2), sub(col_0, protected_log(sub(add(protected_exp(_pset_inv(protected_exp(sin(phi)))), sqrt2), col_0))))))",
+    "_pset_inv(_pset_inv(mul(_pset_inv(col_2), sub(col_0, _pset_square(9)))))",
+    "sub(_pset_neg(protected_div_zero(_diff_sq(sub(col_0, mul(sin(sub(protected_exp(protected_sqrt(sub(col_1, sub(-3, phi)))), protected_log(tanh(sin(pi))))), pi)), col_3), protected_log(sqrt2))), _pset_square(_diff_sq(e, sub(gamma, mul(6, e)))))",
+    "protected_log(sub(col_1, mul(tanh(sin(col_1)), e)))"
+   ],
+   "n_nodes": 66,
+   "metrics": {
+    "mse_tr": 18.484726239574474,
+    "mse_va": 15.780672005134003,
+    "one_minus_r2_tr": 0.0625055733159577,
+    "one_minus_r2_va": 0.05364421392938263,
+    "mae_tr": 3.333868285413781,
+    "mae_va": 3.240204549950205
+   },
+   "refit_in_f64": false
+  },
+  {
+   "rank": 13,
+   "fitness_hff": 0.1892756555351916,
+   "linker": "mulval",
+   "wrapper": "identity",
+   "a": -0.10421951348449987,
+   "b": 504.5087873739353,
+   "genes": [
+    "_pset_inv(_pset_inv(mul(_pset_inv(AP), sub(AT, protected_log(sub(add(protected_exp(_pset_inv(protected_exp(sin(phi)))), sqrt2), AT))))))",
+    "_pset_inv(_pset_inv(mul(_pset_inv(AP), sub(AT, _pset_square(9)))))",
+    "sub(_pset_neg(protected_div_zero(_diff_sq(sub(AT, mul(sin(sub(protected_exp(protected_sqrt(sub(V, sub(-3, phi)))), protected_log(tanh(sin(pi))))), pi)), RH), protected_log(sqrt2))), _pset_square(_diff_sq(e, sub(gamma, mul(6, e)))))",
+    "protected_log(sub(V, mul(tanh(sin(V)), e)))"
+   ],
+   "genes_raw": [
+    "_pset_inv(_pset_inv(mul(_pset_inv(col_2), sub(col_0, protected_log(sub(add(protected_exp(_pset_inv(protected_exp(sin(phi)))), sqrt2), col_0))))))",
+    "_pset_inv(_pset_inv(mul(_pset_inv(col_2), sub(col_0, _pset_square(9)))))",
+    "sub(_pset_neg(protected_div_zero(_diff_sq(sub(col_0, mul(sin(sub(protected_exp(protected_sqrt(sub(col_1, sub(-3, phi)))), protected_log(tanh(sin(pi))))), pi)), col_3), protected_log(sqrt2))), _pset_square(_diff_sq(e, sub(gamma, mul(6, e)))))",
+    "protected_log(sub(col_1, mul(tanh(sin(col_1)), e)))"
+   ],
+   "n_nodes": 66,
+   "metrics": {
+    "mse_tr": 18.484726239574474,
+    "mse_va": 15.780672005134003,
+    "one_minus_r2_tr": 0.0625055733159577,
+    "one_minus_r2_va": 0.05364421392938263,
+    "mae_tr": 3.333868285413781,
+    "mae_va": 3.240204549950205
+   },
+   "refit_in_f64": false
+  },
+  {
+   "rank": 14,
+   "fitness_hff": 0.1892756555351916,
+   "linker": "mulval",
+   "wrapper": "identity",
+   "a": -0.10421951348449987,
+   "b": 504.5087873739353,
+   "genes": [
+    "_pset_inv(_pset_inv(mul(_pset_inv(AP), sub(AT, protected_log(sub(add(protected_exp(_pset_inv(protected_exp(sin(phi)))), sqrt2), AT))))))",
+    "_pset_inv(_pset_inv(mul(_pset_inv(AP), sub(AT, _pset_square(9)))))",
+    "sub(_pset_neg(protected_div_zero(_diff_sq(sub(AT, mul(sin(sub(protected_exp(protected_sqrt(sub(V, sub(-3, phi)))), protected_log(tanh(sin(pi))))), pi)), RH), protected_log(sqrt2))), _pset_square(_diff_sq(e, sub(gamma, mul(6, e)))))",
+    "protected_log(sub(V, mul(tanh(sin(V)), e)))"
+   ],
+   "genes_raw": [
+    "_pset_inv(_pset_inv(mul(_pset_inv(col_2), sub(col_0, protected_log(sub(add(protected_exp(_pset_inv(protected_exp(sin(phi)))), sqrt2), col_0))))))",
+    "_pset_inv(_pset_inv(mul(_pset_inv(col_2), sub(col_0, _pset_square(9)))))",
+    "sub(_pset_neg(protected_div_zero(_diff_sq(sub(col_0, mul(sin(sub(protected_exp(protected_sqrt(sub(col_1, sub(-3, phi)))), protected_log(tanh(sin(pi))))), pi)), col_3), protected_log(sqrt2))), _pset_square(_diff_sq(e, sub(gamma, mul(6, e)))))",
+    "protected_log(sub(col_1, mul(tanh(sin(col_1)), e)))"
+   ],
+   "n_nodes": 66,
+   "metrics": {
+    "mse_tr": 18.484726239574474,
+    "mse_va": 15.780672005134003,
+    "one_minus_r2_tr": 0.0625055733159577,
+    "one_minus_r2_va": 0.05364421392938263,
+    "mae_tr": 3.333868285413781,
+    "mae_va": 3.240204549950205
+   },
+   "refit_in_f64": false
+  },
+  {
+   "rank": 15,
+   "fitness_hff": 0.1892756555351916,
+   "linker": "mulval",
+   "wrapper": "identity",
+   "a": -0.10421951348449987,
+   "b": 504.5087873739353,
+   "genes": [
+    "_pset_inv(_pset_inv(mul(_pset_inv(AP), sub(AT, protected_log(sub(add(protected_exp(_pset_inv(protected_exp(sin(phi)))), sqrt2), AT))))))",
+    "_pset_inv(_pset_inv(mul(_pset_inv(AP), sub(AT, _pset_square(9)))))",
+    "sub(_pset_neg(protected_div_zero(_diff_sq(sub(AT, mul(sin(sub(protected_exp(protected_sqrt(sub(V, sub(-3, phi)))), protected_log(tanh(sin(pi))))), pi)), RH), protected_log(sqrt2))), _pset_square(_diff_sq(e, sub(gamma, mul(6, e)))))",
+    "protected_log(sub(V, mul(tanh(sin(V)), e)))"
+   ],
+   "genes_raw": [
+    "_pset_inv(_pset_inv(mul(_pset_inv(col_2), sub(col_0, protected_log(sub(add(protected_exp(_pset_inv(protected_exp(sin(phi)))), sqrt2), col_0))))))",
+    "_pset_inv(_pset_inv(mul(_pset_inv(col_2), sub(col_0, _pset_square(9)))))",
+    "sub(_pset_neg(protected_div_zero(_diff_sq(sub(col_0, mul(sin(sub(protected_exp(protected_sqrt(sub(col_1, sub(-3, phi)))), protected_log(tanh(sin(pi))))), pi)), col_3), protected_log(sqrt2))), _pset_square(_diff_sq(e, sub(gamma, mul(6, e)))))",
+    "protected_log(sub(col_1, mul(tanh(sin(col_1)), e)))"
+   ],
+   "n_nodes": 66,
+   "metrics": {
+    "mse_tr": 18.484726239574474,
+    "mse_va": 15.780672005134003,
+    "one_minus_r2_tr": 0.0625055733159577,
+    "one_minus_r2_va": 0.05364421392938263,
+    "mae_tr": 3.333868285413781,
+    "mae_va": 3.240204549950205
+   },
+   "refit_in_f64": false
+  },
+  {
+   "rank": 16,
+   "fitness_hff": 0.1892756555351916,
+   "linker": "mulval",
+   "wrapper": "identity",
+   "a": -0.10421951348449987,
+   "b": 504.5087873739353,
+   "genes": [
+    "_pset_inv(_pset_inv(mul(_pset_inv(AP), sub(AT, protected_log(sub(add(protected_exp(_pset_inv(protected_exp(sin(phi)))), sqrt2), AT))))))",
+    "_pset_inv(_pset_inv(mul(_pset_inv(AP), sub(AT, _pset_square(9)))))",
+    "sub(_pset_neg(protected_div_zero(_diff_sq(sub(AT, mul(sin(sub(protected_exp(protected_sqrt(sub(V, sub(-3, phi)))), protected_log(tanh(sin(pi))))), pi)), RH), protected_log(sqrt2))), _pset_square(_diff_sq(e, sub(gamma, mul(6, e)))))",
+    "protected_log(sub(V, mul(tanh(sin(V)), e)))"
+   ],
+   "genes_raw": [
+    "_pset_inv(_pset_inv(mul(_pset_inv(col_2), sub(col_0, protected_log(sub(add(protected_exp(_pset_inv(protected_exp(sin(phi)))), sqrt2), col_0))))))",
+    "_pset_inv(_pset_inv(mul(_pset_inv(col_2), sub(col_0, _pset_square(9)))))",
+    "sub(_pset_neg(protected_div_zero(_diff_sq(sub(col_0, mul(sin(sub(protected_exp(protected_sqrt(sub(col_1, sub(-3, phi)))), protected_log(tanh(sin(pi))))), pi)), col_3), protected_log(sqrt2))), _pset_square(_diff_sq(e, sub(gamma, mul(6, e)))))",
+    "protected_log(sub(col_1, mul(tanh(sin(col_1)), e)))"
+   ],
+   "n_nodes": 66,
+   "metrics": {
+    "mse_tr": 18.484726239574474,
+    "mse_va": 15.780672005134003,
+    "one_minus_r2_tr": 0.0625055733159577,
+    "one_minus_r2_va": 0.05364421392938263,
+    "mae_tr": 3.333868285413781,
+    "mae_va": 3.240204549950205
+   },
+   "refit_in_f64": false
+  },
+  {
+   "rank": 17,
+   "fitness_hff": 0.1892756555351916,
+   "linker": "mulval",
+   "wrapper": "identity",
+   "a": -0.10421951348449987,
+   "b": 504.5087873739353,
+   "genes": [
+    "_pset_inv(_pset_inv(mul(_pset_inv(AP), sub(AT, protected_log(sub(add(protected_exp(_pset_inv(protected_exp(sin(phi)))), sqrt2), AT))))))",
+    "_pset_inv(_pset_inv(mul(_pset_inv(AP), sub(AT, _pset_square(9)))))",
+    "sub(_pset_neg(protected_div_zero(_diff_sq(sub(AT, mul(sin(sub(protected_exp(protected_sqrt(sub(V, sub(-3, phi)))), protected_log(tanh(sin(pi))))), pi)), RH), protected_log(sqrt2))), _pset_square(_diff_sq(e, sub(gamma, mul(6, e)))))",
+    "protected_log(sub(V, mul(tanh(sin(V)), e)))"
+   ],
+   "genes_raw": [
+    "_pset_inv(_pset_inv(mul(_pset_inv(col_2), sub(col_0, protected_log(sub(add(protected_exp(_pset_inv(protected_exp(sin(phi)))), sqrt2), col_0))))))",
+    "_pset_inv(_pset_inv(mul(_pset_inv(col_2), sub(col_0, _pset_square(9)))))",
+    "sub(_pset_neg(protected_div_zero(_diff_sq(sub(col_0, mul(sin(sub(protected_exp(protected_sqrt(sub(col_1, sub(-3, phi)))), protected_log(tanh(sin(pi))))), pi)), col_3), protected_log(sqrt2))), _pset_square(_diff_sq(e, sub(gamma, mul(6, e)))))",
+    "protected_log(sub(col_1, mul(tanh(sin(col_1)), e)))"
+   ],
+   "n_nodes": 66,
+   "metrics": {
+    "mse_tr": 18.484726239574474,
+    "mse_va": 15.780672005134003,
+    "one_minus_r2_tr": 0.0625055733159577,
+    "one_minus_r2_va": 0.05364421392938263,
+    "mae_tr": 3.333868285413781,
+    "mae_va": 3.240204549950205
+   },
+   "refit_in_f64": false
+  },
+  {
+   "rank": 18,
+   "fitness_hff": 0.1892756555351916,
+   "linker": "mulval",
+   "wrapper": "identity",
+   "a": -0.10421951348449987,
+   "b": 504.5087873739353,
+   "genes": [
+    "_pset_inv(_pset_inv(mul(_pset_inv(AP), sub(AT, protected_log(sub(add(protected_exp(_pset_inv(protected_exp(sin(phi)))), sqrt2), AT))))))",
+    "_pset_inv(_pset_inv(mul(_pset_inv(AP), sub(AT, _pset_square(9)))))",
+    "sub(_pset_neg(protected_div_zero(_diff_sq(sub(AT, mul(sin(sub(protected_exp(protected_sqrt(sub(V, sub(-3, phi)))), protected_log(tanh(sin(pi))))), pi)), RH), protected_log(sqrt2))), _pset_square(_diff_sq(e, sub(gamma, mul(6, e)))))",
+    "protected_log(sub(V, mul(tanh(sin(V)), e)))"
+   ],
+   "genes_raw": [
+    "_pset_inv(_pset_inv(mul(_pset_inv(col_2), sub(col_0, protected_log(sub(add(protected_exp(_pset_inv(protected_exp(sin(phi)))), sqrt2), col_0))))))",
+    "_pset_inv(_pset_inv(mul(_pset_inv(col_2), sub(col_0, _pset_square(9)))))",
+    "sub(_pset_neg(protected_div_zero(_diff_sq(sub(col_0, mul(sin(sub(protected_exp(protected_sqrt(sub(col_1, sub(-3, phi)))), protected_log(tanh(sin(pi))))), pi)), col_3), protected_log(sqrt2))), _pset_square(_diff_sq(e, sub(gamma, mul(6, e)))))",
+    "protected_log(sub(col_1, mul(tanh(sin(col_1)), e)))"
+   ],
+   "n_nodes": 66,
+   "metrics": {
+    "mse_tr": 18.484726239574474,
+    "mse_va": 15.780672005134003,
+    "one_minus_r2_tr": 0.0625055733159577,
+    "one_minus_r2_va": 0.05364421392938263,
+    "mae_tr": 3.333868285413781,
+    "mae_va": 3.240204549950205
+   },
+   "refit_in_f64": false
+  },
+  {
+   "rank": 19,
+   "fitness_hff": 0.1892756555351916,
+   "linker": "mulval",
+   "wrapper": "identity",
+   "a": -0.10421951348449987,
+   "b": 504.5087873739353,
+   "genes": [
+    "_pset_inv(_pset_inv(mul(_pset_inv(AP), sub(AT, protected_log(sub(add(protected_exp(_pset_inv(protected_exp(sin(phi)))), sqrt2), AT))))))",
+    "_pset_inv(_pset_inv(mul(_pset_inv(AP), sub(AT, _pset_square(9)))))",
+    "sub(_pset_neg(protected_div_zero(_diff_sq(sub(AT, mul(sin(sub(protected_exp(protected_sqrt(sub(V, sub(-3, phi)))), protected_log(tanh(sin(pi))))), pi)), RH), protected_log(sqrt2))), _pset_square(_diff_sq(e, sub(gamma, mul(6, e)))))",
+    "protected_log(sub(V, mul(tanh(sin(V)), e)))"
+   ],
+   "genes_raw": [
+    "_pset_inv(_pset_inv(mul(_pset_inv(col_2), sub(col_0, protected_log(sub(add(protected_exp(_pset_inv(protected_exp(sin(phi)))), sqrt2), col_0))))))",
+    "_pset_inv(_pset_inv(mul(_pset_inv(col_2), sub(col_0, _pset_square(9)))))",
+    "sub(_pset_neg(protected_div_zero(_diff_sq(sub(col_0, mul(sin(sub(protected_exp(protected_sqrt(sub(col_1, sub(-3, phi)))), protected_log(tanh(sin(pi))))), pi)), col_3), protected_log(sqrt2))), _pset_square(_diff_sq(e, sub(gamma, mul(6, e)))))",
+    "protected_log(sub(col_1, mul(tanh(sin(col_1)), e)))"
+   ],
+   "n_nodes": 66,
+   "metrics": {
+    "mse_tr": 18.484726239574474,
+    "mse_va": 15.780672005134003,
+    "one_minus_r2_tr": 0.0625055733159577,
+    "one_minus_r2_va": 0.05364421392938263,
+    "mae_tr": 3.333868285413781,
+    "mae_va": 3.240204549950205
+   },
+   "refit_in_f64": false
+  },
+  {
+   "rank": 20,
+   "fitness_hff": 0.1892756555351916,
+   "linker": "mulval",
+   "wrapper": "identity",
+   "a": -0.10421951348449987,
+   "b": 504.5087873739353,
+   "genes": [
+    "_pset_inv(_pset_inv(mul(_pset_inv(AP), sub(AT, protected_log(sub(add(protected_exp(_pset_inv(protected_exp(sin(phi)))), sqrt2), AT))))))",
+    "_pset_inv(_pset_inv(mul(_pset_inv(AP), sub(AT, _pset_square(9)))))",
+    "sub(_pset_neg(protected_div_zero(_diff_sq(sub(AT, mul(sin(sub(protected_exp(protected_sqrt(sub(V, sub(-3, phi)))), protected_log(tanh(sin(pi))))), pi)), RH), protected_log(sqrt2))), _pset_square(_diff_sq(e, sub(gamma, mul(6, e)))))",
+    "protected_log(sub(V, mul(tanh(sin(V)), e)))"
+   ],
+   "genes_raw": [
+    "_pset_inv(_pset_inv(mul(_pset_inv(col_2), sub(col_0, protected_log(sub(add(protected_exp(_pset_inv(protected_exp(sin(phi)))), sqrt2), col_0))))))",
+    "_pset_inv(_pset_inv(mul(_pset_inv(col_2), sub(col_0, _pset_square(9)))))",
+    "sub(_pset_neg(protected_div_zero(_diff_sq(sub(col_0, mul(sin(sub(protected_exp(protected_sqrt(sub(col_1, sub(-3, phi)))), protected_log(tanh(sin(pi))))), pi)), col_3), protected_log(sqrt2))), _pset_square(_diff_sq(e, sub(gamma, mul(6, e)))))",
+    "protected_log(sub(col_1, mul(tanh(sin(col_1)), e)))"
+   ],
+   "n_nodes": 66,
+   "metrics": {
+    "mse_tr": 18.484726239574474,
+    "mse_va": 15.780672005134003,
+    "one_minus_r2_tr": 0.0625055733159577,
+    "one_minus_r2_va": 0.05364421392938263,
+    "mae_tr": 3.333868285413781,
+    "mae_va": 3.240204549950205
+   },
+   "refit_in_f64": false
+  },
+  {
+   "rank": 21,
+   "fitness_hff": 0.1892756555351916,
+   "linker": "mulval",
+   "wrapper": "identity",
+   "a": -0.10421951348449987,
+   "b": 504.5087873739353,
+   "genes": [
+    "sub(_pset_neg(protected_div_zero(_diff_sq(sub(AT, mul(sin(sub(protected_exp(protected_sqrt(sub(V, sub(-3, phi)))), protected_log(tanh(sin(pi))))), pi)), RH), protected_log(sqrt2))), _pset_square(_diff_sq(e, sub(gamma, mul(6, e)))))",
+    "_pset_inv(_pset_inv(mul(_pset_inv(AP), sub(AT, _pset_square(9)))))",
+    "_pset_inv(_pset_inv(mul(_pset_inv(AP), sub(AT, protected_log(sub(add(protected_exp(_pset_inv(protected_exp(sin(phi)))), sqrt2), AT))))))",
+    "protected_log(sub(V, mul(tanh(sin(V)), e)))"
+   ],
+   "genes_raw": [
+    "sub(_pset_neg(protected_div_zero(_diff_sq(sub(col_0, mul(sin(sub(protected_exp(protected_sqrt(sub(col_1, sub(-3, phi)))), protected_log(tanh(sin(pi))))), pi)), col_3), protected_log(sqrt2))), _pset_square(_diff_sq(e, sub(gamma, mul(6, e)))))",
+    "_pset_inv(_pset_inv(mul(_pset_inv(col_2), sub(col_0, _pset_square(9)))))",
+    "_pset_inv(_pset_inv(mul(_pset_inv(col_2), sub(col_0, protected_log(sub(add(protected_exp(_pset_inv(protected_exp(sin(phi)))), sqrt2), col_0))))))",
+    "protected_log(sub(col_1, mul(tanh(sin(col_1)), e)))"
+   ],
+   "n_nodes": 66,
+   "metrics": {
+    "mse_tr": 18.484726239574474,
+    "mse_va": 15.780672005134003,
+    "one_minus_r2_tr": 0.0625055733159577,
+    "one_minus_r2_va": 0.05364421392938263,
+    "mae_tr": 3.333868285413781,
+    "mae_va": 3.240204549950205
+   },
+   "refit_in_f64": false
+  },
+  {
+   "rank": 22,
+   "fitness_hff": 0.1892756555351916,
+   "linker": "mulval",
+   "wrapper": "identity",
+   "a": -0.10421951348449987,
+   "b": 504.5087873739353,
+   "genes": [
+    "_pset_inv(_pset_inv(mul(_pset_inv(AP), sub(AT, protected_log(sub(add(protected_exp(_pset_inv(protected_exp(sin(phi)))), sqrt2), AT))))))",
+    "_pset_inv(_pset_inv(mul(_pset_inv(AP), sub(AT, _pset_square(9)))))",
+    "sub(_pset_neg(protected_div_zero(_diff_sq(sub(AT, mul(sin(sub(protected_exp(protected_sqrt(sub(V, sub(-3, phi)))), protected_log(tanh(sin(pi))))), pi)), RH), protected_log(sqrt2))), _pset_square(_diff_sq(e, sub(gamma, mul(6, e)))))",
+    "protected_log(sub(V, mul(tanh(sin(V)), e)))"
+   ],
+   "genes_raw": [
+    "_pset_inv(_pset_inv(mul(_pset_inv(col_2), sub(col_0, protected_log(sub(add(protected_exp(_pset_inv(protected_exp(sin(phi)))), sqrt2), col_0))))))",
+    "_pset_inv(_pset_inv(mul(_pset_inv(col_2), sub(col_0, _pset_square(9)))))",
+    "sub(_pset_neg(protected_div_zero(_diff_sq(sub(col_0, mul(sin(sub(protected_exp(protected_sqrt(sub(col_1, sub(-3, phi)))), protected_log(tanh(sin(pi))))), pi)), col_3), protected_log(sqrt2))), _pset_square(_diff_sq(e, sub(gamma, mul(6, e)))))",
+    "protected_log(sub(col_1, mul(tanh(sin(col_1)), e)))"
+   ],
+   "n_nodes": 66,
+   "metrics": {
+    "mse_tr": 18.484726239574474,
+    "mse_va": 15.780672005134003,
+    "one_minus_r2_tr": 0.0625055733159577,
+    "one_minus_r2_va": 0.05364421392938263,
+    "mae_tr": 3.333868285413781,
+    "mae_va": 3.240204549950205
+   },
+   "refit_in_f64": false
+  },
+  {
+   "rank": 23,
+   "fitness_hff": 0.1892756555351916,
+   "linker": "mulval",
+   "wrapper": "identity",
+   "a": -0.10421951348449987,
+   "b": 504.5087873739353,
+   "genes": [
+    "_pset_inv(_pset_inv(mul(_pset_inv(AP), sub(AT, protected_log(sub(add(protected_exp(_pset_inv(protected_exp(sin(phi)))), sqrt2), AT))))))",
+    "_pset_inv(_pset_inv(mul(_pset_inv(AP), sub(AT, _pset_square(9)))))",
+    "sub(_pset_neg(protected_div_zero(_diff_sq(sub(AT, mul(sin(sub(protected_exp(protected_sqrt(sub(V, sub(-3, phi)))), protected_log(tanh(sin(pi))))), pi)), RH), protected_log(sqrt2))), _pset_square(_diff_sq(e, sub(gamma, mul(6, e)))))",
+    "protected_log(sub(V, mul(tanh(sin(V)), e)))"
+   ],
+   "genes_raw": [
+    "_pset_inv(_pset_inv(mul(_pset_inv(col_2), sub(col_0, protected_log(sub(add(protected_exp(_pset_inv(protected_exp(sin(phi)))), sqrt2), col_0))))))",
+    "_pset_inv(_pset_inv(mul(_pset_inv(col_2), sub(col_0, _pset_square(9)))))",
+    "sub(_pset_neg(protected_div_zero(_diff_sq(sub(col_0, mul(sin(sub(protected_exp(protected_sqrt(sub(col_1, sub(-3, phi)))), protected_log(tanh(sin(pi))))), pi)), col_3), protected_log(sqrt2))), _pset_square(_diff_sq(e, sub(gamma, mul(6, e)))))",
+    "protected_log(sub(col_1, mul(tanh(sin(col_1)), e)))"
+   ],
+   "n_nodes": 66,
+   "metrics": {
+    "mse_tr": 18.484726239574474,
+    "mse_va": 15.780672005134003,
+    "one_minus_r2_tr": 0.0625055733159577,
+    "one_minus_r2_va": 0.05364421392938263,
+    "mae_tr": 3.333868285413781,
+    "mae_va": 3.240204549950205
+   },
+   "refit_in_f64": false
+  },
+  {
+   "rank": 24,
+   "fitness_hff": 0.1892756555351916,
+   "linker": "mulval",
+   "wrapper": "identity",
+   "a": -0.10421951348449987,
+   "b": 504.5087873739353,
+   "genes": [
+    "_pset_inv(_pset_inv(mul(_pset_inv(AP), sub(AT, _pset_square(9)))))",
+    "_pset_inv(_pset_inv(mul(_pset_inv(AP), sub(AT, protected_log(sub(add(protected_exp(_pset_inv(protected_exp(sin(phi)))), sqrt2), AT))))))",
+    "sub(_pset_neg(protected_div_zero(_diff_sq(sub(AT, mul(sin(sub(protected_exp(protected_sqrt(sub(V, sub(-3, phi)))), protected_log(tanh(sin(pi))))), pi)), RH), protected_log(sqrt2))), _pset_square(_diff_sq(e, sub(gamma, mul(6, e)))))",
+    "protected_log(sub(V, mul(tanh(sin(V)), e)))"
+   ],
+   "genes_raw": [
+    "_pset_inv(_pset_inv(mul(_pset_inv(col_2), sub(col_0, _pset_square(9)))))",
+    "_pset_inv(_pset_inv(mul(_pset_inv(col_2), sub(col_0, protected_log(sub(add(protected_exp(_pset_inv(protected_exp(sin(phi)))), sqrt2), col_0))))))",
+    "sub(_pset_neg(protected_div_zero(_diff_sq(sub(col_0, mul(sin(sub(protected_exp(protected_sqrt(sub(col_1, sub(-3, phi)))), protected_log(tanh(sin(pi))))), pi)), col_3), protected_log(sqrt2))), _pset_square(_diff_sq(e, sub(gamma, mul(6, e)))))",
+    "protected_log(sub(col_1, mul(tanh(sin(col_1)), e)))"
+   ],
+   "n_nodes": 66,
+   "metrics": {
+    "mse_tr": 18.484726239574474,
+    "mse_va": 15.780672005134003,
+    "one_minus_r2_tr": 0.0625055733159577,
+    "one_minus_r2_va": 0.05364421392938263,
+    "mae_tr": 3.333868285413781,
+    "mae_va": 3.240204549950205
+   },
+   "refit_in_f64": false
+  },
+  {
+   "rank": 25,
+   "fitness_hff": 0.1892756555351916,
+   "linker": "mulval",
+   "wrapper": "identity",
+   "a": -0.10421951348449987,
+   "b": 504.5087873739353,
+   "genes": [
+    "_pset_inv(_pset_inv(mul(_pset_inv(AP), sub(AT, protected_log(sub(add(protected_exp(_pset_inv(protected_exp(sin(phi)))), sqrt2), AT))))))",
+    "_pset_inv(_pset_inv(mul(_pset_inv(AP), sub(AT, _pset_square(9)))))",
+    "sub(_pset_neg(protected_div_zero(_diff_sq(sub(AT, mul(sin(sub(protected_exp(protected_sqrt(sub(V, sub(-3, phi)))), protected_log(tanh(sin(pi))))), pi)), RH), protected_log(sqrt2))), _pset_square(_diff_sq(e, sub(gamma, mul(6, e)))))",
+    "protected_log(sub(V, mul(tanh(sin(V)), e)))"
+   ],
+   "genes_raw": [
+    "_pset_inv(_pset_inv(mul(_pset_inv(col_2), sub(col_0, protected_log(sub(add(protected_exp(_pset_inv(protected_exp(sin(phi)))), sqrt2), col_0))))))",
+    "_pset_inv(_pset_inv(mul(_pset_inv(col_2), sub(col_0, _pset_square(9)))))",
+    "sub(_pset_neg(protected_div_zero(_diff_sq(sub(col_0, mul(sin(sub(protected_exp(protected_sqrt(sub(col_1, sub(-3, phi)))), protected_log(tanh(sin(pi))))), pi)), col_3), protected_log(sqrt2))), _pset_square(_diff_sq(e, sub(gamma, mul(6, e)))))",
+    "protected_log(sub(col_1, mul(tanh(sin(col_1)), e)))"
+   ],
+   "n_nodes": 66,
+   "metrics": {
+    "mse_tr": 18.484726239574474,
+    "mse_va": 15.780672005134003,
+    "one_minus_r2_tr": 0.0625055733159577,
+    "one_minus_r2_va": 0.05364421392938263,
+    "mae_tr": 3.333868285413781,
+    "mae_va": 3.240204549950205
+   },
+   "refit_in_f64": false
+  },
+  {
+   "rank": 26,
+   "fitness_hff": 0.1892756555351916,
+   "linker": "mulval",
+   "wrapper": "identity",
+   "a": -0.10421951348449987,
+   "b": 504.5087873739353,
+   "genes": [
+    "_pset_inv(_pset_inv(mul(_pset_inv(AP), sub(AT, protected_log(sub(add(protected_exp(_pset_inv(protected_exp(sin(phi)))), sqrt2), AT))))))",
+    "_pset_inv(_pset_inv(mul(_pset_inv(AP), sub(AT, _pset_square(9)))))",
+    "sub(_pset_neg(protected_div_zero(_diff_sq(sub(AT, mul(sin(sub(protected_exp(protected_sqrt(sub(V, sub(-3, phi)))), protected_log(tanh(sin(pi))))), pi)), RH), protected_log(sqrt2))), _pset_square(_diff_sq(e, sub(gamma, mul(6, e)))))",
+    "protected_log(sub(V, mul(tanh(sin(V)), e)))"
+   ],
+   "genes_raw": [
+    "_pset_inv(_pset_inv(mul(_pset_inv(col_2), sub(col_0, protected_log(sub(add(protected_exp(_pset_inv(protected_exp(sin(phi)))), sqrt2), col_0))))))",
+    "_pset_inv(_pset_inv(mul(_pset_inv(col_2), sub(col_0, _pset_square(9)))))",
+    "sub(_pset_neg(protected_div_zero(_diff_sq(sub(col_0, mul(sin(sub(protected_exp(protected_sqrt(sub(col_1, sub(-3, phi)))), protected_log(tanh(sin(pi))))), pi)), col_3), protected_log(sqrt2))), _pset_square(_diff_sq(e, sub(gamma, mul(6, e)))))",
+    "protected_log(sub(col_1, mul(tanh(sin(col_1)), e)))"
+   ],
+   "n_nodes": 66,
+   "metrics": {
+    "mse_tr": 18.484726239574474,
+    "mse_va": 15.780672005134003,
+    "one_minus_r2_tr": 0.0625055733159577,
+    "one_minus_r2_va": 0.05364421392938263,
+    "mae_tr": 3.333868285413781,
+    "mae_va": 3.240204549950205
+   },
+   "refit_in_f64": false
+  },
+  {
+   "rank": 27,
+   "fitness_hff": 0.1892756555351916,
+   "linker": "mulval",
+   "wrapper": "identity",
+   "a": -0.10421951348449987,
+   "b": 504.5087873739353,
+   "genes": [
+    "_pset_inv(_pset_inv(mul(_pset_inv(AP), sub(AT, protected_log(sub(add(protected_exp(_pset_inv(protected_exp(sin(phi)))), sqrt2), AT))))))",
+    "_pset_inv(_pset_inv(mul(_pset_inv(AP), sub(AT, _pset_square(9)))))",
+    "sub(_pset_neg(protected_div_zero(_diff_sq(sub(AT, mul(sin(sub(protected_exp(protected_sqrt(sub(V, sub(-3, phi)))), protected_log(tanh(sin(pi))))), pi)), RH), protected_log(sqrt2))), _pset_square(_diff_sq(e, sub(gamma, mul(6, e)))))",
+    "protected_log(sub(V, mul(tanh(sin(V)), e)))"
+   ],
+   "genes_raw": [
+    "_pset_inv(_pset_inv(mul(_pset_inv(col_2), sub(col_0, protected_log(sub(add(protected_exp(_pset_inv(protected_exp(sin(phi)))), sqrt2), col_0))))))",
+    "_pset_inv(_pset_inv(mul(_pset_inv(col_2), sub(col_0, _pset_square(9)))))",
+    "sub(_pset_neg(protected_div_zero(_diff_sq(sub(col_0, mul(sin(sub(protected_exp(protected_sqrt(sub(col_1, sub(-3, phi)))), protected_log(tanh(sin(pi))))), pi)), col_3), protected_log(sqrt2))), _pset_square(_diff_sq(e, sub(gamma, mul(6, e)))))",
+    "protected_log(sub(col_1, mul(tanh(sin(col_1)), e)))"
+   ],
+   "n_nodes": 66,
+   "metrics": {
+    "mse_tr": 18.484726239574474,
+    "mse_va": 15.780672005134003,
+    "one_minus_r2_tr": 0.0625055733159577,
+    "one_minus_r2_va": 0.05364421392938263,
+    "mae_tr": 3.333868285413781,
+    "mae_va": 3.240204549950205
+   },
+   "refit_in_f64": false
+  },
+  {
+   "rank": 28,
+   "fitness_hff": 0.1892756555351916,
+   "linker": "mulval",
+   "wrapper": "identity",
+   "a": -0.10421951348449987,
+   "b": 504.5087873739353,
+   "genes": [
+    "_pset_inv(_pset_inv(mul(_pset_inv(AP), sub(AT, protected_log(sub(add(protected_exp(_pset_inv(protected_exp(sin(phi)))), sqrt2), AT))))))",
+    "_pset_inv(_pset_inv(mul(_pset_inv(AP), sub(AT, _pset_square(9)))))",
+    "sub(_pset_neg(protected_div_zero(_diff_sq(sub(AT, mul(sin(sub(protected_exp(protected_sqrt(sub(V, sub(-3, phi)))), protected_log(tanh(sin(pi))))), pi)), RH), protected_log(sqrt2))), _pset_square(_diff_sq(e, sub(gamma, mul(6, e)))))",
+    "protected_log(sub(V, mul(tanh(sin(V)), e)))"
+   ],
+   "genes_raw": [
+    "_pset_inv(_pset_inv(mul(_pset_inv(col_2), sub(col_0, protected_log(sub(add(protected_exp(_pset_inv(protected_exp(sin(phi)))), sqrt2), col_0))))))",
+    "_pset_inv(_pset_inv(mul(_pset_inv(col_2), sub(col_0, _pset_square(9)))))",
+    "sub(_pset_neg(protected_div_zero(_diff_sq(sub(col_0, mul(sin(sub(protected_exp(protected_sqrt(sub(col_1, sub(-3, phi)))), protected_log(tanh(sin(pi))))), pi)), col_3), protected_log(sqrt2))), _pset_square(_diff_sq(e, sub(gamma, mul(6, e)))))",
+    "protected_log(sub(col_1, mul(tanh(sin(col_1)), e)))"
+   ],
+   "n_nodes": 66,
+   "metrics": {
+    "mse_tr": 18.484726239574474,
+    "mse_va": 15.780672005134003,
+    "one_minus_r2_tr": 0.0625055733159577,
+    "one_minus_r2_va": 0.05364421392938263,
+    "mae_tr": 3.333868285413781,
+    "mae_va": 3.240204549950205
+   },
+   "refit_in_f64": false
+  },
+  {
+   "rank": 29,
+   "fitness_hff": 0.1892756555351916,
+   "linker": "mulval",
+   "wrapper": "identity",
+   "a": -0.10421951348449987,
+   "b": 504.5087873739353,
+   "genes": [
+    "_pset_inv(_pset_inv(mul(_pset_inv(AP), sub(AT, protected_log(sub(add(protected_exp(_pset_inv(protected_exp(sin(phi)))), sqrt2), AT))))))",
+    "_pset_inv(_pset_inv(mul(_pset_inv(AP), sub(AT, _pset_square(9)))))",
+    "sub(_pset_neg(protected_div_zero(_diff_sq(sub(AT, mul(sin(sub(protected_exp(protected_sqrt(sub(V, sub(-3, phi)))), protected_log(tanh(sin(pi))))), pi)), RH), protected_log(sqrt2))), _pset_square(_diff_sq(e, sub(gamma, mul(6, e)))))",
+    "protected_log(sub(V, mul(tanh(sin(V)), e)))"
+   ],
+   "genes_raw": [
+    "_pset_inv(_pset_inv(mul(_pset_inv(col_2), sub(col_0, protected_log(sub(add(protected_exp(_pset_inv(protected_exp(sin(phi)))), sqrt2), col_0))))))",
+    "_pset_inv(_pset_inv(mul(_pset_inv(col_2), sub(col_0, _pset_square(9)))))",
+    "sub(_pset_neg(protected_div_zero(_diff_sq(sub(col_0, mul(sin(sub(protected_exp(protected_sqrt(sub(col_1, sub(-3, phi)))), protected_log(tanh(sin(pi))))), pi)), col_3), protected_log(sqrt2))), _pset_square(_diff_sq(e, sub(gamma, mul(6, e)))))",
+    "protected_log(sub(col_1, mul(tanh(sin(col_1)), e)))"
+   ],
+   "n_nodes": 66,
+   "metrics": {
+    "mse_tr": 18.484726239574474,
+    "mse_va": 15.780672005134003,
+    "one_minus_r2_tr": 0.0625055733159577,
+    "one_minus_r2_va": 0.05364421392938263,
+    "mae_tr": 3.333868285413781,
+    "mae_va": 3.240204549950205
+   },
+   "refit_in_f64": false
+  }
+ ]
+}

@@ -175,8 +175,24 @@ def _run_one_worker(name: str, out_path: str):
             "source": getattr(est._engine, "discovered_source_", "?"),
             "wrapper": getattr(est._engine, "wrapper_name_", "?"),
             "linker": getattr(est._engine, "linker_name_", "?"),
-            "expression": str(getattr(est._engine, "discovered_expr_", "?"))[:200],
+            # The WHOLE expression. It was cut at 200 characters, which on a
+            # real model is the first of four genes and no closing bracket.
+            "expression": str(getattr(est._engine, "discovered_expr_", "?")),
         })
+        # The hall of fame, stored next to the result as JSON: every entry's
+        # genes, linker, wrapper, (a, b), fitness and metrics. The engine's own
+        # dump is a pickle in /tmp that the next run with this seed overwrites.
+        import hff_sr_engine as _e
+        _hof_path = os.path.splitext(out_path)[0] + ".hof.json"
+        with open(_hof_path, "w") as _hf:
+            json.dump({
+                "dataset": name, "seed": int(est.random_state),
+                "model_form": "y = a * WRAPPER( LINKER(genes) ) + b",
+                "features": list(getattr(X, "columns", [])) or None,
+                "engine_variables": list(est._engine._bundle.variables),
+                "hof": _e.hof_records(est._engine._hof, est._engine._bundle.variables),
+            }, _hf, indent=1)
+        rec["hof_file"] = _hof_path
         # Where the evaluation actually ran. An individual the device cannot
         # take (fuller has no diff_sq) is scored by the CPU row loop, which on
         # a few thousand rows dominates the fit — and was invisible here.
