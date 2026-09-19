@@ -1686,6 +1686,55 @@ def _rules_allowed_in_slots():
     key = "one_minus_r2_va" if HFF_INCLUDE_VAL else "one_minus_r2_tr"
     return [c for c in _STATIC_RULE_CANDIDATES if c["metrics"][key] <= bar]
 
+def _rule_power_law_static():
+    """A monomial  C * prod(x_i ** k_i)  with simple rational exponents, found
+    by least squares in log space:  log|y| = c + sum(k_i * log x_i).
+
+    NAME-BLIND and purely data-driven: it reads the columns, never what they
+    are called, and encodes nothing about any particular law. It exists
+    because a monomial is the one shape a GEP search is structurally bad at —
+    q/(4*pi*epsilon*r) needs two nested divisions arranged exactly right inside
+    ONE gene while the linker's other genes stay constant — and the one shape
+    a log-log fit reads straight off the data. On the first full registry run
+    the search sat at R² ~0.9 for 400 generations on II.4.23, III.15.27,
+    II.8.7, II.13.17 and I.38.12, on the device path and on the CPU path alike.
+
+    Emitted only when the inputs are all strictly positive, the target keeps
+    one sign, and EVERY fitted exponent is within 0.02 of a multiple of 1/2 —
+    otherwise the data is not a clean monomial and saying so would be a guess.
+    The constant C is left to the usual linear scaling.
+    """
+    cols = list(finalTerminals)
+    Xtr = train[cols].values.astype(np.float64)
+    ytr = np.asarray(Y, dtype=np.float64)
+    if (Xtr <= 0).any() or (validation[cols].values <= 0).any() \
+            or (extrapolation[cols].values <= 0).any():
+        return []
+    if not (np.all(ytr > 0) or np.all(ytr < 0)):
+        return []
+    A = np.hstack([np.log(Xtr), np.ones((len(Xtr), 1))])
+    coef, *_ = np.linalg.lstsq(A, np.log(np.abs(ytr)), rcond=None)
+    ks = coef[:-1]
+    snapped = np.round(ks * 2.0) / 2.0
+    if np.max(np.abs(ks - snapped)) > 0.02 or not np.any(snapped != 0):
+        return []
+
+    def raw(df):
+        v = np.ones(len(df), dtype=np.float64)
+        for c, k in zip(cols, snapped):
+            if k != 0:
+                v = v * df[c].values.astype(np.float64) ** float(k)
+        return v
+
+    sym = sp.Integer(1)
+    for c, k in zip(cols, snapped):
+        if k != 0:
+            sym = sym * sp.Symbol(c) ** sp.Rational(int(round(k * 2)), 2)
+    label = "*".join(f"{c}^{sp.Rational(int(round(k * 2)), 2)}"
+                     for c, k in zip(cols, snapped) if k != 0)
+    return [(label, raw(train), raw(validation), raw(extrapolation), sym)]
+
+
 def _build_static_candidates():
     global _STATIC_RULE_CANDIDATES
     _STATIC_RULE_CANDIDATES = []
@@ -1708,6 +1757,8 @@ def _build_static_candidates():
         ("sum_with_product", _rule_sum_with_product_static),
         ("kinetic_energy", _rule_kinetic_energy_static),
         ("radiated_power", _rule_radiated_power_static),
+        # data-driven, name-blind
+        ("power_law", _rule_power_law_static),
     ]
     for family_name, fn in builders:
         try:
