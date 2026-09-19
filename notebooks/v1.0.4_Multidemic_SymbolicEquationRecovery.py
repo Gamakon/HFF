@@ -2554,10 +2554,31 @@ else:
             for _omr2_va, _ind in _best_pairs:
                 if 1.0 - _omr2_va < EARLY_STOP_VAL_R2:
                     continue
+                # A candidate that won via a static RULE carries
+                # wrapper_id = RULE_WRAPPER_ID_OFFSET + rule_idx — an id
+                # identifying the RULE, not a wrapper. Taking it % N_WRAPPERS
+                # (as this did) turns rule 102 into wrapper 2 and evaluates
+                # the chromosome under a wrapper that never produced its
+                # metrics, so the holdout check scores a DIFFERENT FUNCTION
+                # from the one that achieved val_R² = 1.0 and rejects a
+                # correct answer. Measured: stored val_R²=1.0, same-path
+                # val_R²=-2.99 on the identical rows.
+                #
+                # Its predictions come from the rule's own expression, not
+                # from evaluating the chromosome, so this check cannot
+                # reproduce them. Skip rather than mis-score: the candidate
+                # is neither confirmed nor rejected here.
+                _wraw = int(getattr(_ind, "wrapper_id", 0))
+                if _wraw >= RULE_WRAPPER_ID_OFFSET:
+                    print(f"  early-stop: candidate won via rule "
+                          f"{_wraw - RULE_WRAPPER_ID_OFFSET}; holdout check "
+                          f"skipped (rule predictions are not a chromosome "
+                          f"evaluation)")
+                    continue
                 _raw_h = hgh.compile_and_predict(_ind, holdout, finalTerminals, toolbox)
                 if _raw_h is None:
                     continue
-                _wid = int(getattr(_ind, "wrapper_id", 0)) % N_WRAPPERS
+                _wid = _wraw % N_WRAPPERS
                 _wh = apply_wrapper(_raw_h, _wid)
                 if _wh is None:
                     continue
@@ -2570,8 +2591,29 @@ else:
                     _candidate = (_ind, _holdout_r2)
                     break
                 else:
+                    # DIAGNOSTIC: recompute train and val through the EXACT
+                    # same path as holdout. If the stored val_R2 says 1.0 but
+                    # this path says otherwise, the two are evaluating
+                    # different functions and the rejection is spurious.
+                    def _same_path_r2(_df):
+                        _r = hgh.compile_and_predict(_ind, _df, finalTerminals, toolbox)
+                        if _r is None:
+                            return float("nan")
+                        _w = apply_wrapper(_r, _wid)
+                        if _w is None:
+                            return float("nan")
+                        _p = _ind.a * _w + _ind.b
+                        _y = _df[target_col].values
+                        _v = float(np.var(_y))
+                        return 1.0 - float(np.mean((_y - _p) ** 2)) / _v if _v > 0 else float("-inf")
+                    _tr_same = _same_path_r2(train)
+                    _va_same = _same_path_r2(validation)
                     print(f"  early-stop candidate rejected: val_R²={1.0-_omr2_va:.10f} "
                           f"but holdout_R²={_holdout_r2:.6f} — clipped-primitive overfit")
+                    print(f"    [diag] same-path train_R²={_tr_same:.6f} "
+                          f"val_R²={_va_same:.6f} holdout_R²={_holdout_r2:.6f} "
+                          f"a={_ind.a:.6g} b={_ind.b:.6g} wid={_wid}")
+                    print(f"    [diag] kexpr={[str(g.kexpression) for g in _ind]}")
             if _candidate is not None:
                 _ind, _hr2 = _candidate
                 print(f"\n*** Early stop at generation {gen}: "
