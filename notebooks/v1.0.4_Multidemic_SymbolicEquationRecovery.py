@@ -1749,6 +1749,7 @@ _NB_GPU_STATS = {"dispatches": 0, "genes": 0, "chromosomes": 0, "candidates": 0,
 _NB_GPU_LAST = dict(_NB_GPU_STATS)
 _NB_EXPAND_ERRORS: dict = {}
 _NB_UNBUILDABLE: dict = {}
+_NB_INEXPR_WHY: dict = {}
 _NB_UNBUILDABLE_LAST: dict = {}
 
 
@@ -1849,7 +1850,7 @@ def _nb_expand_genes(genes):
         results = _f._fuller.denoise_karva_candidates_batch(
             list(todo.values()), variables, _build_functions_dict(pset),
             _NB_ECLASS_ROWS, k_variants=ECLASS_K, rng_seed=0,
-            target_head_length=settings.head_length)
+            target_head_length=None)
         _NB_GPU_STATS["expand_seconds"] += time.perf_counter() - t0
         _NB_GPU_STATS["expanded"] += len(todo)
         for okey, res in zip(todo, results):
@@ -1858,6 +1859,8 @@ def _nb_expand_genes(genes):
                 why = res["error"].split(":")[0]
                 _NB_EXPAND_ERRORS[why] = _NB_EXPAND_ERRORS.get(why, 0) + 1
             _NB_GPU_STATS["inexpressible"] += res["n_inexpressible"]
+            for _w, _c in res["inexpressible_why"].items():
+                _NB_INEXPR_WHY[_w] = _NB_INEXPR_WHY.get(_w, 0) + _c
             _NB_GPU_STATS["oversized"] += res["n_oversized"]
             props = [(c["head"], c["tail"], int(c["cost"]), (), False)
                      for c in sorted(res["candidates"], key=lambda c: c["cost"])
@@ -1879,7 +1882,7 @@ def _nb_expand_genes(genes):
             sres = _f._fuller.snap_karva_batch(
                 [(v[0], v[1]) for v in with_num.values()], variables,
                 _build_functions_dict_for_snap(pset), k_variants=ECLASS_K,
-                rel_tol=1e-3, rng_seed=0, target_head_length=settings.head_length)
+                rel_tol=1e-3, rng_seed=0, target_head_length=None)
             _NB_GPU_STATS["expand_seconds"] += time.perf_counter() - t0
             for okey, res in zip(with_num, sres):
                 if res["error"]:
@@ -1887,6 +1890,8 @@ def _nb_expand_genes(genes):
                     why = "snap-" + res["error"].split(":")[0]
                     _NB_EXPAND_ERRORS[why] = _NB_EXPAND_ERRORS.get(why, 0) + 1
                 _NB_GPU_STATS["inexpressible"] += res["n_inexpressible"]
+                for _w, _c in res["inexpressible_why"].items():
+                    _NB_INEXPR_WHY[_w] = _NB_INEXPR_WHY.get(_w, 0) + _c
                 _NB_GPU_STATS["oversized"] += res["n_oversized"]
                 oc, props = _NB_ECLASS_CACHE[okey]
                 props = props + [(c["head"], c["tail"], None,
@@ -3255,6 +3260,19 @@ else:
     end_time = datetime.datetime.now()
     print(f"\nThis sub-run: {sub_start} → {end_time}")
     print(f"Now at generation {gen - 1} (HOF size: {len(hof)})")
+    if os.environ.get("HFF_GPU") == "1":
+        _t = _NB_GPU_STATS
+        print(f"[join] {_t['dispatches']} dispatches, {_t['genes']:,} genes, "
+              f"{_t['candidates']:,} candidates scored in {_t['seconds']:.2f}s GPU+host; "
+              f"e-graph {_t['expanded']:,} trees -> {_t['variants']:,} variants "
+              f"+ {_t['snaps']:,} snaps in {_t['expand_seconds']:.2f}s; "
+              f"{_t['grafts']:,} grafts ({_t['snap_grafts']} snap), "
+              f"{_t['nodes_saved']:,} nodes removed; "
+              f"cpu-path individuals {_t['cpu_individuals']}, f64-rejected {_t['f64_rejected']}")
+        for _label, _d in (("inexpressible", _NB_INEXPR_WHY), ("unbuildable", _NB_UNBUILDABLE),
+                           ("expand errors", _NB_EXPAND_ERRORS)):
+            for _w, _c in sorted(_d.items(), key=lambda kv: -kv[1])[:8]:
+                print(f"[join]   {_label}: {_c:>6}  {_w}")
 
 # %% [markdown]
 # # 4. Evaluate
