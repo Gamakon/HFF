@@ -117,14 +117,164 @@ def _node_count(e) -> int:
         return 1 << 30  # unmeasurable => treat as too big to simplify
 
 
+# Seconds sympy.simplify may spend on one gene. It has no bound of its own:
+# it tries factoring, cancellation and trig rewriting (futrig) until done, and
+# a fit on the UCI power plant data sat in it for 2h20m after a 30-minute
+# search. When the cap fires, the form it was given stands.
+SYMPY_CAP_S = float(os.environ.get("GAMAK_SIMPLIFY_CAP_S", "5"))
+
+_MATH_CTOR = {
+    "add": "Add", "sub": "Sub", "mul": "Mul", "div": "Div", "neg": "Neg",
+    "sin": "Sin", "cos": "Cos", "tan": "Tan", "tanh": "Tanh", "log": "Log",
+    "exp": "Exp", "sqrt": "Sqrt", "abs": "Abs", "pow2": "Pow2", "pow3": "Pow3",
+    "pow": "Pow", "inv": "Inv", "protected_sqrt": "ProtectedSqrt",
+    "protected_log": "ProtectedLog", "protected_exp": "ProtectedExp",
+    "protected_inv": "ProtectedInv", "protected_div": "ProtectedDiv",
+}
+
+
+class _Timeout(Exception):
+    pass
+
+
+def kexpression_to_math(expr, semantic_ids: dict) -> str:
+    """A K-expression as a fuller `Math` string, protected ops KEPT.
+
+    Going through sympy first is the wrong road into fuller: sympy writes
+    a - b as a + (-1)*b and 1/x as x**-1 and expands (a-b)**2, so the Math
+    string comes out several times larger and in shapes fuller's rules do not
+    match (one 34-node gene arrived as 180 nodes and was not reduced at all).
+    """
+    toks = list(expr)
+    out = [None] * len(toks)
+    nxt = len(toks)
+    for i in reversed(range(len(toks))):
+        p = toks[i]
+        if not isinstance(p, Function):
+            v = getattr(p, "value", None)
+            out[i] = (f'(Var "{p.name}")' if isinstance(p, SymbolTerminal) or v is None
+                      else f"(Num {float(v)!r})")
+    # children of node i are the next unclaimed nodes in level order
+    child = 1
+    kids = {}
+    for i, p in enumerate(toks):
+        n = p.arity if isinstance(p, Function) else 0
+        kids[i] = list(range(child, child + n))
+        child += n
+    for i in reversed(range(len(toks))):
+        p = toks[i]
+        if isinstance(p, Function):
+            sid = semantic_ids.get(p.name, p.name)
+            a = [out[k] for k in kids[i]]
+            if sid == "diff_sq":
+                out[i] = f"(Pow2 (Sub {a[0]} {a[1]}))"
+            elif sid in _MATH_CTOR:
+                out[i] = f"({_MATH_CTOR[sid]} {' '.join(a)})"
+            else:
+                raise KeyError(f"no fuller Math constructor for {p.name!r} ({sid!r})")
+    return out[0]
+
+
+def _named_constants() -> dict:
+    import fuller
+    return dict(fuller.master_constants())
+
+
+def _same_function(f, g, probe: dict) -> bool:
+    """Do two sympy expressions give the same numbers on the probe rows?"""
+    import numpy as np
+    syms = sorted(f.free_symbols | g.free_symbols, key=lambda s: s.name)
+    n = len(next(iter(probe.values()))) if probe else 1
+    # A symbol that is not a data column is a NAMED CONSTANT (phi, sqrt2, e ...)
+    # and has a value. Without this every gene carrying one was "unverifiable"
+    # and both fuller's form and sympy's were thrown away. A column always
+    # wins over a constant of the same name: probe is consulted first.
+    consts = _named_constants()
+    cols = []
+    for sy in syms:
+        if sy.name in probe:
+            cols.append(np.asarray(probe[sy.name], dtype=np.float64))
+        elif sy.name in consts:
+            cols.append(np.full(n, consts[sy.name], dtype=np.float64))
+        else:
+            return False
+    with np.errstate(all="ignore"):
+        a = np.broadcast_to(np.asarray(sp.lambdify(syms, f, "numpy")(*cols), dtype=np.complex128), (n,))
+        b = np.broadcast_to(np.asarray(sp.lambdify(syms, g, "numpy")(*cols), dtype=np.complex128), (n,))
+    fa, fb = np.isfinite(a), np.isfinite(b)
+    if not np.array_equal(fa, fb) or not fa.any():
+        return False
+    return bool(np.allclose(a[fa], b[fa], rtol=1e-9, atol=1e-12))
+
+
+def shrink_then_simplify(built, pre, probe: Optional[dict] = None):
+    """fuller first, then sympy on a leash.
+
+    `built` is the gene as sympy built it; `pre` is fuller's smallest form of
+    the same gene (or None when fuller was not asked). sympy.simplify then
+    runs on the SMALLER of the two under SYMPY_CAP_S, and its result is kept
+    only if it is strictly smaller AND still the same function on `probe` —
+    because simplify can also destroy: with an exact pi it reads
+    log(tanh(sin(pi))) as log(0) and returned a 38-node gene as the single
+    symbol `zoo`. A size-only rule would have called that a win.
+
+    Returns (expr, how) with how in {"sympy", "fuller", "built", "capped",
+    "sympy_rejected"}.
+    """
+    import signal
+    import threading
+
+    start = built
+    how = "built"
+    if pre is not None and _node_count(pre) < _node_count(built):
+        if probe is None or _same_function(built, pre, probe):
+            start, how = pre, "fuller"
+
+    if threading.current_thread() is not threading.main_thread() or not hasattr(signal, "SIGALRM"):
+        return start, how            # sympy cannot be capped here, so it does not run
+
+    def _fire(*_):
+        raise _Timeout()
+
+    old = signal.signal(signal.SIGALRM, _fire)
+    signal.setitimer(signal.ITIMER_REAL, SYMPY_CAP_S)
+    try:
+        out = sp.simplify(start)
+    except _Timeout:
+        _bump("simplify_capped")
+        return start, "capped"
+    finally:
+        signal.setitimer(signal.ITIMER_REAL, 0)
+        signal.signal(signal.SIGALRM, old)
+
+    bad = out.has(sp.zoo, sp.nan, sp.oo, -sp.oo)
+    if bad or _node_count(out) >= _node_count(start) or (
+            probe is not None and not _same_function(start, out, probe)):
+        _bump("simplify_rejected")
+        return start, ("sympy_rejected" if how == "built" else how)
+    return out, "sympy"
+
+
 def simplify_kexpression_bounded(expr,
                                  symbolic_function_map,
                                  max_nodes: Optional[int] = None,
-                                 do_simplify: bool = True):
+                                 do_simplify: bool = True,
+                                 fuller_semantic_ids: Optional[dict] = None,
+                                 inputs: Optional[list] = None,
+                                 positive: Optional[list] = None,
+                                 probe: Optional[dict] = None):
     """Bounded drop-in for ``geppy``'s ``_simplify_kexpression``.
 
     Same signature and return type; builds the expression without the
     per-node ``sp.simplify`` and simplifies once at the end under a size bound.
+
+    With ``fuller_semantic_ids`` (the engine's pset-name -> fuller-id map) and
+    ``inputs`` (the data columns), the gene is first reduced by
+    ``fuller.smallest_form`` — bounded, milliseconds, data-free — and sympy
+    then works on that, under a time cap, its result kept only if smaller and
+    still the same function on ``probe`` ({column: values}). ``positive`` names
+    the columns whose whole range is > 0, which is what lets conditional
+    rewrites (1/(1/x), sqrt(x)**2, |x|) fire.
     """
     if max_nodes is None:
         max_nodes = DEFAULT_MAX_NODES
@@ -142,6 +292,7 @@ def simplify_kexpression_bounded(expr,
             return _sym(t.name)
         return t.value
 
+    expr_original = expr[:]
     expr = expr[:]  # upstream mutates its copy; do the same
 
     # Level-order serialisation, folded bottom-up. Identical to upstream
@@ -187,14 +338,26 @@ def simplify_kexpression_bounded(expr,
         return built
 
     before = sp.srepr(built)
+    pre = None
+    if fuller_semantic_ids is not None:
+        if inputs is None:
+            raise ValueError("fuller pre-shrink needs `inputs` (the data columns): "
+                             "a column named like a constant must never be folded")
+        import fuller
+        m = kexpression_to_math(list(expr_original), fuller_semantic_ids)
+        r = fuller.smallest_form(m, list(inputs), list(positive or []), list(positive or []))
+        pre = fuller.from_math(r["expr"])
+        pre = pre.xreplace({sy: _sym(sy.name) for sy in pre.free_symbols})
+        _bump("fuller_preshrunk")
     try:
-        out = sp.simplify(built)
+        out, how = shrink_then_simplify(built, pre, probe)
     except Exception as e:
         _bump("simplify_raised")
         _log({"before": before, "rejected": True,
               "reject_reason": "simplify_raised", "error": str(e),
               "source": "bounded_kexpr"})
         return built
+    _bump("via_" + how)
 
     _bump("simplified")
     _log({"before": before, "after_simplify": sp.srepr(out),
