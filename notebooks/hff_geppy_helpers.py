@@ -1430,7 +1430,7 @@ def _prune_tiny_additive(expr, rel_tol: float = 1e-3, seed: int = 0,
     return sp.Add(*pieces)
 
 
-def _snap_simple_rational(x: float, rel_tol: float = 1e-6):
+def _snap_simple_rational(x: float, rel_tol: float = 1e-7):
     """Return a sympy Integer/Rational if x is one to within rel_tol, else None.
 
     Catches the residue of floating-point arithmetic: 0.999999999999999 is 1,
@@ -1539,13 +1539,22 @@ def snap_constants(
         # so without this the search for a physics match can actively mangle
         # an exact rational.
         #
-        # Tight (1e-6 relative, not the library's 1e-3): this recognises a
-        # rational that float arithmetic has nudged, not a genuinely different
-        # value. It was 1e-9, sized for f64 rounding — but the device predicts
-        # in f32, and an LSM fitted on f32 predictions lands ~5e-9 off:
-        # 1.00000000451181*Ef*q2 slipped through and an exact recovery was
-        # reported inexact. 1e-6 covers f32 (eps 6e-8) with margin and is
-        # still a thousand times tighter than the physics library's tolerance.
+        # 1e-7 relative, chosen by measurement, not taste. Swept against
+        # 20,270 values that are NOT rational (the library constants, their
+        # pairwise products and ratios, 20k random fitted constants) and 240
+        # true rationals nudged by known noise:
+        #
+        #   rel_tol  false snaps   catches noise of 5e-9   6e-8 (f32 eps)
+        #    1e-9        0               0%                  0%     <- was
+        #    1e-8        0             100%                  0%
+        #    1e-7        6 (0.03%)     100%                100%     <- this
+        #    1e-6       68 (0.34%)     100%                100%
+        #    1e-5      655 (3.2%)      100%                100%
+        #
+        # The device predicts in f32, so an LSM fitted on its predictions is
+        # off by up to f32 rounding: 1.00000000451181*Ef*q2 slipped through
+        # 1e-9 and an exact recovery was reported inexact. 1e-7 is the
+        # tightest setting that covers f32 rounding in full.
         rat = _snap_simple_rational(x)
         if rat is not None:
             subs[atom] = rat
