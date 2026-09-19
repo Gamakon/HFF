@@ -589,6 +589,19 @@ def compile_and_predict(individual, df: pd.DataFrame, terminals: Sequence[str], 
     return raw
 
 
+def safe_mse(y: np.ndarray, pred: np.ndarray) -> float:
+    """Mean squared error, +inf when it is not representable.
+
+    A divergent candidate can predict 1e200; squaring the residual overflows
+    f64 and numpy warns on every such candidate. The answer the callers want
+    is already known without squaring — the MSE is not finite — so say so.
+    """
+    r = np.abs(np.asarray(y, dtype=np.float64) - np.asarray(pred, dtype=np.float64))
+    if not np.all(np.isfinite(r)) or float(r.max(initial=0.0)) > 1e150:
+        return float("inf")
+    return float(np.mean(r * r))
+
+
 def apply_linear_scaling(raw: np.ndarray, Y: np.ndarray) -> tuple[float, float] | None:
     """LSM fit of (a, b) s.t. a·raw + b ≈ Y. Returns None on singular fit."""
     if raw.size == 0 or np.allclose(raw - raw.mean(), 0.0):
@@ -1892,12 +1905,24 @@ def equation_recovery_report(
                 free_syms = sorted(diff.free_symbols, key=lambda s: s.name)
                 if free_syms:
                     fn = sp.lambdify(free_syms, diff, modules="numpy")
-                    probe = [np.ones(8) * v for v in (0.5, 1.0, 2.0, 5.0)]
-                    # Evaluate at probe points
-                    vals = []
-                    for vp in probe:
-                        vals.append(float(np.max(np.abs(fn(*[vp] * len(free_syms))))))
-                    if max(vals) < 1e-12:
+                    # Probe at INDEPENDENT points per variable, drawn from the
+                    # problem's ranges. The probe used to set every variable
+                    # to the same value (0.5, 1, 2, 5), which is a measure-zero
+                    # diagonal: any residual with a factor like (x - t)
+                    # vanishes on it and a WRONG expression was declared
+                    # exact; and on Lorentz it puts c = u, the truth's own
+                    # singularity. Non-finite points (a genuine singularity of
+                    # either side) are excluded, not counted as agreement, and
+                    # at least half the probes must survive.
+                    _prng = np.random.default_rng(seed + 1)
+                    _rg = var_ranges or {}
+                    pts = [_prng.uniform(*_rg.get(str(sy), (0.5, 5.0)), size=64)
+                           for sy in free_syms]
+                    with np.errstate(invalid="ignore", divide="ignore", over="ignore"):
+                        dv = np.abs(np.asarray(fn(*pts), dtype=np.float64))
+                    dv = np.broadcast_to(dv, (64,))
+                    ok = np.isfinite(dv)
+                    if ok.sum() >= 32 and float(dv[ok].max()) < 1e-12:
                         exact = True
                 else:
                     if abs(float(diff)) < 1e-12:

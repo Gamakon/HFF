@@ -786,10 +786,10 @@ def _vec_from_pred(pred_train, pred_val, pred_extr):
     """Compute the standard 6-objective vec from prediction arrays."""
     var_tr = float(np.var(Y))
     var_va = float(np.var(Y_val))
-    mse_tr = float(np.mean((Y - pred_train) ** 2))
-    mse_va = float(np.mean((Y_val - pred_val) ** 2))
+    mse_tr = hgh.safe_mse(Y, pred_train)
+    mse_va = hgh.safe_mse(Y_val, pred_val)
     max_err = float(np.max(np.abs(Y_val - pred_val)))
-    mse_extrap = float(np.mean((Y_extrap - pred_extr) ** 2))
+    mse_extrap = hgh.safe_mse(Y_extrap, pred_extr)
     one_minus_r2_tr = mse_tr / var_tr if var_tr > 0 else float("inf")
     one_minus_r2_va = mse_va / var_va if var_va > 0 else float("inf")
     if HFF_INCLUDE_VAL:
@@ -1743,7 +1743,8 @@ _NB_GPU_STATS = {"dispatches": 0, "genes": 0, "chromosomes": 0, "candidates": 0,
                  "seconds": 0.0, "expand_seconds": 0.0, "expanded": 0,
                  "variants": 0, "expand_errors": 0, "inexpressible": 0,
                  "oversized": 0, "unbuildable": 0, "cpu_individuals": 0,
-                 "grafts": 0, "nodes_saved": 0}
+                 "grafts": 0, "nodes_saved": 0, "f64_polished": 0,
+                 "f64_rejected": 0, "gen_seconds": 0.0}
 _NB_GPU_LAST = dict(_NB_GPU_STATS)
 _NB_EXPAND_ERRORS: dict = {}
 _NB_UNBUILDABLE: dict = {}
@@ -1987,7 +1988,10 @@ def _nb_gpu_gen_delta() -> str:
            f"x{N_WRAPPERS}w {d['seconds'] * 1000:.0f}ms"
            f" | egraph {d['expanded']}g->{d['variants']}v "
            f"{d['expand_seconds'] * 1000:.0f}ms"
-           f" | graft {d['grafts']} (-{d['nodes_saved']}n) cpu {d['cpu_individuals']}")
+           f" | graft {d['grafts']} (-{d['nodes_saved']}n) cpu {d['cpu_individuals']}"
+           f" | f64 {d['f64_polished']} | gen {d['gen_seconds']:.1f}s")
+    if d["f64_rejected"]:
+        out += f" F64-REJECT {d['f64_rejected']}"
     why = {k: v - _NB_UNBUILDABLE_LAST.get(k, 0) for k, v in _NB_UNBUILDABLE.items()
            if v - _NB_UNBUILDABLE_LAST.get(k, 0)}
     _NB_UNBUILDABLE_LAST.update(_NB_UNBUILDABLE)
@@ -2038,10 +2042,10 @@ def compute_raw_metrics(individual):
             pred_val = wrapped_val
             pred_extr = wrapped_extr
 
-        mse_tr = float(np.mean((Y - pred_train) ** 2))
-        mse_va = float(np.mean((Y_val - pred_val) ** 2))
+        mse_tr = hgh.safe_mse(Y, pred_train)
+        mse_va = hgh.safe_mse(Y_val, pred_val)
         max_err = float(np.max(np.abs(Y_val - pred_val)))
-        mse_extrap = float(np.mean((Y_extrap - pred_extr) ** 2))
+        mse_extrap = hgh.safe_mse(Y_extrap, pred_extr)
         one_minus_r2_tr = mse_tr / var_tr if var_tr > 0 else float("inf")
         one_minus_r2_va = mse_va / var_va if var_va > 0 else float("inf")
 
@@ -2100,6 +2104,8 @@ def _nb_evaluate_islands(groups):
     for g in groups:
         if g:
             assign_fitness_batch(g, raw[at:at + len(g)])
+            if os.environ.get("HFF_GPU") == "1":
+                _nb_f64_polish(g)
         at += len(g)
 
 
@@ -2199,6 +2205,64 @@ def assign_fitness_batch(population, raw_results):
 
 
 toolbox.register("evaluate", evaluate_individual)
+
+
+def _nb_is_rule_winner(ind) -> bool:
+    """wrapper_id >= RULE_WRAPPER_ID_OFFSET identifies a static RULE, not a
+    wrapper. Such an individual's chromosome is NOT what was scored."""
+    return (int(getattr(ind, "wrapper_id", 0)) >= RULE_WRAPPER_ID_OFFSET
+            and getattr(ind, "rule_sym_expr", None) is not None)
+
+
+def _nb_rule_predict(ind, df):
+    """a * rule(x) + b on df — what a rule winner's fitness was scored on."""
+    fn = sp.lambdify([sp.Symbol(v) for v in finalTerminals], ind.rule_sym_expr, "numpy")
+    with np.errstate(invalid="ignore", divide="ignore", over="ignore"):
+        r = np.broadcast_to(np.asarray(
+            fn(*[df[v].values for v in finalTerminals]), dtype=np.float64), (len(df),))
+    return ind.a * r + ind.b
+
+
+# The device predicts in f32 (Metal has no f64). That ranks candidates, but
+# an LSM fitted on f32 predictions carries ~1e-8 relative error into (a, b):
+# I_12_5 came out as 1.00000000559421*Ef*q2, missed the 1e-9 rational snap,
+# and an exact recovery was reported as inexact. So each island's leaders —
+# the individuals that can reach the hall of fame, the early-stop check and
+# the final report — are re-fitted on the f64 reference path.
+F64_POLISH_TOP = int(os.environ.get("HFF_F64_POLISH_TOP", "10"))
+
+
+def _nb_f64_polish(population) -> None:
+    ranked = sorted((ind for ind in population
+                     if ind.fitness.valid and not _nb_is_rule_winner(ind)
+                     and ind.fitness.values[0] < FAILED_FITNESS),
+                    key=lambda ind: ind.fitness.values[0])
+    var_tr, var_va = float(np.var(Y)), float(np.var(Y_val))
+    for ind in ranked[:F64_POLISH_TOP]:
+        raws = [hgh.compile_and_predict(ind, df, finalTerminals, toolbox)
+                for df in (train, validation, extrapolation)]
+        w = [None if r is None else apply_wrapper(r, ind.wrapper_id) for r in raws]
+        scale = (None if w[0] is None else
+                 hgh.apply_linear_scaling(w[0], Y) if settings.enable_linear_scaling
+                 else (1.0, 0.0))
+        vec = None
+        if scale is not None and all(x is not None for x in w):
+            a, b = scale
+            mse_tr = hgh.safe_mse(Y, a * w[0] + b)
+            mse_va = hgh.safe_mse(Y_val, a * w[1] + b)
+            vec = ([mse_tr, mse_va, float(np.max(np.abs(Y_val - (a * w[1] + b)))),
+                    hgh.safe_mse(Y_extrap, a * w[2] + b),
+                    mse_tr / var_tr, mse_va / var_va]
+                   if HFF_INCLUDE_VAL else [mse_tr, mse_tr / var_tr])
+        if vec is None or not all(np.isfinite(vec)):
+            # Finite in f32, not on the reference path: it is not a model.
+            _NB_GPU_STATS["f64_rejected"] += 1
+            ind.fitness.values = (FAILED_FITNESS,)
+            ind.metrics = dict.fromkeys(METRIC_NAMES, FAILED_METRIC_VALUE)
+            continue
+        ind.a, ind.b = float(a), float(b)
+        ind.metrics = dict(zip(METRIC_NAMES, vec))
+        _NB_GPU_STATS["f64_polished"] += 1
 
 # %% [markdown]
 # ## 2.4 Genetic operators (verbatim from v1.0.3)
@@ -2486,8 +2550,17 @@ if MIGRATION_TOPOLOGY == "pump":
 experiment["head_length"] = str(settings.head_length)
 experiment["n_genes"] = str(settings.n_genes)
 experiment["rnc_array_length"] = str(settings.rnc_array_length)
-experiment["tournament size"] = str(tournament)
-experiment["population size"] = str(population_size)
+# What RAN, not the flat settings defaults the pump topology overrides. These
+# two fields read "3" and "25" on every run at every HFF_POP_SCALE, so no
+# sidecar on disk could tell a 1x run from a 5x one.
+experiment["tournament size"] = (f"intake={TOURN_INTAKE}, champion={TOURN_CHAMPION}"
+                                 if settings.num_islands else str(tournament))
+experiment["population size"] = (str(POP_INTAKE + POP_CHAMPION)
+                                 if settings.num_islands else str(population_size))
+experiment["population per island"] = (f"intake={POP_INTAKE}, champion={POP_CHAMPION}"
+                                       if settings.num_islands else "")
+experiment["gpu_join"] = os.environ.get("HFF_GPU") == "1"
+experiment["eclass_k"] = ECLASS_K if os.environ.get("HFF_GPU") == "1" else 0
 experiment["number of elites"] = str(num_elites)
 experiment["number of generations"] = str(n_gen)
 experiment["number of islands"] = str(settings.num_islands)
@@ -2887,6 +2960,7 @@ else:
     print(f"Extending evolution: gen {gen} → {target_gen} (+{extra_gen} generations)")
 
     while gen <= target_gen:
+        _gen_t0 = time.perf_counter()
         # Phase 1 — variation, island by island. Islands do not interact
         # within a generation (only at migration), so nothing here depends on
         # another island's fitness.
@@ -2918,6 +2992,7 @@ else:
             if not _halted:
                 hof.update(deme)
             print(hgh.format_log_row(log[-1], METRIC_NAMES))
+        _NB_GPU_STATS["gen_seconds"] += time.perf_counter() - _gen_t0
         _nb_gpu_gen_print()
 
         # Early-stop: any deme produced an individual with val_R² ≥ threshold
@@ -2996,7 +3071,7 @@ else:
                     _ph = _ind.a * _rh + _ind.b
                     _yh = holdout[target_col].values
                     _vh = float(np.var(_yh))
-                    _rule_r2 = (1.0 - float(np.mean((_yh - _ph) ** 2)) / _vh
+                    _rule_r2 = (1.0 - hgh.safe_mse(_yh, _ph) / _vh
                                 if _vh > 0 else float("-inf"))
                     if _rule_r2 >= EARLY_STOP_VAL_R2:
                         _candidate = (_ind, _rule_r2)
@@ -3018,7 +3093,7 @@ else:
                 _ph = _ind.a * _wh + _ind.b
                 _yh = holdout[target_col].values
                 _vh = float(np.var(_yh))
-                _mh = float(np.mean((_yh - _ph) ** 2))
+                _mh = hgh.safe_mse(_yh, _ph)
                 _holdout_r2 = 1.0 - _mh / _vh if _vh > 0 else float("-inf")
                 if _holdout_r2 >= EARLY_STOP_VAL_R2:
                     _candidate = (_ind, _holdout_r2)
@@ -3038,7 +3113,7 @@ else:
                         _p = _ind.a * _w + _ind.b
                         _y = _df[target_col].values
                         _v = float(np.var(_y))
-                        return 1.0 - float(np.mean((_y - _p) ** 2)) / _v if _v > 0 else float("-inf")
+                        return 1.0 - hgh.safe_mse(_y, _p) / _v if _v > 0 else float("-inf")
                     _tr_same = _same_path_r2(train)
                     _va_same = _same_path_r2(validation)
                     print(f"  early-stop candidate rejected: val_R²={1.0-_omr2_va:.10f} "
@@ -3164,12 +3239,18 @@ experiment["wrapper_name"] = _best_wrapper_name
 # MSE the sympified expression will give. Big divergence ⇒ gep.simplify is
 # producing an expression that doesn't behave like the chromosome (rare,
 # but caught the gravity early-stop overfit).
-_raw_v = hgh.compile_and_predict(best_ind, validation, finalTerminals, toolbox)
+# A rule winner's chromosome is not what was scored: evaluate the rule.
+if _won_via_rule:
+    _pv = _nb_rule_predict(best_ind, validation)
+    print(f"hof[0] runtime val (rule): mse={hgh.safe_mse(Y_val, _pv):.3e}  "
+          f"R²={1.0 - hgh.safe_mse(Y_val, _pv) / float(np.var(Y_val)):.6f}")
+_raw_v = (None if _won_via_rule else
+          hgh.compile_and_predict(best_ind, validation, finalTerminals, toolbox))
 if _raw_v is not None:
     _wv = apply_wrapper(_raw_v, _best_wid)
     if _wv is not None:
         _pv = best_ind.a * _wv + best_ind.b
-        _runtime_mse_va = float(np.mean((Y_val - _pv) ** 2))
+        _runtime_mse_va = hgh.safe_mse(Y_val, _pv)
         _runtime_r2_va = 1.0 - _runtime_mse_va / float(np.var(Y_val)) if np.var(Y_val) > 0 else float("nan")
         print(f"hof[0] runtime val: mse={_runtime_mse_va:.3e}  R²={_runtime_r2_va:.6f}")
 
@@ -3397,15 +3478,29 @@ from sklearn.metrics import mean_squared_error as _mse_fn, r2_score as _r2_fn
 _Y_tr = train[target_col].values
 _Y_va = validation[target_col].values
 _bundles = []
+_seen_rules = set()
 for _i, _ind in enumerate(hof):
-    _wid_i = int(getattr(_ind, "wrapper_id", 0)) % N_WRAPPERS
-    _wrap_i = WRAPPER_FUNCS[_wid_i]
-    _pt = hgh._eval_individual_on_df(_ind, train, finalTerminals, toolbox,
-                                     apply_sigmoid=False, wrapper_fn=_wrap_i)
-    _pv = hgh._eval_individual_on_df(_ind, validation, finalTerminals, toolbox,
-                                     apply_sigmoid=False, wrapper_fn=_wrap_i)
-    if _pt is None or _pv is None:
-        continue
+    # A rule winner is scored as its RULE. Taking wrapper_id % N_WRAPPERS
+    # applied an arbitrary wrapper to a chromosome that was never the model:
+    # on I_15_3x (exact recovery, via rule) the table showed ten "log_abs"
+    # rows with R² from 0.43 down to -7.5, one of them at angular distance 0.
+    _is_rule = _nb_is_rule_winner(_ind)
+    if _is_rule:
+        if _ind.rule_label in _seen_rules:
+            continue            # the same rule, won by another individual
+        _seen_rules.add(_ind.rule_label)
+        _pt, _pv = _nb_rule_predict(_ind, train), _nb_rule_predict(_ind, validation)
+        if not (np.all(np.isfinite(_pt)) and np.all(np.isfinite(_pv))):
+            continue
+    else:
+        _wid_i = int(getattr(_ind, "wrapper_id", 0)) % N_WRAPPERS
+        _wrap_i = WRAPPER_FUNCS[_wid_i]
+        _pt = hgh._eval_individual_on_df(_ind, train, finalTerminals, toolbox,
+                                         apply_sigmoid=False, wrapper_fn=_wrap_i)
+        _pv = hgh._eval_individual_on_df(_ind, validation, finalTerminals, toolbox,
+                                         apply_sigmoid=False, wrapper_fn=_wrap_i)
+        if _pt is None or _pv is None:
+            continue
     _r2_tr = float(_r2_fn(_Y_tr, _pt))
     _r2_va = float(_r2_fn(_Y_va, _pv))
     _F = [float(_mse_fn(_Y_tr, _pt)), float(_mse_fn(_Y_va, _pv)),
@@ -3415,9 +3510,10 @@ for _i, _ind in enumerate(hof):
         continue
     _bundles.append((_i, {
         "model": _i,
-        "expression": str(_ind),
-        "wrapper": WRAPPER_NAMES[_wid_i],
-        "length": hgh.chromosome_length(_ind),
+        "expression": f"rule:{_ind.rule_sym_expr}" if _is_rule else str(_ind),
+        "wrapper": "rule" if _is_rule else WRAPPER_NAMES[_wid_i],
+        "length": (int(sp.count_ops(_ind.rule_sym_expr, visual=False))
+                   if _is_rule else hgh.chromosome_length(_ind)),
         "train_mse": _F[0], "val_mse": _F[1], "max_err": _F[2],
         "train_r2": _r2_tr, "val_r2": _r2_va,
         "a": getattr(_ind, "a", 1.0), "b": getattr(_ind, "b", 0.0),
@@ -3489,6 +3585,22 @@ for _, row in ranked.iterrows():
         break
     i = int(row["model"])
     ind = hof[i]
+    if _nb_is_rule_winner(ind):
+        # The model IS the rule: compose it with the (a, b) HFF scored.
+        snapped_i, _ = hgh.snap_constants(
+            sp.Float(ind.a) * ind.rule_sym_expr + sp.Float(ind.b),
+            library=KNOWN_CONSTANTS, rel_tol=SNAP_REL_TOL,
+            nsimplify_mode="shallow", verbose=False,
+            var_ranges=_problem_var_ranges)
+        rec = hgh.equation_recovery_report(
+            snapped_i, truth_expr, variables=problem.variables,
+            rel_tol_numeric=1e-6,
+            var_ranges=_union_ranges(problem.train_ranges, problem.extrap_ranges))
+        recoveries.append({"model": i, "wrapper": "rule",
+                           "exact": bool(rec["exact"]),
+                           "numerical": bool(rec["numerical"]),
+                           "snapped": snapped_i})
+        continue
     wid_i = int(getattr(ind, "wrapper_id", 0)) % N_WRAPPERS
     wname_i = WRAPPER_NAMES[wid_i]
     # Recompose + snap + score, applying the chromosome wrapper at the root.

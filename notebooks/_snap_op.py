@@ -144,7 +144,7 @@ def _r2_on_holdout(individual, toolbox, X_ho, y_ho):
         var = float(np.var(y))
         if var <= 0:
             return None
-        return 1.0 - float(np.mean((y - p) ** 2)) / var
+        return 1.0 - hgh.safe_mse(y, p) / var
     except Exception:
         return None
 
