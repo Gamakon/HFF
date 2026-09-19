@@ -741,7 +741,7 @@ def _gpu_prefill_population(population, df, terminals, pset) -> None:
     genes, keys = [], []
     for ind in population:
         for gene in ind:
-            r = _h._resolve_rnc(gene)
+            r = _h._resolve_rnc(gene, terminals)
             if r is None:
                 continue
             k = (key_df, _gene_key(gene))

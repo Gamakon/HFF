@@ -1911,7 +1911,7 @@ def _nb_expand_genes(genes):
                 _NB_GPU_STATS["unbuildable"] += 1
                 _NB_UNBUILDABLE[e.reason] = _NB_UNBUILDABLE.get(e.reason, 0) + 1
                 continue
-            dev = hgh._resolve_rnc(new_gene)
+            dev = hgh._resolve_rnc(new_gene, finalTerminals)
             if dev is None:
                 raise RuntimeError(
                     f"rebuilt variant of {okey} does not resolve for the "
@@ -1932,7 +1932,7 @@ def _nb_evaluate_population(population):
     """raw_results for assign_fitness_batch, from ONE dispatch."""
     sess = _nb_gpu_session()
     # Resolve every gene ONCE; both the expansion and the dispatch need it.
-    resolved = [[(g, hgh._gene_cache_key(g), hgh._resolve_rnc(g)) for g in ind]
+    resolved = [[(g, hgh._gene_cache_key(g), hgh._resolve_rnc(g, finalTerminals)) for g in ind]
                 for ind in population]
     variants = _nb_expand_genes([t for ind in resolved for t in ind])
 
@@ -2011,7 +2011,47 @@ def _nb_evaluate_population(population):
     for i in cpu_inds:
         raw_results[i] = compute_raw_metrics(population[i])
     _NB_GPU_STATS["cpu_individuals"] += len(cpu_inds)
+    if os.environ.get("HFF_JOIN_CHECK") == "1":
+        _nb_join_parity_check(population, raw_results)
     return raw_results
+
+
+def _nb_join_parity_check(population, raw_results, n=40):
+    """HFF_JOIN_CHECK=1: score the same individuals on the CPU reference path
+    and report every disagreement with the device. Off by default (it is the
+    row loop the join replaces)."""
+    bad = 0
+    for i, ind in enumerate(population[:n]):
+        ref = compute_raw_metrics(ind)
+        got = raw_results[i]
+        ref_w = {c["wrapper_id"]: c for c in (ref or {}).get("candidates", [])
+                 if c["wrapper_id"] < N_WRAPPERS}
+        got_w = {c["wrapper_id"]: c for c in (got or {}).get("candidates", [])
+                 if c.get("variant") is None and c["wrapper_id"] < N_WRAPPERS
+                 and "saving" in c}
+        for w in sorted(set(ref_w) | set(got_w)):
+            r, g = ref_w.get(w), got_w.get(w)
+            if r is None or g is None:
+                bad += 1
+                print(f"[join-check] ind {i} wrapper {w}: cpu "
+                      f"{'scored' if r else 'REJECTED'}, device "
+                      f"{'scored' if g else 'REJECTED'}   {[str(x.kexpression) for x in ind]}")
+                continue
+            # The device is f32: an exact fit is ~1e-14 there and ~1e-29 in
+            # f64, which is agreement, not a defect. Compare 1-R² (scale-free)
+            # with an absolute floor at f32's resolution.
+            _v = float(np.var(Y))
+            rel = abs(r["vec"][0] - g["vec"][0]) / max(abs(r["vec"][0]), 1e-12)
+            if abs(r["vec"][0] - g["vec"][0]) / _v > 1e-9 and rel > 1e-3:
+                bad += 1
+                print(f"[join-check]   cpu a={r['a']:.6g} b={r['b']:.6g} | device "
+                      f"a={g['a']:.6g} b={g['b']:.6g} | device tokens "
+                      f"{[hgh._resolve_rnc(x, finalTerminals)[0][:4] for x in ind]}")
+                print(f"[join-check] ind {i} wrapper {w}: mse_tr cpu {r['vec'][0]:.6g} "
+                      f"device {g['vec'][0]:.6g} (rel {rel:.2e})   "
+                      f"{[str(x.kexpression) for x in ind]}")
+    print(f"[join-check] {min(n, len(population))} individuals x {N_WRAPPERS} wrappers: "
+          f"{bad} disagreements")
 
 
 def _nb_gpu_gen_print() -> None:

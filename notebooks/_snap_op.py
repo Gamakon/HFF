@@ -295,7 +295,9 @@ def concretize_individual(individual, toolbox, pset, X_ho, y_ho,
         try:
             head_tuples = [_token_tuple(t) for t in gene.head]
             tail_tuples = [_token_tuple(t) for t in gene.tail]
-            out = concretize_karva(head_tuples, tail_tuples)
+            # The problem's INPUT names are passed so fuller never rewrites an
+            # input that happens to share a constant's name (I.29.4's `c`).
+            out = concretize_karva(head_tuples, tail_tuples, list(X_ho.columns))
         except Exception:
             new_genes.append(gene)
             continue

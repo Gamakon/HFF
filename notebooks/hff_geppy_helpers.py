@@ -383,13 +383,22 @@ class _Unconvertible(Exception):
     """An op fuller's Math cannot express; the caller uses the CPU path."""
 
 
-def _resolve_rnc(gene):
+def _resolve_rnc(gene, variables):
     """Gene -> (head, tail) fuller token tuples with RNC placeholders resolved.
 
     geppy's "?" terminal is an INDEX into the gene's Dc array, not a variable.
     It must become the literal it denotes before the tokens leave Python, or
     the decoder cannot read the gene at all.
+
+    `variables` — the problem's INPUT names — is required, not optional: geppy
+    gives an input and a named constant the same token type (SymbolTerminal,
+    value None), so the name is the only thing that tells them apart, and an
+    input must never be read as a constant. It was: Feynman I.29.4 is
+    k = omega/c, fuller's constant table holds c = 299792458, and every gene
+    using the INPUT c was sent to the device as the speed of light. The search
+    ran 400 generations at R² 0.03 on a problem the CPU path solves in 7 s.
     """
+    _inputs = frozenset(variables)
     from geppy.core.symbol import Function, Terminal, SymbolTerminal
 
     # geppy's pset names are NOT fuller's semantic ids: the engine registers
@@ -418,7 +427,7 @@ def _resolve_rnc(gene):
             return ("func", SEMANTIC_ID_MAP.get(tok.name, tok.name))
         if isinstance(tok, Terminal):
             if isinstance(tok, SymbolTerminal) or tok.value is None:
-                if tok.name in _CONST_VALUES:
+                if tok.name not in _inputs and tok.name in _CONST_VALUES:
                     return ("num", float(_CONST_VALUES[tok.name]))
                 return ("var", tok.name)
             return ("num", float(tok.value))
@@ -491,7 +500,7 @@ def _gpu_predict(individual, df: pd.DataFrame, terminals: Sequence[str]):
 
     genes = []
     for g in individual:
-        r = _resolve_rnc(g)
+        r = _resolve_rnc(g, terminals)
         if r is None:
             _bump_fallback("unconvertible_or_rnc")
             return None
@@ -610,18 +619,37 @@ def safe_mse(y: np.ndarray, pred: np.ndarray) -> float:
     return float(np.mean(r * r))
 
 
+# Relative spread below which a vector is constant. Mirrors fuller's
+# chrom_score::CONSTANT_REL_TOL; change both or neither.
+LSM_CONSTANT_REL_TOL = 2e-6
+
+
 def apply_linear_scaling(raw: np.ndarray, Y: np.ndarray) -> tuple[float, float] | None:
-    """LSM fit of (a, b) s.t. a·raw + b ≈ Y. Returns None on singular fit."""
-    if raw.size == 0 or np.allclose(raw - raw.mean(), 0.0):
+    """LSM fit of (a, b) s.t. a·raw + b ≈ Y. Returns None on singular fit.
+
+    Closed form on CENTRED data — the same arithmetic as the device path
+    (fuller chrom_score::least_squares), so the two paths are one function.
+    It used to be np.linalg.lstsq on [raw, 1] uncentred, which is badly
+    conditioned when raw sits on a large offset: for raw = omega/c + 3e8 it
+    returned a ≈ 0 (MSE = var(Y)) where the centred fit is exact. The constant
+    test is relative for the same reason the device's is: a spread under
+    ~30 ulp of f32 is rounding, not signal.
+    """
+    raw = np.asarray(raw, dtype=np.float64)
+    if raw.size == 0:
         return None
-    Q = np.hstack((raw.reshape(-1, 1), np.ones((len(raw), 1))))
-    try:
-        (a, b), *_ = np.linalg.lstsq(Q, Y, rcond=None)
-    except np.linalg.LinAlgError:
+    mx = float(raw.mean())
+    dx = raw - mx
+    if np.all(np.abs(dx) <= 1e-8 + LSM_CONSTANT_REL_TOL * abs(mx)):
         return None
+    Yf = np.asarray(Y, dtype=np.float64)
+    my = float(Yf.mean())
+    sxx = float(np.dot(dx, dx))
+    a = float(np.dot(dx, Yf - my)) / sxx
+    b = my - a * mx
     if not (np.isfinite(a) and np.isfinite(b)):
         return None
-    return float(a), float(b)
+    return a, b
 
 
 # -----------------------------------------------------------------------------
