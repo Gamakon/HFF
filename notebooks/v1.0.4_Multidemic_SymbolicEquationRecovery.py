@@ -2108,8 +2108,10 @@ def _nb_evaluate_population(population):
 
         # [a, b, mse_tr, mse_va, max_err, mse_ex, mae_tr, mae_va, mae_ex] per
         # (chromosome, linker, wrapper); one linker here, and the MAEs unused.
+        # The width is READ from the library (metrics, then a behavioural
+        # signature); hard-coding it broke the moment the signature was added.
         S = np.asarray(scores, dtype=np.float64).reshape(
-            len(chroms), N_WRAPPERS, 9)[:, :, :6]
+            len(chroms), N_WRAPPERS, sess.score_width)[:, :, :6]
         var_tr, var_va = float(np.var(Y)), float(np.var(Y_val))
         cands = [[] for _ in population]
         undecoded = set()

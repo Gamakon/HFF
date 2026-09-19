@@ -918,11 +918,15 @@ def _evaluate_population(population, toolbox, bundle: "_Bundle"):
         JOIN_STATS["genes"] += len(genes)
         JOIN_STATS["candidates"] += len(chroms) * len(active_l) * len(active_w)
 
-        S = np.asarray(scores, dtype=np.float64).reshape(
-            len(chroms), len(active_l), len(active_w), 9)
+        # Width READ from the library: 9 metrics, then the behavioural
+        # signature (the model's scaled predictions at fixed train rows).
+        _mw = sess.metric_width
+        S_all = np.asarray(scores, dtype=np.float64).reshape(
+            len(chroms), len(active_l), len(active_w), sess.score_width)
+        S, SIG = S_all[..., :_mw], S_all[..., _mw:]
         var_tr, var_va = float(np.var(bundle.Y)), float(np.var(bundle.Y_val))
         var_ex = 0.0 if is_wild else float(np.var(bundle.Y_extrap))
-        for i, c, block in zip(owners, chroms, S):
+        for ci, (i, c, block) in enumerate(zip(owners, chroms, S)):
             if not all(decoded[g] for g in c):
                 cpu.append(i)
                 continue
@@ -963,7 +967,8 @@ def _evaluate_population(population, toolbox, bundle: "_Bundle"):
                         continue
                     cands.append({"wrapper_id": w_id, "linker_id": l_id, "vec": vec,
                                   "a": float(a), "b": float(b),
-                                  "metrics": dict(zip(names, vec))})
+                                  "metrics": dict(zip(names, vec)),
+                                  "signature": SIG[ci, li, wi]})
             raw_results[i] = {"candidates": cands} if cands else None
 
     for i in cpu:
@@ -1246,6 +1251,9 @@ def _assign_fitness_batch(population, raw_results, cfg: HFFSRConfig, pset=None):
         ind.linker_id = int(payload.get("linker_id", 0))
         ind._linker = LINKER_FUNCS[ind.linker_id]
         ind._f64 = False        # (a, b) above are from this evaluation
+        # What this individual COMPUTES, as chosen here: its scaled predictions
+        # at fixed train rows. None on the CPU path, which has no signature.
+        ind.signature = payload.get("signature")
         # Snap LSM coefficient INTO the chromosome's karva.
         # If ind.a matches a lattice entry (e.g. 0.398942 -> 1/sqrt(2*pi)),
         # graft the named constant tokens into gene[0] and reset ind.a=1.0.
@@ -1551,7 +1559,9 @@ class HFFSREngine:
         print(f"[engine] constant terminals: {_atoms}", flush=True)
 
         # Build evolution state: demes, HOF, log.
-        hof = tools.HallOfFame(cfg.champs)
+        _y_scale = float(np.std(bundle.Y)) or 1.0
+        hof = tools.HallOfFame(cfg.champs,
+                               similar=lambda a, b: same_model(a, b, _y_scale))
         self._hof = hof
         roles = self._island_roles()
         n_islands = len(roles)  # == cfg.num_islands except wrapper_islands mode
@@ -2265,15 +2275,19 @@ class HFFSREngine:
 
     def _dedup_all_demes(self, demes, toolbox, evaluate_one, *, gen: int = 0):
         cfg = self.config
+        _y_scale = float(np.std(self._bundle.Y)) or 1.0
         for d_idx, deme in enumerate(demes):
-            seen = set()
-            for i, ind in enumerate(deme):
-                key = str(ind)
-                if key in seen:
+            # Best first, so the copy that survives is the best of its group.
+            order = sorted(range(len(deme)),
+                           key=lambda i: (deme[i].fitness.values[0]
+                                          if deme[i].fitness.valid else float("inf")))
+            kept = []
+            for i in order:
+                if any(same_model(deme[i], k, _y_scale) for k in kept):
                     deme[i] = toolbox.individual()
                     self._stamp_deme_wrapper([deme[i]], d_idx)
                 else:
-                    seen.add(key)
+                    kept.append(deme[i])
         for deme in demes:
             invalid = [ind for ind in deme if not ind.fitness.valid]
             if invalid:
@@ -3059,6 +3073,42 @@ class HFFSREngine:
             return levels["default"][0] if "default" in levels else expr
 
 
+# "The same model" — decided by FUNCTION, not by how a chromosome is written.
+#
+# Identity used to be textual in three places: DEAP's HallOfFame compared
+# genomes with == (dormant region included), the periodic de-dup compared
+# str(ind), and the report de-dup compared str(individual). Three orderings
+# of four genes under a commutative linker are three individuals to all of
+# them; a 30-entry hall of fame on the power plant data was ONE function.
+#
+# Two individuals are the same model when their behavioural signatures agree:
+# the scaled prediction a*f(x)+b at fixed train rows, in target units, which
+# is blind to gene order, algebraic form, dormant material and the (a, b)
+# rescaling. The tolerance is relative to the target's spread, and generous
+# enough for f32 device noise (~1e-7) while far below any real difference.
+SAME_MODEL_REL_TOL = 1e-6
+
+
+def same_model(a, b, y_scale: float) -> bool:
+    sa, sb = getattr(a, "signature", None), getattr(b, "signature", None)
+    if sa is None or sb is None:
+        # No signature (CPU path): fall back to what was compared before —
+        # and say so by being conservative: only identical writing is "same".
+        return str(a) == str(b)
+    return bool(np.max(np.abs(np.asarray(sa) - np.asarray(sb)))
+                <= SAME_MODEL_REL_TOL * max(y_scale, 1e-300))
+
+
+def distinct_models(individuals, y_scale: float) -> list:
+    """The individuals with repeats of the same MODEL removed, first kept — so
+    on a list sorted best-first the survivor of each group is its best."""
+    kept = []
+    for ind in individuals:
+        if not any(same_model(ind, k, y_scale) for k in kept):
+            kept.append(ind)
+    return kept
+
+
 def hof_records(hof, variables, feature_names=None) -> list[dict]:
     """The hall of fame as plain, durable records — no pickle, nothing cut off.
 
@@ -3100,6 +3150,8 @@ def hof_records(hof, variables, feature_names=None) -> list[dict]:
             "n_nodes": int(sum(len(g.kexpression) for g in ind)),
             "metrics": {k: float(v) for k, v in (getattr(ind, "metrics", None) or {}).items()},
             "refit_in_f64": bool(getattr(ind, "_f64", False)),
+            "signature": (None if getattr(ind, "signature", None) is None
+                          else [float(v) for v in ind.signature]),
         })
     return out
 

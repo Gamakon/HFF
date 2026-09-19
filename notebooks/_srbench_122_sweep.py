@@ -191,6 +191,10 @@ def _run_one_worker(name: str, out_path: str):
                 "features": list(getattr(X, "columns", [])) or None,
                 "engine_variables": list(est._engine._bundle.variables),
                 "hof": _e.hof_records(est._engine._hof, est._engine._bundle.variables),
+                # How many of the entries are different MODELS (by behaviour),
+                # not how many slots the hall of fame has.
+                "n_distinct_models": len(_e.distinct_models(
+                    list(est._engine._hof), float(np.std(y_tr)) or 1.0)),
             }, _hf, indent=1)
         rec["hof_file"] = _hof_path
         # Where the evaluation actually ran. An individual the device cannot
