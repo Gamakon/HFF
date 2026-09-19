@@ -568,19 +568,6 @@ def compile_and_predict(individual, df: pd.DataFrame, terminals: Sequence[str], 
     whenever the GPU cannot answer, so enabling the flag can change speed but
     not results.
     """
-    # Cache first: a population-level prefill (run in the PARENT process,
-    # before any fork) may hold every GENE of this individual. Link them the
-    # same way the compiled callable would, so the cached path and the CPU
-    # path return the same thing.
-    if _GPU_PRED_CACHE:
-        key_df = id(df)
-        parts = [_GPU_PRED_CACHE.get((key_df, _gene_cache_key(g)))
-                 for g in individual]
-        if parts and all(p is not None for p in parts):
-            linked = _link_cached_genes(parts, individual)
-            if linked is not None and np.all(np.isfinite(linked)):
-                return linked
-
     # NO per-individual GPU dispatch. _gpu_predict calls the module-level
     # gpu_predict_karva, which builds a fresh GpuEvaluator — a new Metal
     # device AND a new shader module — on EVERY call. That is the source of

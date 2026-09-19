@@ -132,6 +132,7 @@ sys.path.insert(0, ".")  # local helpers + problem registry
 
 import datetime
 import time
+import copy
 import math
 import re
 import operator
@@ -1701,115 +1702,272 @@ _build_static_candidates()
 
 
 # ---------------------------------------------------------------------------
-# Population-level GPU prefill (HFF_GPU=1)
+# THE JOIN (HFF_GPU=1): population x genes x e-class variants x wrappers,
+# one dispatch per evaluation
 # ---------------------------------------------------------------------------
-# compute_raw_metrics evaluates ONE individual at a time, three times over
-# (train, val, extrap). Routing each of those through the GPU individually is
-# slower than the CPU row loop — measured 3.4x slower — because the dispatch
-# overhead is paid per call.
+# fuller proposes, the GPU evaluates, HFF disposes:
 #
-# So the whole deme is dispatched ONCE per dataframe before evaluation
-# begins, and compile_and_predict reads the cached result. Data stays resident
-# on the device across generations via fuller's GpuSession.
+#   1. every gene of every individual is expanded through fuller's e-graph
+#      (denoise_karva_candidates_batch: all genes in one call, saturated in
+#      parallel) into up to HFF_ECLASS_K equivalent / pruned variants;
+#   2. every variant is rebuilt as a real geppy gene FIRST, and the tokens sent
+#      to the device are read back off that rebuilt gene — so what is scored is
+#      exactly what would be grafted, not fuller's description of it;
+#   3. one GpuSession holds train+val+extrap rows resident. ONE dispatch
+#      evaluates every unique gene over all of them;
+#   4. a chromosome candidate is the individual with ONE gene swapped for a
+#      variant (n_genes * K + 1 per individual), and every candidate is scored
+#      under every wrapper, in Rust, from the shared gene predictions;
+#   5. all candidates enter assign_fitness_batch's single HFF pool. When a
+#      variant wins, its gene is grafted into the individual. Among candidates
+#      HFF cannot separate, the SMALLEST gene wins — that is what makes the
+#      gene pool simpler instead of merely different.
 #
-# Any gene that cannot be converted is simply absent from the cache and falls
-# back to the CPU row loop, so this changes where a value is computed, never
-# whether it is correct.
+# An individual the device cannot take (diff_sq has no Math constructor; a gene
+# over MAX_NODES) is evaluated by compute_raw_metrics, the reference path, and
+# COUNTED in the generation row (`cpu N`). Nothing else falls back: a session,
+# dispatch or expansion failure raises.
 
-_NB_GPU_STATS = {"dispatches": 0, "genes": 0, "row_evals": 0, "seconds": 0.0}
-_NB_GPU_LAST = {"dispatches": 0, "genes": 0, "seconds": 0.0}
+ECLASS_K = int(os.environ.get("HFF_ECLASS_K", "8"))
+# Fitness is an angular distance (radians). Equivalent forms differ only by
+# f32 rounding on the device; inside this band the smaller gene wins.
+ECLASS_TIE_TOL = float(os.environ.get("HFF_ECLASS_TIE_TOL", "1e-6"))
+_NB_ECLASS_CACHE_MAX = 200_000
 
-
-def _nb_df_key(df) -> tuple:
-    """Stable identity for a dataframe across a fit."""
-    col = df.columns[-1]
-    return (df.shape, str(df.columns.tolist()),
-            float(df[col].iloc[0]), float(df[col].iloc[-1]))
-
-
-def _nb_gpu_cache_reset() -> None:
-    """Drop cached predictions at the start of a generation.
-
-    The cache is only useful WITHIN a generation — compute_raw_metrics reads
-    each gene once per dataframe — and the population is replaced every
-    generation, so nothing carried over is ever reused. Left unbounded it
-    grows without limit: at 5x population that is 2.7 million arrays, ~17 GB,
-    which is what made the GPU run slower than the CPU one it was meant to
-    beat. Sessions are NOT dropped; the dataset has not changed and
-    re-uploading it is the cost residency exists to avoid.
-    """
-    hgh._GPU_PRED_CACHE.clear()
+_NB_GPU = {"session": None, "fns": None}
+# fuller uses rows only to PROPOSE data-pruned forms; every proposal is then
+# scored on all rows by the device, so a sample is enough here.
+_NB_ECLASS_ROWS = train[list(finalTerminals)].iloc[:64].to_dict(orient="records")
+_NB_ECLASS_CACHE: dict = {}
+_NB_GPU_STATS = {"dispatches": 0, "genes": 0, "chromosomes": 0, "candidates": 0,
+                 "seconds": 0.0, "expand_seconds": 0.0, "expanded": 0,
+                 "variants": 0, "expand_errors": 0, "inexpressible": 0,
+                 "oversized": 0, "unbuildable": 0, "cpu_individuals": 0,
+                 "grafts": 0, "nodes_saved": 0}
+_NB_GPU_LAST = dict(_NB_GPU_STATS)
+_NB_EXPAND_ERRORS: dict = {}
+_NB_UNBUILDABLE: dict = {}
 
 
-def _nb_gpu_prefill(population, df):
-    """One dispatch for every gene of every individual against df."""
-    if os.environ.get("HFF_GPU") != "1" or not population:
-        return
-    try:
+def _nb_gpu_session():
+    """The one resident session: train, validation, extrapolation rows
+    concatenated, so a single dispatch answers all three splits."""
+    if _NB_GPU["session"] is None:
         import fuller as _f
-        if not hasattr(_f._fuller, "GpuSession"):
-            return
-    except ImportError:
+        rows = np.vstack([train[list(finalTerminals)].values,
+                          validation[list(finalTerminals)].values,
+                          extrapolation[list(finalTerminals)].values])
+        _NB_GPU["fns"] = {n: (n, a) for n, a in _f.master_pset()}
+        _NB_GPU["session"] = _f._fuller.GpuSession(
+            list(finalTerminals), _NB_GPU["fns"], [1.0], rows.tolist())
+        _NB_GPU["y"] = np.concatenate([Y, Y_val, Y_extrap]).astype(np.float64).tolist()
+    return _NB_GPU["session"]
+
+
+def _nb_geppy_tokens(gene):
+    """Gene -> (head, tail) in GEPPY names with the Dc domain resolved, or
+    None. "?" is an index into the gene's rnc_array, not a symbol; handing it
+    to the e-graph as one free variable lets it prove false equalities."""
+    from _denoise_op import _token_tuple
+    dc = list(getattr(gene, "dc", []) or [])
+    rnc = list(getattr(gene, "rnc_array", []) or [])
+    n = 0
+    out = []
+    for toks in (gene.head, gene.tail):
+        part = []
+        for tok in toks:
+            k, v = _token_tuple(tok)
+            if k == "var" and v == "?":
+                if not dc or not rnc or n >= len(dc) or dc[n] >= len(rnc):
+                    return None
+                part.append(("num", float(rnc[dc[n]])))
+                n += 1
+            else:
+                part.append((k, v))
+        out.append(part)
+    return out[0], out[1]
+
+
+def _nb_expand_genes(genes):
+    """E-class variants for every gene not already cached.
+
+    Cache entries: gene_key -> [(variant_gene, device_tokens, saving), ...],
+    original excluded; saving = nodes(original) - nodes(variant), in fuller's
+    node-count unit, and may be negative. Keyed on head+tail+dc+rnc_array, so a cached variant is
+    valid for every gene with that key. The e-class of a gene does not change
+    between generations, and most genes survive a generation unchanged.
+    """
+    from _denoise_op import _build_functions_dict
+    from _gene_utils import build_variant_gene, VariantNotExpressible
+    from geppy.core.symbol import SymbolTerminal
+    import fuller as _f
+
+    if len(_NB_ECLASS_CACHE) > _NB_ECLASS_CACHE_MAX:
+        _NB_ECLASS_CACHE.clear()
+    todo, payload = {}, []
+    for gene in genes:
+        key = hgh._gene_cache_key(gene)
+        if key in _NB_ECLASS_CACHE or key in todo:
+            continue
+        toks = _nb_geppy_tokens(gene)
+        if toks is None or hgh._resolve_rnc(gene) is None:
+            _NB_ECLASS_CACHE[key] = []      # not expandable; scored as it is
+            continue
+        rnc = sorted({float(t.value) for t in pset.terminals
+                      if getattr(t, "value", None) is not None}
+                     | {float(x) for x in (getattr(gene, "rnc_array", None) or [])})
+        todo[key] = gene
+        payload.append((toks[0], toks[1], rnc))
+    if not payload:
         return
 
-    # Key on a STABLE identity, not id(). CPython reuses an id once an object
-    # is freed, so a temporary frame can inherit a dead frame's session and
-    # cached predictions — silently returning another dataframe's values.
-    # Shape plus the first and last target value is enough to separate
-    # train/val/extrap/holdout and is constant for the life of a fit.
-    key = _nb_df_key(df)
-    genes, keys = [], []
-    for ind in population:
-        for gene in ind:
-            r = hgh._resolve_rnc(gene)
-            if r is None:
+    variables = [t.name for t in pset.terminals
+                 if (isinstance(t, SymbolTerminal) or t.value is None)
+                 and t.name != "?"]
+    t0 = time.perf_counter()
+    results = _f._fuller.denoise_karva_candidates_batch(
+        payload, variables, _build_functions_dict(pset), _NB_ECLASS_ROWS,
+        k_variants=ECLASS_K, rng_seed=0,
+        target_head_length=settings.head_length)
+    _NB_GPU_STATS["expand_seconds"] += time.perf_counter() - t0
+    _NB_GPU_STATS["expanded"] += len(payload)
+
+    for (key, gene), res in zip(todo.items(), results):
+        if res["error"]:
+            _NB_GPU_STATS["expand_errors"] += 1
+            why = res["error"].split(":")[0]
+            _NB_EXPAND_ERRORS[why] = _NB_EXPAND_ERRORS.get(why, 0) + 1
+        _NB_GPU_STATS["inexpressible"] += res["n_inexpressible"]
+        _NB_GPU_STATS["oversized"] += res["n_oversized"]
+        orig_cost = res["orig_cost"]
+        if orig_cost is None and res["candidates"]:
+            raise RuntimeError(
+                "fuller returned e-class candidates but no cost for the "
+                f"original; cannot cost a graft for gene {key[0]}")
+        entries, seen = [], {str(hgh._resolve_rnc(gene))}
+        for c in sorted(res["candidates"], key=lambda c: c["cost"]):
+            if c["is_original"] or len(entries) >= ECLASS_K:
                 continue
-            k = (key, hgh._gene_cache_key(gene))
-            if k in hgh._GPU_PRED_CACHE:
+            try:
+                new_gene = build_variant_gene(gene, c["head"], c["tail"], pset)
+            except VariantNotExpressible as e:
+                _NB_GPU_STATS["unbuildable"] += 1
+                _NB_UNBUILDABLE[e.reason] = _NB_UNBUILDABLE.get(e.reason, 0) + 1
                 continue
-            genes.append(r)
-            keys.append(k)
-    if not genes:
-        return
+            dev = hgh._resolve_rnc(new_gene)
+            if dev is None:
+                raise RuntimeError(
+                    f"rebuilt variant of gene {key[0]} does not resolve for the "
+                    "device although its original did")
+            if str(dev) in seen:
+                continue
+            seen.add(str(dev))
+            entries.append((new_gene, dev, orig_cost - int(c["cost"])))
+        _NB_ECLASS_CACHE[key] = entries
+        _NB_GPU_STATS["variants"] += len(entries)
 
-    sess = hgh._GPU_SESSIONS.get(key)
-    if sess is None:
-        fns = {n: (n, a) for n, a in _f.master_pset()}
-        try:
-            sess = _f._fuller.GpuSession(
-                list(finalTerminals), fns, [1.0],
-                df[list(finalTerminals)].values.tolist())
-        except Exception:
-            return
-        hgh._GPU_SESSIONS[key] = sess
-        _NB_GPU_STATS["sessions"] = _NB_GPU_STATS.get("sessions", 0) + 1
 
-    try:
-        _t0 = time.perf_counter()
-        preds = sess.predict(genes)
-        _dt = time.perf_counter() - _t0
-    except Exception:
-        return
+def _nb_evaluate_population(population):
+    """raw_results for assign_fitness_batch, from ONE dispatch."""
+    sess = _nb_gpu_session()
+    _nb_expand_genes([g for ind in population for g in ind])
 
-    _NB_GPU_STATS["dispatches"] += 1
-    _NB_GPU_STATS["genes"] += len(genes)
-    _NB_GPU_STATS["row_evals"] += len(genes) * sess.n_rows
-    _NB_GPU_STATS["seconds"] += _dt
-    for k, pr in zip(keys, preds):
-        if pr is not None:
-            hgh._GPU_PRED_CACHE[k] = np.asarray(pr, dtype=np.float64)
+    gene_index: dict = {}
+    gene_list: list = []
+
+    def gidx(dev):
+        k = str(dev)
+        i = gene_index.get(k)
+        if i is None:
+            i = gene_index[k] = len(gene_list)
+            gene_list.append(dev)
+        return i
+
+    chroms, meta, cpu_inds = [], [], []
+    for i, ind in enumerate(population):
+        devs = [hgh._resolve_rnc(g) for g in ind]
+        if any(d is None for d in devs):
+            cpu_inds.append(i)
+            continue
+        base = [gidx(d) for d in devs]
+        chroms.append(base)
+        meta.append((i, None, None, 0))
+        for j, gene in enumerate(ind):
+            for new_gene, dev, saving in _NB_ECLASS_CACHE[hgh._gene_cache_key(gene)]:
+                c = list(base)
+                c[j] = gidx(dev)
+                chroms.append(c)
+                meta.append((i, j, new_gene, saving))
+
+    raw_results = [None] * len(population)
+    if chroms:
+        linker = getattr(population[0], "linker", None)
+        t0 = time.perf_counter()
+        scores, decoded = sess.score_chromosomes(
+            gene_list, chroms, getattr(linker, "__name__", "avgval"),
+            list(WRAPPER_NAMES), len(Y), len(Y_val), len(Y_extrap),
+            _NB_GPU["y"], bool(settings.enable_linear_scaling))
+        _NB_GPU_STATS["seconds"] += time.perf_counter() - t0
+        _NB_GPU_STATS["dispatches"] += 1
+        _NB_GPU_STATS["genes"] += len(gene_list)
+        _NB_GPU_STATS["chromosomes"] += len(chroms)
+        _NB_GPU_STATS["candidates"] += len(chroms) * N_WRAPPERS
+
+        S = np.asarray(scores, dtype=np.float64).reshape(len(chroms), N_WRAPPERS, 6)
+        var_tr, var_va = float(np.var(Y)), float(np.var(Y_val))
+        cands = [[] for _ in population]
+        undecoded = set()
+        for (i, j, new_gene, saving), c, row in zip(meta, chroms, S):
+            if j is None and not all(decoded[g] for g in c):
+                undecoded.add(i)       # the individual's OWN gene: reference path
+                continue
+            for w_id in range(N_WRAPPERS):
+                a, b, mse_tr, mse_va, max_err, mse_ex = row[w_id]
+                if not np.isfinite(a):
+                    continue
+                r2_tr = mse_tr / var_tr if var_tr > 0 else float("inf")
+                r2_va = mse_va / var_va if var_va > 0 else float("inf")
+                vec = ([mse_tr, mse_va, max_err, mse_ex, r2_tr, r2_va]
+                       if HFF_INCLUDE_VAL else [mse_tr, r2_tr])
+                if not all(np.isfinite(vec)):
+                    continue
+                cands[i].append({
+                    "wrapper_id": w_id, "vec": vec, "a": float(a), "b": float(b),
+                    "metrics": dict(zip(METRIC_NAMES, vec)),
+                    "variant": None if j is None else (j, new_gene),
+                    "saving": saving,
+                })
+        for i in undecoded:
+            cands[i] = []
+            cpu_inds.append(i)
+        for i, cl in enumerate(cands):
+            if cl:
+                raw_results[i] = {"candidates": cl + list(_STATIC_RULE_CANDIDATES)}
+
+    for i in cpu_inds:
+        raw_results[i] = compute_raw_metrics(population[i])
+    _NB_GPU_STATS["cpu_individuals"] += len(cpu_inds)
+    return raw_results
 
 
 def _nb_gpu_gen_delta() -> str:
-    """wgpu work done since the last call — this generation's share."""
+    """This generation's share of the join, for the logbook row."""
     if os.environ.get("HFF_GPU") != "1":
         return ""
-    d = _NB_GPU_STATS["dispatches"] - _NB_GPU_LAST["dispatches"]
-    g = _NB_GPU_STATS["genes"] - _NB_GPU_LAST["genes"]
-    ms = (_NB_GPU_STATS["seconds"] - _NB_GPU_LAST["seconds"]) * 1000.0
-    _NB_GPU_LAST.update({k: _NB_GPU_STATS[k]
-                         for k in ("dispatches", "genes", "seconds")})
-    return f"  wgpu {d}d {g}g {ms:.1f}ms"
+    d = {k: _NB_GPU_STATS[k] - _NB_GPU_LAST[k] for k in _NB_GPU_STATS}
+    _NB_GPU_LAST.update(_NB_GPU_STATS)
+    out = (f"  wgpu {d['dispatches']}d {d['genes']}g {d['chromosomes']}c "
+           f"x{N_WRAPPERS}w {d['seconds'] * 1000:.0f}ms"
+           f" | egraph {d['expanded']}g->{d['variants']}v "
+           f"{d['expand_seconds'] * 1000:.0f}ms"
+           f" | graft {d['grafts']} (-{d['nodes_saved']}n) cpu {d['cpu_individuals']}")
+    dropped = d["inexpressible"] + d["oversized"] + d["unbuildable"]
+    if dropped:
+        out += (f" | dropped inexpr {d['inexpressible']} oversz {d['oversized']}"
+                f" unbuild {d['unbuildable']} {dict(_NB_UNBUILDABLE)}")
+    if d["expand_errors"]:
+        out += f" EXPAND-ERR {d['expand_errors']} {dict(_NB_EXPAND_ERRORS)}"
+    return out
 
 
 def compute_raw_metrics(individual):
@@ -1886,6 +2044,14 @@ def evaluate_individual(individual):
     return compute_raw_metrics(individual)
 
 
+def _nb_evaluate(population):
+    """One dispatch for the whole population under HFF_GPU=1; the process
+    pool over compute_raw_metrics otherwise."""
+    if os.environ.get("HFF_GPU") == "1":
+        return _nb_evaluate_population(population)
+    return list(toolbox.map(toolbox.evaluate, population))
+
+
 def assign_fitness_batch(population, raw_results):
     """E20: every raw_results[i] holds N_WRAPPERS candidate vecs. Stack
     ALL candidates from all individuals into one F matrix, compute HFF
@@ -1932,8 +2098,27 @@ def assign_fitness_batch(population, raw_results):
         if prev is None or f < prev[0]:
             best_for_ind[owner] = (f, cand_payload[k])
 
+    # E-class tie-break. Equivalent forms of a gene score the same up to f32
+    # rounding, so HFF alone cannot prefer one. Inside ECLASS_TIE_TOL of the
+    # individual's best, the candidate that SAVES THE MOST NODES wins; the
+    # unswapped individual saves 0, so a graft always buys something. Only
+    # candidates from the join carry "saving" — if a static rule or a
+    # CPU-path candidate holds the slot, it is left alone.
+    for k, owner in enumerate(cand_owner):
+        p = cand_payload[k]
+        bf, bp = best_for_ind[owner]
+        if "saving" not in p or "saving" not in bp:
+            continue
+        if float(fitness[k]) <= bf + ECLASS_TIE_TOL and p["saving"] > bp["saving"]:
+            best_for_ind[owner] = (bf, p) if float(fitness[k]) > bf else (float(fitness[k]), p)
+
     for i, (f, payload) in best_for_ind.items():
         ind = population[i]
+        if payload.get("variant") is not None:
+            j, new_gene = payload["variant"]
+            _NB_GPU_STATS["grafts"] += 1
+            _NB_GPU_STATS["nodes_saved"] += payload["saving"]
+            ind[j] = copy.deepcopy(new_gene)
         ind.fitness.values = (f,)
         ind.metrics = payload["metrics"]
         ind.a = payload["a"]
@@ -2594,15 +2779,7 @@ else:
     log.header = ("gen", "deme", "evals", "min fitness", *METRIC_NAMES)
 
     for idx, deme in enumerate(demes):
-        # GPU prefill runs HERE, in the parent, before pool.map forks.
-        # Workers must never initialise Metal: a fork after Metal init
-        # crashes the child outright. They read the cache instead, which
-        # fork copies to them.
-        _nb_gpu_cache_reset()
-        _nb_gpu_prefill(deme, train)
-        _nb_gpu_prefill(deme, validation)
-        _nb_gpu_prefill(deme, extrapolation)
-        raw_results = list(toolbox.map(toolbox.evaluate, deme))
+        raw_results = _nb_evaluate(deme)
         assign_fitness_batch(deme, raw_results)
         log.record(gen=0, deme=idx, evals=len(deme),
                    **stats.compile(deme), **per_metric_mins(deme))
@@ -2665,15 +2842,7 @@ else:
             deme[:] = elites + offspring
             invalid_ind = [ind for ind in deme if not ind.fitness.valid]
             if invalid_ind:
-                # GPU prefill runs HERE, in the parent, before pool.map forks.
-                # Workers must never initialise Metal: a fork after Metal init
-                # crashes the child outright. They read the cache instead, which
-                # fork copies to them.
-                _nb_gpu_cache_reset()
-                _nb_gpu_prefill(invalid_ind, train)
-                _nb_gpu_prefill(invalid_ind, validation)
-                _nb_gpu_prefill(invalid_ind, extrapolation)
-                raw_results = list(toolbox.map(toolbox.evaluate, invalid_ind))
+                raw_results = _nb_evaluate(invalid_ind)
                 assign_fitness_batch(invalid_ind, raw_results)
             log.record(gen=gen, deme=idx, evals=len(deme),
                        **stats.compile(deme), **per_metric_mins(deme))

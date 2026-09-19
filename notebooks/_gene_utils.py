@@ -70,3 +70,107 @@ def build_gene_like(orig_gene, new_head: list, new_tail: list, pset,
                                     head_length=head_length)
     except Exception:
         return None
+
+
+class VariantNotExpressible(ValueError):
+    """The variant needs something this gene cannot hold. `reason` is one of
+    "constant" (a literal absent from the pset AND the gene's rnc_array),
+    "function" (a function name the pset does not have), "length" (the
+    expression does not fit the head), "dc" (more constants than Dc slots)."""
+
+    def __init__(self, reason: str, detail: str):
+        super().__init__(f"{reason}: {detail}")
+        self.reason = reason
+
+
+def build_variant_gene(orig_gene, head_tuples: list, tail_tuples: list, pset):
+    """Build a geppy gene from fuller (kind, value) tokens — constants included.
+
+    `_rebuild_tokens` + `build_gene_like` cannot do this: they look a numeric
+    literal up among the pset's TERMINALS, but a GeneDc's constants are not
+    terminals. They live in `rnc_array`, reached through the "?" placeholder
+    and the Dc domain: the n-th "?" of the expressed tree reads
+    rnc_array[dc[n]]. fuller hands back resolved numbers, so nearly every
+    variant of a gene with a constant in it was refused (measured on I_12_5:
+    574 of 574 variants in one generation).
+
+    Here a literal becomes: a pset constant terminal if one has that value;
+    otherwise "?" with a NEW Dc entry pointing at its slot in rnc_array; and
+    only if rnc_array does not hold it either is the variant not expressible.
+    The Dc domain is REBUILT in tree order — keeping the original's would pair
+    each "?" with some other constant's index.
+
+    Only the coding region (the ORF) is taken from fuller. Its padding is
+    discarded and the non-coding remainder is filled from the original gene,
+    so the dormant material evolution may later re-activate is kept.
+
+    Raises VariantNotExpressible; returns the new gene.
+    """
+    from geppy.core.symbol import RNCTerminal
+
+    toks = list(head_tuples) + list(tail_tuples)
+    fn_by_name = {f.name: f for f in
+                  list(pset.functions) + list(getattr(pset, "decode_only_functions", []))}
+    term_by_name = {t.name: t for t in pset.terminals}
+    const_by_value = {}
+    for t in pset.terminals:
+        v = getattr(t, "value", None)
+        if v is not None and not isinstance(t, RNCTerminal):
+            try:
+                const_by_value.setdefault(float(v), t)
+            except (TypeError, ValueError):
+                pass
+    rnc_term = next((t for t in pset.terminals if isinstance(t, RNCTerminal)), None)
+    rnc_array = list(getattr(orig_gene, "rnc_array", []) or [])
+
+    # ORF length: walk level order, each function opening `arity` more slots.
+    need, n_orf = 1, 0
+    while need > 0:
+        if n_orf >= len(toks):
+            raise VariantNotExpressible("length", "token list ends inside the tree")
+        kind, val = toks[n_orf]
+        if kind == "func":
+            if val not in fn_by_name:
+                raise VariantNotExpressible("function", str(val))
+            need += fn_by_name[val].arity
+        need -= 1
+        n_orf += 1
+
+    head_length = orig_gene.head_length
+    orig = list(orig_gene)
+    tail_length = (len(orig) - head_length) // 2 if rnc_array or hasattr(orig_gene, "dc") \
+        else len(orig) - head_length
+    if n_orf > head_length + tail_length:
+        raise VariantNotExpressible("length", f"{n_orf} nodes")
+
+    coding, new_dc = [], []
+    for pos, (kind, val) in enumerate(toks[:n_orf]):
+        if kind == "func":
+            if pos >= head_length:
+                raise VariantNotExpressible("length", "function falls in the tail")
+            coding.append(fn_by_name[val])
+        elif kind == "var":
+            if val not in term_by_name:
+                raise VariantNotExpressible("function", f"terminal {val}")
+            coding.append(term_by_name[val])
+        else:
+            v = float(val)
+            if v in const_by_value:
+                coding.append(const_by_value[v])
+                continue
+            slot = next((i for i, r in enumerate(rnc_array) if float(r) == v), None)
+            if slot is None or rnc_term is None:
+                raise VariantNotExpressible("constant", repr(v))
+            coding.append(rnc_term)
+            new_dc.append(slot)
+
+    body = coding + orig[n_orf:head_length + tail_length]
+    # A function carried over from the original's dormant head must not land
+    # in the tail; positions are preserved, so it cannot — but a dormant "?"
+    # in the body is harmless: the ORF ends before it, so it is never read.
+    if not hasattr(orig_gene, "dc"):
+        return Gene.from_genome(body, head_length=head_length)
+    if len(new_dc) > tail_length:
+        raise VariantNotExpressible("dc", f"{len(new_dc)} constants, {tail_length} slots")
+    dc = new_dc + list(orig_gene.dc)[len(new_dc):tail_length]
+    return GeneDc.from_genome(body + dc, head_length=head_length, rnc_array=rnc_array)
