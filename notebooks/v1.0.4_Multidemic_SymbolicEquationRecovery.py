@@ -1747,6 +1747,7 @@ _NB_GPU_STATS = {"dispatches": 0, "genes": 0, "chromosomes": 0, "candidates": 0,
 _NB_GPU_LAST = dict(_NB_GPU_STATS)
 _NB_EXPAND_ERRORS: dict = {}
 _NB_UNBUILDABLE: dict = {}
+_NB_UNBUILDABLE_LAST: dict = {}
 
 
 def _nb_gpu_session():
@@ -1950,8 +1951,16 @@ def _nb_evaluate_population(population):
     return raw_results
 
 
+def _nb_gpu_gen_print() -> None:
+    """One line per generation, under the island rows: the join covers every
+    island at once, so it belongs to the generation, not to a row."""
+    line = _nb_gpu_gen_delta()
+    if line:
+        print("          " + line.strip(), flush=True)
+
+
 def _nb_gpu_gen_delta() -> str:
-    """This generation's share of the join, for the logbook row."""
+    """This generation's share of the join."""
     if os.environ.get("HFF_GPU") != "1":
         return ""
     d = {k: _NB_GPU_STATS[k] - _NB_GPU_LAST[k] for k in _NB_GPU_STATS}
@@ -1961,10 +1970,13 @@ def _nb_gpu_gen_delta() -> str:
            f" | egraph {d['expanded']}g->{d['variants']}v "
            f"{d['expand_seconds'] * 1000:.0f}ms"
            f" | graft {d['grafts']} (-{d['nodes_saved']}n) cpu {d['cpu_individuals']}")
+    why = {k: v - _NB_UNBUILDABLE_LAST.get(k, 0) for k, v in _NB_UNBUILDABLE.items()
+           if v - _NB_UNBUILDABLE_LAST.get(k, 0)}
+    _NB_UNBUILDABLE_LAST.update(_NB_UNBUILDABLE)
     dropped = d["inexpressible"] + d["oversized"] + d["unbuildable"]
     if dropped:
         out += (f" | dropped inexpr {d['inexpressible']} oversz {d['oversized']}"
-                f" unbuild {d['unbuildable']} {dict(_NB_UNBUILDABLE)}")
+                f" unbuild {d['unbuildable']} {why}")
     if d["expand_errors"]:
         out += f" EXPAND-ERR {d['expand_errors']} {dict(_NB_EXPAND_ERRORS)}"
     return out
@@ -2050,6 +2062,27 @@ def _nb_evaluate(population):
     if os.environ.get("HFF_GPU") == "1":
         return _nb_evaluate_population(population)
     return list(toolbox.map(toolbox.evaluate, population))
+
+
+def _nb_evaluate_islands(groups):
+    """Evaluate EVERY island's individuals together, then assign fitness per
+    island.
+
+    islands x population x genes x e-class variants x wrappers is one
+    dispatch: the groups are concatenated for evaluation, which is per
+    individual and does not care which island it came from. Fitness is NOT
+    pooled — HFF normalises over a population, and each island is its own
+    population — so the results are split back and assigned island by island.
+    """
+    flat = [ind for g in groups for ind in g]
+    if not flat:
+        return
+    raw = _nb_evaluate(flat)
+    at = 0
+    for g in groups:
+        if g:
+            assign_fitness_batch(g, raw[at:at + len(g)])
+        at += len(g)
 
 
 def assign_fitness_batch(population, raw_results):
@@ -2778,15 +2811,14 @@ else:
     log = tools.Logbook()
     log.header = ("gen", "deme", "evals", "min fitness", *METRIC_NAMES)
 
+    _nb_evaluate_islands(demes)
+    print(hgh.format_log_header(METRIC_NAMES))
     for idx, deme in enumerate(demes):
-        raw_results = _nb_evaluate(deme)
-        assign_fitness_batch(deme, raw_results)
         log.record(gen=0, deme=idx, evals=len(deme),
                    **stats.compile(deme), **per_metric_mins(deme))
         hof.update(deme)
-        if idx == 0:
-            print(hgh.format_log_header(METRIC_NAMES))
-        print(hgh.format_log_row(log[-1], METRIC_NAMES) + _nb_gpu_gen_delta())
+        print(hgh.format_log_row(log[-1], METRIC_NAMES))
+    _nb_gpu_gen_print()
     gen = 1
 
 # %% [markdown]
@@ -2821,13 +2853,12 @@ else:
     print(f"Extending evolution: gen {gen} → {target_gen} (+{extra_gen} generations)")
 
     while gen <= target_gen:
+        # Phase 1 — variation, island by island. Islands do not interact
+        # within a generation (only at migration), so nothing here depends on
+        # another island's fitness.
         for idx, deme in enumerate(demes):
             if idx in HALTED_DEMES:
-                # Wrapper-culled — deme frozen. Skip select/mutate/cross/eval.
-                # Logbook still records its current state for transparency.
-                log.record(gen=gen, deme=idx, evals=0,
-                           **stats.compile(deme), **per_metric_mins(deme))
-                continue
+                continue      # wrapper-culled: frozen, no select/mutate/cross
             _ts = _island_tournsize(idx)
             deme[:] = tools.selTournament(deme, len(deme), tournsize=_ts)
             elites = tools.selBest(deme, k=num_elites)
@@ -2840,14 +2871,20 @@ else:
                 if op.startswith("cx"):
                     offspring = gep_apply_crossover(offspring, getattr(toolbox, op), toolbox.pbs[op])
             deme[:] = elites + offspring
-            invalid_ind = [ind for ind in deme if not ind.fitness.valid]
-            if invalid_ind:
-                raw_results = _nb_evaluate(invalid_ind)
-                assign_fitness_batch(invalid_ind, raw_results)
-            log.record(gen=gen, deme=idx, evals=len(deme),
+
+        # Phase 2 — ONE evaluation for every island's unevaluated individuals.
+        _nb_evaluate_islands([[ind for ind in deme if not ind.fitness.valid]
+                              for deme in demes])
+
+        # Phase 3 — record. A halted island logs its frozen state, evals=0.
+        for idx, deme in enumerate(demes):
+            _halted = idx in HALTED_DEMES
+            log.record(gen=gen, deme=idx, evals=0 if _halted else len(deme),
                        **stats.compile(deme), **per_metric_mins(deme))
-            hof.update(deme)
-            print(hgh.format_log_row(log[-1], METRIC_NAMES) + _nb_gpu_gen_delta())
+            if not _halted:
+                hof.update(deme)
+            print(hgh.format_log_row(log[-1], METRIC_NAMES))
+        _nb_gpu_gen_print()
 
         # Early-stop: any deme produced an individual with val_R² ≥ threshold
         # AND that same individual scores ≥ threshold on the held-out holdout
@@ -3048,11 +3085,8 @@ else:
             # selection sees correct values. Fragments from denoise-winner
             # always carry invalid fitness, so they get re-eval'd too.
             stamp_deme_wrappers(demes)
-            for _deme in demes:
-                _invalid = [_ind for _ind in _deme if not _ind.fitness.valid]
-                if _invalid:
-                    _rr = list(toolbox.map(toolbox.evaluate, _invalid))
-                    assign_fitness_batch(_invalid, _rr)
+            _nb_evaluate_islands([[_ind for _ind in _deme if not _ind.fitness.valid]
+                                  for _deme in demes])
             print(f"--------- pump migration: {_fired_label} ---------")
         gen += 1
 
