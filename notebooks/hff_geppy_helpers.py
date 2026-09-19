@@ -454,14 +454,16 @@ def _resolve_rnc(gene, variables):
     n_head = len(gene.head)
     flat = [tup(t) for t in toks[:n_orf]]
 
-    # diff_sq(a, b) is (a-b)^2 and has no Math constructor. It CANNOT be
-    # expanded in place: the obvious rewrite to pow2(sub(a,b)) changes the
-    # arity consumed at that position — diff_sq takes 2 child slots, pow2
-    # takes 1 — so every following child slot shifts and the gene decodes to a
-    # different tree. Measured: a gene giving 286.6 on CPU gave 65.0 on the
-    # GPU under that rewrite. Genes EXPRESSING diff_sq go to the CPU path.
-    if any(k == "func" and v == "diff_sq" for k, v in flat):
-        return None
+    # diff_sq(a, b) = (a-b)^2 goes to the device like any other op. fuller's
+    # karva DECODER takes the token with both of its child slots and yields
+    # the composite (Pow2 (Sub a b)), so the layout is untouched — verified on
+    # the device against numpy, nested cases included. What does NOT work is
+    # rewriting the TOKENS to pow2(sub(..)) here: pow2 takes one slot, every
+    # later child shifts, and the gene decodes to a different tree (286.6 on
+    # the CPU, 65.0 on the device). This function used to refuse such genes
+    # outright, which sent ~9% of a population to the CPU row loop. The
+    # session's function table must carry ("diff_sq", 2); master_pset() omits
+    # it because it is decode-only.
     dc = list(getattr(gene, "dc", []) or [])
     rnc = list(getattr(gene, "rnc_array", []) or [])
     out, n = [], 0

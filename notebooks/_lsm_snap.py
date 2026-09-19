@@ -33,7 +33,14 @@ except ImportError:
 # Public: pset atom registration
 # ---------------------------------------------------------------------------
 
-def register_atoms_in_pset(pset) -> None:
+# The DIMENSIONLESS atoms: numbers a formula can contain whatever the data is
+# about. The rest of master_constants are physical quantities with units —
+# c, G, h, hbar, kB, NA, me, mu0, eps0, qe, g_earth — which only mean anything
+# on data measured in those units.
+MATH_ATOMS = ("pi", "e", "phi", "gamma", "sqrt2", "sqrt3")
+
+
+def register_atoms_in_pset(pset, which: str = "all") -> None:
     """One-time per fit: register the 16 master_constants atoms (pi, e, G, ...)
     as SymbolTerminals so snap-grafted karva can reference them by name.
     Composed forms (1/(4*pi), 1/sqrt(2*pi)) appear as karva trees built
@@ -41,9 +48,11 @@ def register_atoms_in_pset(pset) -> None:
     """
     if not FULLER_AVAILABLE:
         return
+    if which not in ("all", "math"):
+        raise ValueError(f"which must be 'all' or 'math', got {which!r}")
     existing = {t.name for t in pset.terminals}
     for name, value in master_constants():
-        if name in existing:
+        if name in existing or (which == "math" and name not in MATH_ATOMS):
             continue
         try:
             pset.add_symbol_terminal(name, value)

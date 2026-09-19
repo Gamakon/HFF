@@ -145,10 +145,20 @@ def _run_one_worker(name: str, out_path: str):
     )
     try:
         from regressor import HFFSymbolicRegressor
+        # HFF_WILD_CONFIG: JSON of HFFSRConfig overrides plus the optional keys
+        # n_genes / n_gen / max_time, so one experiment can be run through
+        # this same worker without editing it. Unset = the sweep's settings.
+        _ov = json.loads(os.environ.get("HFF_WILD_CONFIG", "{}"))
         est = HFFSymbolicRegressor(
-            head_length=48, n_genes=3, n_gen=N_GEN_CAP,
-            max_time=TIME_BUDGET_PER, random_state=SEED,
+            head_length=48, n_genes=int(_ov.pop("n_genes", 3)),
+            n_gen=int(_ov.pop("n_gen", N_GEN_CAP)),
+            max_time=float(_ov.pop("max_time", TIME_BUDGET_PER)),
+            # "seed" varies the SEARCH only; the train/test split stays on SEED
+            # so every run is scored on the same rows.
+            random_state=int(_ov.pop("seed", SEED)),
+            config_overrides=_ov,
         )
+        rec["config_overrides"] = dict(est.config_overrides)
         est._verbose_fit = False
         est.fit(X_tr, y_tr)
         mse_tr, r2_tr, mae_tr = _train_metrics(est, X_tr, y_tr)
@@ -167,6 +177,13 @@ def _run_one_worker(name: str, out_path: str):
             "linker": getattr(est._engine, "linker_name_", "?"),
             "expression": str(getattr(est._engine, "discovered_expr_", "?"))[:200],
         })
+        # Where the evaluation actually ran. An individual the device cannot
+        # take (fuller has no diff_sq) is scored by the CPU row loop, which on
+        # a few thousand rows dominates the fit — and was invisible here.
+        import hff_sr_engine as _eng
+        rec["seed"] = int(est.random_state)
+        rec["join"] = dict(getattr(_eng, "JOIN_STATS", {}))
+        rec["generations_run"] = getattr(est._engine, "generations_run_", None)
     except Exception as e:
         rec["error"] = f"{type(e).__name__}: {e}"
         rec["traceback"] = traceback.format_exc()[-1200:]

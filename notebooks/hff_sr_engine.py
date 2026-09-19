@@ -468,6 +468,9 @@ class HFFSRConfig:
     # named atoms across chromosomes. No new pset terminals are created —
     # composed constants live as karva trees built from the 16 atoms.
     snap_lsm_into_gene: bool = True
+    # Named-constant terminals: "all" | "math" | "none"; "" = all when
+    # snap_lsm_into_gene is on, none otherwise (the previous behaviour).
+    constant_atoms: str = ""
     snap_lsm_rel_tol: float = 1e-3
     # Seed-from-HOF: path to a pickle written by a prior fit. When set, the
     # initial population is filled with the saved HOF chromosomes (cycled
@@ -864,6 +867,7 @@ def _join_session(bundle: "_Bundle"):
             parts.append(bundle.extrapolation[cols].values)
             ys.append(bundle.Y_extrap)
         fns = {n: (n, a) for n, a in _f.master_pset()}
+        fns["diff_sq"] = ("diff_sq", 2)     # decode-only: (Pow2 (Sub a b))
         sess = _f._fuller.GpuSession(cols, fns, [1.0],
                                      np.vstack(parts).astype(np.float64).tolist())
         bundle._join_session = sess
@@ -968,6 +972,37 @@ def _evaluate_population(population, toolbox, bundle: "_Bundle"):
     if os.environ.get("HFF_JOIN_CHECK") == "1":
         _join_parity_check(population, raw_results, toolbox, bundle)
     return raw_results
+
+
+def _f64_polish_hof(hof, toolbox, bundle) -> None:
+    """Re-fit every hall-of-fame entry's (a, b) and metrics on the f64 CPU path.
+
+    The device predicts in f32 and the join fits (a, b) on THOSE predictions,
+    while predict() and the final report evaluate the chromosome in f64. For a
+    gene whose values are large — cubes of RNC integers reach 1e9, where f32
+    rounding is an absolute ~60 — the scale and offset fitted on rounded
+    values do not belong to the exact ones, and a*f(x)+b is wildly off: on the
+    power plant data two of three no-constant runs reported a "best" model
+    with train MSE 2e5 and 3e13 against a target variance of 286. Entries are
+    polished once, on entry; one that is not a model in f64 is removed.
+    """
+    if os.environ.get("HFF_GPU") != "1":
+        return
+    for i in reversed(range(len(hof))):
+        ind = hof[i]
+        if getattr(ind, "_f64", False):
+            continue
+        ref = _compute_raw_metrics(ind, toolbox, bundle)
+        lw = (int(getattr(ind, "linker_id", 0)), int(getattr(ind, "wrapper_id", 0)))
+        hit = next((c for c in (ref or {}).get("candidates", [])
+                    if (c["linker_id"], c["wrapper_id"]) == lw), None)
+        if hit is None:
+            JOIN_STATS["f64_rejected"] = JOIN_STATS.get("f64_rejected", 0) + 1
+            hof.remove(i)
+            continue
+        ind.a, ind.b, ind.metrics = hit["a"], hit["b"], hit["metrics"]
+        ind._f64 = True
+        JOIN_STATS["f64_polished"] = JOIN_STATS.get("f64_polished", 0) + 1
 
 
 def _join_parity_check(population, raw_results, toolbox, bundle, n=40):
@@ -1210,6 +1245,7 @@ def _assign_fitness_batch(population, raw_results, cfg: HFFSRConfig, pset=None):
         ind.wrapper_id = int(payload["wrapper_id"])
         ind.linker_id = int(payload.get("linker_id", 0))
         ind._linker = LINKER_FUNCS[ind.linker_id]
+        ind._f64 = False        # (a, b) above are from this evaluation
         # Snap LSM coefficient INTO the chromosome's karva.
         # If ind.a matches a lattice entry (e.g. 0.398942 -> 1/sqrt(2*pi)),
         # graft the named constant tokens into gene[0] and reset ind.a=1.0.
@@ -1495,12 +1531,24 @@ class HFFSREngine:
         # as SymbolTerminals so snap-into-gene can graft named-constant
         # tokens. Composed forms (1/(4*pi), 1/sqrt(2*pi)) appear as karva
         # expressions built from these atoms + ints + div/mul/sqrt.
-        if cfg.snap_lsm_into_gene:
-            try:
-                from _lsm_snap import register_atoms_in_pset
-                register_atoms_in_pset(pset)
-            except Exception:
-                pass
+        # WHICH named constants evolution may use as terminals, independent of
+        # whether the LSM coefficient is snapped into a gene:
+        #   all  — the 16 master_constants (default when snapping, as before)
+        #   math — pi, e, phi, gamma, sqrt2, sqrt3 only. Black-box data has no
+        #          units, so c, G, h, kB, NA ... are just strange numbers
+        #          there: on the UCI power plant data the fitted model came
+        #          back built from mu0, g_earth and sqrt3.
+        #   none — RNC only, plain geppy.
+        _atoms = cfg.constant_atoms or ("all" if cfg.snap_lsm_into_gene else "none")
+        if _atoms not in ("all", "math", "none"):
+            raise ValueError(f"constant_atoms must be all/math/none, got {_atoms!r}")
+        if cfg.snap_lsm_into_gene and _atoms != "all":
+            raise ValueError("snap_lsm_into_gene grafts any lattice atom and needs "
+                             "constant_atoms='all'")
+        if _atoms != "none":
+            from _lsm_snap import register_atoms_in_pset
+            register_atoms_in_pset(pset, which=_atoms)
+        print(f"[engine] constant terminals: {_atoms}", flush=True)
 
         # Build evolution state: demes, HOF, log.
         hof = tools.HallOfFame(cfg.champs)
@@ -1586,6 +1634,7 @@ class HFFSREngine:
             raw_results = evaluate_one.batch(deme)
             _assign_fitness_batch(deme, raw_results, cfg, pset=pset)
             hof.update(deme)
+            _f64_polish_hof(hof, toolbox, bundle)
 
         log = tools.Logbook()
         if cfg.mode == "wild_regression":
@@ -1686,6 +1735,7 @@ class HFFSREngine:
                     raw_results = evaluate_one.batch(invalid_ind)
                     _assign_fitness_batch(invalid_ind, raw_results, cfg, pset=pset)
                 hof.update(deme)
+                _f64_polish_hof(hof, toolbox, bundle)
 
                 # Per-deme logbook record matches notebook output exactly.
                 valid_fits = [ind.fitness.values[0] for ind in deme
@@ -1734,6 +1784,7 @@ class HFFSREngine:
                 _last_calibration_gen = gen
 
             gen += 1
+            self.generations_run_ = gen - 1
 
         self.fit_seconds_ = time.perf_counter() - fit_start
         # Denoise stats — always print if denoise was active (provenance).

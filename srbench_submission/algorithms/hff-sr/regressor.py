@@ -50,7 +50,8 @@ class HFFSymbolicRegressor(BaseEstimator, RegressorMixin):
                  # OOD slice. See plan §Wild-data HFF objective vec.
                  val_fraction: float = 0.15,
                  holdout_fraction: float = 0.25,
-                 random_state: int = 5):
+                 random_state: int = 5,
+                 config_overrides: dict | None = None):
         self.head_length = head_length
         self.n_genes = n_genes
         self.n_gen = n_gen
@@ -58,6 +59,10 @@ class HFFSymbolicRegressor(BaseEstimator, RegressorMixin):
         self.val_fraction = val_fraction
         self.holdout_fraction = holdout_fraction
         self.random_state = random_state
+        # HFFSRConfig fields to set on top of the wild-regression defaults
+        # (population, RNC range, which fuller operators run ...). Unknown
+        # names raise: a typo must not silently run the default experiment.
+        self.config_overrides = dict(config_overrides or {})
 
     # ------------------------------------------------------------------
 
@@ -94,6 +99,10 @@ class HFFSymbolicRegressor(BaseEstimator, RegressorMixin):
             adaptive_pop_intake_min=50,
             adaptive_pop_intake_max=500,
         )
+        for _k, _v in self.config_overrides.items():
+            if not hasattr(config, _k):
+                raise ValueError(f"config_overrides: HFFSRConfig has no field {_k!r}")
+            setattr(config, _k, _v)
         self._engine = HFFSREngine(config)
         self._engine.fit(
             X_tr, y_tr,

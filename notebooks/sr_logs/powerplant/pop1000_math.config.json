@@ -1,0 +1,1 @@
+{"n_genes":4,"n_gen":400,"max_time":600,"rnc_lo":-10,"rnc_hi":10,"pop_intake":667,"pop_champion":333,"tourn_intake":53,"tourn_champion":33,"adaptive_intake":false,"constant_atoms":"math","snap_lsm_into_gene":false,"snap_winners":false,"pb_denoise":0.0,"pb_physics":0.0}

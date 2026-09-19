@@ -1882,6 +1882,7 @@ def _nb_gpu_session():
                           validation[list(finalTerminals)].values,
                           extrapolation[list(finalTerminals)].values])
         _NB_GPU["fns"] = {n: (n, a) for n, a in _f.master_pset()}
+        _NB_GPU["fns"]["diff_sq"] = ("diff_sq", 2)   # decode-only: (Pow2 (Sub a b))
         _NB_GPU["session"] = _f._fuller.GpuSession(
             list(finalTerminals), _NB_GPU["fns"], [1.0], rows.tolist())
         _NB_GPU["y"] = np.concatenate([Y, Y_val, Y_extrap]).astype(np.float64).tolist()
