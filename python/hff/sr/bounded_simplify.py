@@ -255,6 +255,20 @@ def shrink_then_simplify(built, pre, probe: Optional[dict] = None):
     return out, "sympy"
 
 
+def capped_simplify(expr, probe: Optional[dict] = None):
+    """sympy.simplify on a leash, for a WHOLE expression.
+
+    Use this wherever `sp.simplify(expr)` was called on something evolution
+    produced. simplify has no bound — the engine's `(expr - b) / a`, the
+    product of four genes under a wrapper, held a fit for 2h20m — and it can
+    return a non-function (zoo/nan). Here it gets SYMPY_CAP_S; its result is
+    kept only if strictly smaller, free of zoo/nan/oo, and (when `probe` is
+    given) the same function on those rows. Otherwise `expr` comes back as it
+    went in, which is always a correct answer.
+    """
+    return shrink_then_simplify(sp.sympify(expr), None, probe)[0]
+
+
 def simplify_kexpression_bounded(expr,
                                  symbolic_function_map,
                                  max_nodes: Optional[int] = None,

@@ -13,6 +13,7 @@ Public surface so far:
 
 from hff.sr.bounded_simplify import (
     simplify_kexpression_bounded,
+    capped_simplify,
     get_stats,
     reset_stats,
     DEFAULT_MAX_NODES,
@@ -20,6 +21,7 @@ from hff.sr.bounded_simplify import (
 
 __all__ = [
     "simplify_kexpression_bounded",
+    "capped_simplify",
     "get_stats",
     "reset_stats",
     "DEFAULT_MAX_NODES",

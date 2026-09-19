@@ -1681,7 +1681,8 @@ def snap_constants(
     # We try it, but only keep the simplification if no Float atoms vanished.
     if nsimplify_mode != "none":
         try:
-            simplified = sp.simplify(expr)
+            from hff.sr import capped_simplify
+            simplified = capped_simplify(expr)      # time-capped; never worse
             atoms_before = set(expr.atoms(sp.Float))
             atoms_after = set(simplified.atoms(sp.Float))
             # If the simplify lost any tiny Float (magnitude < 1e-3 in
@@ -1798,7 +1799,8 @@ def snap_constants(
     if subs:
         expr = expr.xreplace(subs)
         try:
-            expr = sp.simplify(expr)
+            from hff.sr import capped_simplify
+            expr = capped_simplify(expr)            # time-capped; never worse
         except Exception:
             pass
 

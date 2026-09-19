@@ -2590,6 +2590,7 @@ class HFFSREngine:
             # cannot interrupt sympy's native code). Builds without the
             # per-node simplify, then simplifies once under a node bound.
             from hff.sr import simplify_kexpression_bounded as _simplify_kexpr
+            from hff.sr import capped_simplify as _capped_simplify
             from geppy.core.entity import Gene as _Gene
             from _gene_decompose import compress_gene as _compress_gene
             from _sympy_to_karva import visit_subtree as _visit_subtree
@@ -2602,7 +2603,7 @@ class HFFSREngine:
                             for s in e.free_symbols if s.is_Symbol}
                     if syms:
                         e = e.subs(syms)
-                        e = sp.simplify(e)
+                        e = _capped_simplify(e)   # time-capped; never worse than e
                     return e
                 except Exception:
                     return e
@@ -2917,7 +2918,11 @@ class HFFSREngine:
 
         # Recover f(x): expr = a*f + b  → f = (expr - b)/a  (symbolically).
         try:
-            fx = _sp.simplify((expr - _sp.Float(b)) / _sp.Float(a)) if a not in (0, 0.0) else None
+            # Time-capped. This is the whole model — every gene under the
+            # linker and wrapper — and an unbounded simplify here is where a
+            # power plant fit sat for 2h20m after its 30-minute search.
+            from hff.sr import capped_simplify as _capped
+            fx = _capped((expr - _sp.Float(b)) / _sp.Float(a)) if a not in (0, 0.0) else None
         except Exception:
             fx = None
         if fx is None:
