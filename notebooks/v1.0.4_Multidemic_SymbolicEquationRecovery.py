@@ -1768,27 +1768,33 @@ def _nb_gpu_session():
 
 
 def _nb_geppy_tokens(gene):
-    """Gene -> (head, tail) in GEPPY names with the Dc domain resolved, or
-    None. "?" is an index into the gene's rnc_array, not a symbol; handing it
-    to the e-graph as one free variable lets it prove false equalities."""
+    """The gene's EXPRESSED tree as (head, tail) in GEPPY names with the Dc
+    domain resolved, or None. "?" is an index into the gene's rnc_array, not a
+    symbol; handing it to the e-graph as one free variable lets it prove
+    false equalities. Dormant tokens are not sent: fuller reads only the tree.
+    """
     from _denoise_op import _token_tuple
     dc = list(getattr(gene, "dc", []) or [])
     rnc = list(getattr(gene, "rnc_array", []) or [])
-    n = 0
-    out = []
-    for toks in (gene.head, gene.tail):
-        part = []
-        for tok in toks:
-            k, v = _token_tuple(tok)
-            if k == "var" and v == "?":
-                if not dc or not rnc or n >= len(dc) or dc[n] >= len(rnc):
-                    return None
-                part.append(("num", float(rnc[dc[n]])))
-                n += 1
-            else:
-                part.append((k, v))
-        out.append(part)
-    return out[0], out[1]
+    toks = list(gene.head) + list(gene.tail)
+    need, n_orf = 1, 0
+    while need > 0 and n_orf < len(toks):
+        need += getattr(toks[n_orf], "arity", 0) - 1
+        n_orf += 1
+    if need > 0:
+        return None
+    out, n = [], 0
+    for tok in toks[:n_orf]:
+        k, v = _token_tuple(tok)
+        if k == "var" and v == "?":
+            if n >= len(dc) or dc[n] >= len(rnc):
+                return None
+            out.append(("num", float(rnc[dc[n]])))
+            n += 1
+        else:
+            out.append((k, v))
+    hl = len(gene.head)
+    return out[:hl], out[hl:]
 
 
 def _nb_orf_key(gene) -> tuple:

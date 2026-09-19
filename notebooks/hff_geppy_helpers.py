@@ -427,38 +427,45 @@ def _resolve_rnc(gene):
     head = [tup(t) for t in gene.head]
     tail = [tup(t) for t in gene.tail]
 
+    # Only the EXPRESSED tree (the ORF) is decoded by the device; everything
+    # after it is dormant. Resolution used to walk every token, so a dormant
+    # diff_sq, or more "?" in head+tail than the Dc domain has slots (the
+    # domain is sized for the tail, not head+tail), rejected a gene whose
+    # expressed tree was perfectly good — and a rebuilt e-class variant, which
+    # can add constants, failed where its original had not.
+    toks = list(gene.head) + list(gene.tail)
+    need, n_orf = 1, 0
+    while need > 0 and n_orf < len(toks):
+        need += getattr(toks[n_orf], "arity", 0) - 1
+        n_orf += 1
+    if need > 0:
+        return None
+
     # diff_sq(a, b) is (a-b)^2 and has no Math constructor. It CANNOT be
     # expanded in place: the obvious rewrite to pow2(sub(a,b)) changes the
     # arity consumed at that position — diff_sq takes 2 child slots, pow2
     # takes 1 — so every following child slot shifts and the gene decodes to a
     # different tree. Measured: a gene giving 286.6 on CPU gave 65.0 on the
-    # GPU under that rewrite, a 100% divergence that an earlier commit wrongly
-    # described as arity-preserving.
-    #
-    # Genes carrying diff_sq therefore go to the CPU path, unconverted.
-    if any(k == "func" and v == "diff_sq" for k, v in head + tail):
+    # GPU under that rewrite. Genes EXPRESSING diff_sq go to the CPU path.
+    flat = head + tail
+    if any(k == "func" and v == "diff_sq" for k, v in flat[:n_orf]):
         return None
     dc = list(getattr(gene, "dc", []) or [])
     rnc = list(getattr(gene, "rnc_array", []) or [])
-    n = [0]
-
-    def fix(tuples):
-        out = []
-        for k, v in tuples:
-            if k == "var" and v == "?":
-                if not dc or not rnc:
-                    return None
-                try:
-                    out.append(("num", float(rnc[dc[n[0]]])))
-                except (IndexError, TypeError, ValueError):
-                    return None
-                n[0] += 1
-            else:
-                out.append((k, v))
-        return out
-
-    h, t = fix(head), fix(tail)
-    return (h, t) if h is not None and t is not None else None
+    out, n = [], 0
+    for pos, (k, v) in enumerate(flat):
+        if k == "var" and v == "?":
+            if pos >= n_orf:
+                out.append(("num", 0.0))       # dormant: never read
+                continue
+            try:
+                out.append(("num", float(rnc[dc[n]])))
+            except (IndexError, TypeError, ValueError):
+                return None
+            n += 1
+        else:
+            out.append((k, v))
+    return out[:len(head)], out[len(head):]
 
 
 _GPU_FNS = None
