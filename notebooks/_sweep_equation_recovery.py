@@ -107,26 +107,51 @@ def run_one(problem_id: str, no_val: bool = False, audit_dir: str | None = None)
     timed_out = False
     other_exc = None
     returncode = None
+    # TEE, do not buffer-then-write. The original routed stdout to a temp
+    # file and deleted it after parsing, so the generation-by-generation
+    # logbook — every deme's fitness and metric mins per gen, plus the per-gen
+    # wgpu columns — was captured and thrown away, and nothing could be
+    # watched while a 200s problem ran.
+    #
+    # Reading the pipe line by line in a thread also keeps the original
+    # deadlock fixed: the buffer cannot fill, because it is always being
+    # drained.
+    live_path = (os.path.join(audit_dir, f"{problem_id}.run.log")
+                 if audit_dir else None)
+    if live_path:
+        os.makedirs(audit_dir, exist_ok=True)
+
+    captured: list[str] = []
     try:
-        with open(out_path, "wb") as f_out, open(err_path, "wb") as f_err:
-            proc_obj = subprocess.run(
-                argv,
-                cwd=os.path.dirname(os.path.abspath(__file__)) or ".",
-                stdout=f_out, stderr=f_err,
-                timeout=timeout_s, env=env,
-            )
+        proc_obj = subprocess.Popen(
+            argv,
+            cwd=os.path.dirname(os.path.abspath(__file__)) or ".",
+            stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
+            text=True, bufsize=1, env=env,
+        )
+        live = open(live_path, "w", buffering=1) if live_path else None
+        try:
+            deadline = (time.perf_counter() + timeout_s) if timeout_s else None
+            for line in proc_obj.stdout:
+                captured.append(line)
+                if live:
+                    live.write(line)          # line-buffered: readable NOW
+                if deadline and time.perf_counter() > deadline:
+                    proc_obj.kill()
+                    timed_out = True
+                    break
+        finally:
+            if live:
+                live.close()
+        proc_obj.wait()
         returncode = proc_obj.returncode
-    except subprocess.TimeoutExpired:
-        timed_out = True
     except Exception as e:
         other_exc = e
 
     elapsed = time.perf_counter() - t0
     try:
-        with open(out_path, "r", errors="replace") as f:
-            stdout = f.read()
-        with open(err_path, "r", errors="replace") as f:
-            stderr = f.read()
+        stdout = "".join(captured)
+        stderr = ""
     finally:
         for p in (out_path, err_path):
             try:
