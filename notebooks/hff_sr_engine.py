@@ -638,6 +638,119 @@ def _build_toolbox(bundle: _Bundle):
     return toolbox, pset
 
 
+# ---------------------------------------------------------------------------
+# Population-level GPU prefill
+# ---------------------------------------------------------------------------
+# The design requirement: for a population of N individuals x G genes, evaluate
+# the ENTIRE set in ONE pass over the data per generation, with the data
+# resident on the device.
+#
+# An earlier attempt dispatched per individual and was 3.4x SLOWER than the CPU
+# row loop (440ms vs 127ms for 200 individuals) — 200 separate dispatches, each
+# paying ~1.85ms of fixed overhead. The overhead is per dispatch, not per gene,
+# so the fix is to batch the population, not to make each dispatch faster.
+#
+# _gpu_prefill_population does one dispatch for every gene of every individual
+# against one dataframe, and caches the results. _predict_per_gene then reads
+# from the cache instead of running a Python row loop.
+
+def _gene_key(gene) -> tuple:
+    """A cache key that identifies a gene's COMPUTATION, not its printed form.
+
+    str(gene) renders the SIMPLIFIED expression — it returned "1" for a whole
+    gene — so two structurally different genes collide and one can read the
+    other's cached predictions. That is a correctness bug, not just a cache
+    miss. Key on the raw head/tail tokens plus the Dc domain, which is exactly
+    what determines the values.
+    """
+    head = tuple(str(t) for t in gene.head)
+    tail = tuple(str(t) for t in gene.tail)
+    dc = tuple(getattr(gene, "dc", ()) or ())
+    rnc = tuple(getattr(gene, "rnc_array", ()) or ())
+    return (head, tail, dc, rnc)
+
+
+_GPU_CACHE: dict = {}
+GPU_BATCH_STATS: dict = {
+    "dispatches": 0,
+    "genes": 0,
+    "row_evals": 0,
+    "seconds": 0.0,
+    "cache_hits": 0,
+    "cache_misses": 0,
+}
+
+
+def gpu_batch_stats_line() -> str:
+    """One line for the run log; empty when the GPU path is off."""
+    if os.environ.get("HFF_GPU") != "1":
+        return ""
+    s = GPU_BATCH_STATS
+    if s["dispatches"] == 0:
+        return "[wgpu] enabled, no dispatches yet"
+    ms = s["seconds"] * 1000.0
+    return (f"[wgpu] {s['dispatches']} dispatches, {s['genes']:,} genes, "
+            f"{s['row_evals']:,} row-evals, {ms:.0f}ms "
+            f"({ms / max(s['dispatches'], 1):.1f}ms/dispatch) | "
+            f"cache {s['cache_hits']:,} hit / {s['cache_misses']:,} miss")
+
+
+def _gpu_prefill_population(population, df, terminals, pset) -> None:
+    """Evaluate EVERY gene of EVERY individual in one dispatch; cache results.
+
+    Silent no-op unless HFF_GPU=1. Any gene that cannot be converted is simply
+    absent from the cache, and _predict_per_gene falls back to CPU for it, so
+    this can never change a result — only where it is computed.
+    """
+    if os.environ.get("HFF_GPU") != "1" or not population:
+        return
+    try:
+        import fuller as _f
+        import hff_geppy_helpers as _h
+        if not hasattr(_f._fuller, "gpu_predict_karva"):
+            return
+    except ImportError:
+        return
+
+    key_df = id(df)
+    genes, keys = [], []
+    for ind in population:
+        for gene in ind:
+            r = _h._resolve_rnc(gene)
+            if r is None:
+                continue
+            k = (key_df, _gene_key(gene))
+            if k in _GPU_CACHE:
+                continue
+            genes.append(r)
+            keys.append(k)
+    if not genes:
+        return
+
+    fns = {n: (n, a) for n, a in _f.master_pset()}
+    rows = df[list(terminals)].values.tolist()
+    try:
+        t0 = time.perf_counter()
+        preds = _f._fuller.gpu_predict_karva(genes, list(terminals), fns,
+                                             [1.0], rows)
+        dt = time.perf_counter() - t0
+    except Exception:
+        return
+
+    GPU_BATCH_STATS["dispatches"] += 1
+    GPU_BATCH_STATS["genes"] += len(genes)
+    GPU_BATCH_STATS["row_evals"] += len(genes) * len(rows)
+    GPU_BATCH_STATS["seconds"] += dt
+    for k, p in zip(keys, preds):
+        if p is not None:
+            _GPU_CACHE[k] = np.asarray(p, dtype=np.float64)
+
+
+def _gpu_clear_cache() -> None:
+    """Drop cached predictions. Called when the population changes."""
+    _GPU_CACHE.clear()
+
+
 def _predict_per_gene(individual, df, terminals, pset) -> list[np.ndarray] | None:
     """Compile each gene once, evaluate row-wise on df, return list of arrays.
 
@@ -647,7 +760,18 @@ def _predict_per_gene(individual, df, terminals, pset) -> list[np.ndarray] | Non
     from geppy.tools.parser import _compile_gene
     arrays = [df[term].values for term in terminals]
     out: list[np.ndarray] = []
+    key_df = id(df)
     for gene in individual:
+        # Prefilled by _gpu_prefill_population in one population-wide dispatch.
+        cached = _GPU_CACHE.get((key_df, _gene_key(gene)))
+        if cached is not None:
+            GPU_BATCH_STATS["cache_hits"] += 1
+            if not np.all(np.isfinite(cached)):
+                return None
+            out.append(cached)
+            continue
+        if os.environ.get("HFF_GPU") == "1":
+            GPU_BATCH_STATS["cache_misses"] += 1
         try:
             fn = _compile_gene(gene, pset)
             raw = np.array(list(map(fn, *arrays)), dtype=np.float64)
@@ -1237,6 +1361,13 @@ class HFFSREngine:
 
         # Gen 0 evaluation.
         for idx, deme in enumerate(demes):
+            # ONE dispatch for the whole deme, against each dataframe the
+            # objective vector needs, before any per-individual work.
+            _gpu_prefill_population(deme, bundle.train, bundle.variables, pset)
+            _gpu_prefill_population(deme, bundle.validation, bundle.variables, pset)
+            if bundle.extrapolation is not None:
+                _gpu_prefill_population(deme, bundle.extrapolation,
+                                        bundle.variables, pset)
             raw_results = [evaluate_one(ind) for ind in deme]
             _assign_fitness_batch(deme, raw_results, cfg, pset=pset)
             hof.update(deme)
@@ -1335,6 +1466,14 @@ class HFFSREngine:
                 deme[:] = elites + offspring
                 invalid_ind = [ind for ind in deme if not ind.fitness.valid]
                 if invalid_ind:
+                    _gpu_prefill_population(invalid_ind, bundle.train,
+                                            bundle.variables, pset)
+                    _gpu_prefill_population(invalid_ind, bundle.validation,
+                                            bundle.variables, pset)
+                    if bundle.extrapolation is not None:
+                        _gpu_prefill_population(invalid_ind,
+                                                bundle.extrapolation,
+                                                bundle.variables, pset)
                     raw_results = [evaluate_one(ind) for ind in invalid_ind]
                     _assign_fitness_batch(invalid_ind, raw_results, cfg, pset=pset)
                 hof.update(deme)

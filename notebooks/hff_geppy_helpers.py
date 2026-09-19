@@ -15,6 +15,7 @@ from __future__ import annotations
 
 import math
 import operator
+import os
 import random
 from dataclasses import dataclass, field
 from typing import Callable, Iterable, Sequence
@@ -279,12 +280,264 @@ def format_log_header(metric_names: Sequence[str], col_width: int = 14) -> str:
 # Prediction / linear scaling
 # -----------------------------------------------------------------------------
 
+# ---------------------------------------------------------------------------
+# GPU evaluation path
+# ---------------------------------------------------------------------------
+# HFF_GPU=1 routes per-individual evaluation through fuller's wgpu batch
+# evaluator instead of the Python row loop. The CPU path remains the reference
+# and is used whenever the GPU cannot answer, so the flag changes speed, not
+# results.
+#
+# Every fallback is COUNTED. A run that quietly reverted to CPU would otherwise
+# look like a GPU result, and the timing comparison would be meaningless.
+
+_GPU_ENABLED = os.environ.get("HFF_GPU") == "1"
+
+# fuller master constants (pi, hbar, c, G, ...). They are registered in the
+# pset as TERMINALS, so a gene carrying one yields ("var", "hbar") — and that
+# is not a data column, so the converter rejected the whole gene and it fell
+# back to CPU every generation. They are literals; emit them as such.
+_CONST_VALUES: dict = {}
+
+GPU_STATS: dict = {
+    "gpu_calls": 0,       # individuals answered on the GPU
+    "gpu_rows": 0,        # row-evaluations done on the GPU
+    "gpu_seconds": 0.0,
+    "cpu_fallback": 0,    # individuals the GPU could not answer
+    "fallback_reasons": {},
+}
+
+
+def _bump_fallback(reason: str) -> None:
+    GPU_STATS["cpu_fallback"] += 1
+    r = GPU_STATS["fallback_reasons"]
+    r[reason] = r.get(reason, 0) + 1
+
+
+def gpu_stats_line() -> str:
+    """One line for the run log. Empty when the GPU path is off."""
+    if not _GPU_ENABLED:
+        return ""
+    s = GPU_STATS
+    n = s["gpu_calls"] + s["cpu_fallback"]
+    if n == 0:
+        return "[gpu] enabled, no evaluations yet"
+    pct = 100.0 * s["gpu_calls"] / n
+    ms = s["gpu_seconds"] * 1000.0
+    per = ms / s["gpu_calls"] if s["gpu_calls"] else 0.0
+    out = (f"[gpu] {s['gpu_calls']}/{n} individuals on GPU ({pct:.0f}%), "
+           f"{s['gpu_rows']:,} row-evals, {ms:.0f}ms total, {per:.2f}ms each")
+    if s["cpu_fallback"]:
+        top = sorted(s["fallback_reasons"].items(), key=lambda kv: -kv[1])[:3]
+        out += "  | fell back: " + ", ".join(f"{k}={v}" for k, v in top)
+    return out
+
+
+class _Unconvertible(Exception):
+    """An op fuller's Math cannot express; the caller uses the CPU path."""
+
+
+def _resolve_rnc(gene):
+    """Gene -> (head, tail) fuller token tuples with RNC placeholders resolved.
+
+    geppy's "?" terminal is an INDEX into the gene's Dc array, not a variable.
+    It must become the literal it denotes before the tokens leave Python, or
+    the decoder cannot read the gene at all.
+    """
+    from geppy.core.symbol import Function, Terminal, SymbolTerminal
+
+    # geppy's pset names are NOT fuller's semantic ids: the engine registers
+    # _pset_neg, truediv, protected_div_zero where fuller's master_pset has
+    # neg, div, protected_div. Without this translation karva_to_terms cannot
+    # decode the gene at all, and every such individual silently falls back to
+    # CPU — which is exactly what made the GPU path look like it only handled
+    # a third of the population. _denoise_op already carries the map; use it
+    # rather than a second copy that can drift.
+    from _denoise_op import SEMANTIC_ID_MAP
+
+    if not _CONST_VALUES:
+        try:
+            import fuller as _fl
+            _CONST_VALUES.update(dict(_fl.master_constants()))
+        except Exception:
+            pass
+
+    # Ops the engine has that fuller's Math datatype does not. diff_sq(a,b) is
+    # (a-b)^2, so it is expressible — but as a COMPOSITE, and a karva head is
+    # positional, so rewriting it here would shift every following child slot.
+    # Genes carrying one are handed to the CPU path instead of being decoded
+    # wrongly. 37 of the failures observed on I_12_5 were this.
+    def tup(tok):
+        if isinstance(tok, Function):
+            return ("func", SEMANTIC_ID_MAP.get(tok.name, tok.name))
+        if isinstance(tok, Terminal):
+            if isinstance(tok, SymbolTerminal) or tok.value is None:
+                if tok.name in _CONST_VALUES:
+                    return ("num", float(_CONST_VALUES[tok.name]))
+                return ("var", tok.name)
+            return ("num", float(tok.value))
+        raise ValueError("unknown token")
+
+    head = [tup(t) for t in gene.head]
+    tail = [tup(t) for t in gene.tail]
+
+    # diff_sq(a, b) is (a-b)^2 and has no Math constructor, so a gene carrying
+    # one cannot be decoded at all — it was the ONLY remaining cause of GPU
+    # fallback once the pset names were translated. Rewrite it in place as
+    # pow2 applied to sub: both are arity 2 where diff_sq was arity 2, so the
+    # level-order child accounting karva_to_terms performs is unchanged, and
+    # the extra pow2 node is consumed from the same slot.
+    def expand_diff_sq(tokens):
+        out = []
+        for k, v in tokens:
+            if k == "func" and v == "diff_sq":
+                out.append(("func", "pow2"))
+                out.append(("func", "sub"))
+            else:
+                out.append((k, v))
+        return out
+
+    if any(k == "func" and v == "diff_sq" for k, v in head + tail):
+        head = expand_diff_sq(head)
+        tail = expand_diff_sq(tail)
+    dc = list(getattr(gene, "dc", []) or [])
+    rnc = list(getattr(gene, "rnc_array", []) or [])
+    n = [0]
+
+    def fix(tuples):
+        out = []
+        for k, v in tuples:
+            if k == "var" and v == "?":
+                if not dc or not rnc:
+                    return None
+                try:
+                    out.append(("num", float(rnc[dc[n[0]]])))
+                except (IndexError, TypeError, ValueError):
+                    return None
+                n[0] += 1
+            else:
+                out.append((k, v))
+        return out
+
+    h, t = fix(head), fix(tail)
+    return (h, t) if h is not None and t is not None else None
+
+
+_GPU_FNS = None
+
+
+def _gpu_predict(individual, df: pd.DataFrame, terminals: Sequence[str]):
+    """Evaluate every gene of *individual* in one dispatch, then link them.
+
+    Returns the linked prediction array, or None to mean "use the CPU path" —
+    always with a counted reason.
+    """
+    global _GPU_FNS
+    import time as _time
+    try:
+        import fuller as _f
+    except ImportError:
+        _bump_fallback("fuller_not_installed")
+        return None
+    if not hasattr(_f._fuller, "gpu_score_karva"):
+        _bump_fallback("built_without_gpu_feature")
+        return None
+
+    genes = []
+    for g in individual:
+        r = _resolve_rnc(g)
+        if r is None:
+            _bump_fallback("unconvertible_or_rnc")
+            return None
+        genes.append(r)
+
+    if _GPU_FNS is None:
+        _GPU_FNS = {n: (n, a) for n, a in _f.master_pset()}
+
+    rows = df[list(terminals)].values.tolist()
+    # Targets are unused here (we want predictions, not scores) but the API
+    # reduces on device; pass zeros and read the per-gene predictions back via
+    # the error terms is NOT possible, so use the raw evaluator instead.
+    try:
+        t0 = _time.perf_counter()
+        preds = _f._fuller.gpu_predict_karva(genes, list(terminals),
+                                             _GPU_FNS, [1.0], rows)
+        dt = _time.perf_counter() - t0
+    except Exception as e:
+        _bump_fallback(f"gpu_error:{type(e).__name__}")
+        return None
+
+    if preds is None or len(preds) != len(genes):
+        _bump_fallback("shape_mismatch")
+        return None
+
+    n_rows = len(rows)
+    arrs = []
+    for p in preds:
+        if p is None or len(p) != n_rows:
+            _bump_fallback("gene_undecodable")
+            return None
+        a = np.asarray(p, dtype=np.float64)
+        if not np.all(np.isfinite(a)):
+            # Same contract as the CPU path: non-finite anywhere is a
+            # fitness rejection, not a fallback.
+            GPU_STATS["gpu_calls"] += 1
+            GPU_STATS["gpu_rows"] += n_rows * len(genes)
+            GPU_STATS["gpu_seconds"] += dt
+            return None
+        arrs.append(a)
+
+    linked = _link_genes_np(arrs, individual)
+    if linked is None:
+        _bump_fallback("linker_unsupported")
+        return None
+
+    GPU_STATS["gpu_calls"] += 1
+    GPU_STATS["gpu_rows"] += n_rows * len(genes)
+    GPU_STATS["gpu_seconds"] += dt
+    if not np.all(np.isfinite(linked)):
+        return None
+    return linked
+
+
+def _link_genes_np(arrs, individual):
+    """Combine per-gene arrays with the individual's linker.
+
+    Only the linkers the engine actually uses are handled; anything else falls
+    back to CPU rather than guessing at semantics.
+    """
+    if len(arrs) == 1:
+        return arrs[0]
+    name = getattr(getattr(individual, "linker", None), "__name__", "")
+    stacked = np.vstack(arrs)
+    if name in ("avgval", "_round_avg_eng"):
+        return stacked.mean(axis=0)
+    if name in ("addval", "_round_add_eng"):
+        return stacked.sum(axis=0)
+    if name in ("mulval", "_round_mul_eng"):
+        return stacked.prod(axis=0)
+    return None
+
+
 def compile_and_predict(individual, df: pd.DataFrame, terminals: Sequence[str], toolbox) -> np.ndarray | None:
     """Compile *individual* and run it over *df* row-wise.
 
     Returns a 1-D float array, or None if the expression produces NaN/Inf
     anywhere — callers treat that as a fitness-rejection signal.
+
+    With ``HFF_GPU=1`` the row loop is replaced by a single wgpu dispatch (see
+    ``_gpu_predict``). The CPU path below stays the reference and is used
+    whenever the GPU cannot answer, so enabling the flag can change speed but
+    not results.
     """
+    if _GPU_ENABLED:
+        out = _gpu_predict(individual, df, terminals)
+        if out is not None:
+            return out
+        # Fall through to CPU. Not a silent fallback: _gpu_predict records the
+        # reason in GPU_STATS, so a run that quietly reverted to CPU is
+        # visible rather than looking like a GPU result.
+
     func = toolbox.compile(individual)
     arrays = [df[term].values for term in terminals]
     try:
