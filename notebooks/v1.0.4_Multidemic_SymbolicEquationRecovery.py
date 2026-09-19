@@ -2238,6 +2238,7 @@ def assign_fitness_batch(population, raw_results):
 
     for i, (f, payload) in best_for_ind.items():
         ind = population[i]
+        ind._f64 = False        # (a, b) below come from this evaluation
         ind.fitness.values = (f,)
         ind.metrics = payload["metrics"]
         ind.a = payload["a"]
@@ -2278,37 +2279,66 @@ def _nb_rule_predict(ind, df):
 F64_POLISH_TOP = int(os.environ.get("HFF_F64_POLISH_TOP", "10"))
 
 
+def _nb_f64_polish_one(ind) -> bool:
+    """Re-fit one individual on the f64 reference path. False = it is not a
+    model there (finite in f32 only); the caller must drop it."""
+    var_tr, var_va = float(np.var(Y)), float(np.var(Y_val))
+    raws = [hgh.compile_and_predict(ind, df, finalTerminals, toolbox)
+            for df in (train, validation, extrapolation)]
+    w = [None if r is None else apply_wrapper(r, ind.wrapper_id) for r in raws]
+    if any(x is None for x in w):
+        return False
+    scale = (hgh.apply_linear_scaling(w[0], Y) if settings.enable_linear_scaling
+             else (1.0, 0.0))
+    if scale is None:
+        return False
+    a, b = scale
+    mse_tr = hgh.safe_mse(Y, a * w[0] + b)
+    mse_va = hgh.safe_mse(Y_val, a * w[1] + b)
+    vec = ([mse_tr, mse_va, float(np.max(np.abs(Y_val - (a * w[1] + b)))),
+            hgh.safe_mse(Y_extrap, a * w[2] + b), mse_tr / var_tr, mse_va / var_va]
+           if HFF_INCLUDE_VAL else [mse_tr, mse_tr / var_tr])
+    if not all(np.isfinite(vec)):
+        return False
+    ind.a, ind.b = float(a), float(b)
+    ind.metrics = dict(zip(METRIC_NAMES, vec))
+    ind._f64 = True
+    _NB_GPU_STATS["f64_polished"] += 1
+    return True
+
+
 def _nb_f64_polish(population) -> None:
+    """An island's leaders, so selection and the early-stop check see f64."""
     ranked = sorted((ind for ind in population
                      if ind.fitness.valid and not _nb_is_rule_winner(ind)
+                     and not getattr(ind, "_f64", False)
                      and ind.fitness.values[0] < FAILED_FITNESS),
                     key=lambda ind: ind.fitness.values[0])
-    var_tr, var_va = float(np.var(Y)), float(np.var(Y_val))
     for ind in ranked[:F64_POLISH_TOP]:
-        raws = [hgh.compile_and_predict(ind, df, finalTerminals, toolbox)
-                for df in (train, validation, extrapolation)]
-        w = [None if r is None else apply_wrapper(r, ind.wrapper_id) for r in raws]
-        scale = (None if w[0] is None else
-                 hgh.apply_linear_scaling(w[0], Y) if settings.enable_linear_scaling
-                 else (1.0, 0.0))
-        vec = None
-        if scale is not None and all(x is not None for x in w):
-            a, b = scale
-            mse_tr = hgh.safe_mse(Y, a * w[0] + b)
-            mse_va = hgh.safe_mse(Y_val, a * w[1] + b)
-            vec = ([mse_tr, mse_va, float(np.max(np.abs(Y_val - (a * w[1] + b)))),
-                    hgh.safe_mse(Y_extrap, a * w[2] + b),
-                    mse_tr / var_tr, mse_va / var_va]
-                   if HFF_INCLUDE_VAL else [mse_tr, mse_tr / var_tr])
-        if vec is None or not all(np.isfinite(vec)):
-            # Finite in f32, not on the reference path: it is not a model.
+        if not _nb_f64_polish_one(ind):
             _NB_GPU_STATS["f64_rejected"] += 1
             ind.fitness.values = (FAILED_FITNESS,)
             ind.metrics = dict.fromkeys(METRIC_NAMES, FAILED_METRIC_VALUE)
+
+
+def _nb_f64_polish_hof() -> None:
+    """EVERY hall-of-fame entry, because the report is built from them.
+
+    Polishing an island's top 10 is not enough: on an exact recovery hundreds
+    of individuals tie at fitness 0, the hall of fame picks its own members
+    among the ties, and an unpolished one reached the report as
+    1.00000000451181*Ef*q2. Entries persist, so only new ones cost anything.
+    An entry that is not a model in f64 is removed.
+    """
+    if os.environ.get("HFF_GPU") != "1":
+        return
+    for i in reversed(range(len(hof))):
+        ind = hof[i]
+        if getattr(ind, "_f64", False) or _nb_is_rule_winner(ind):
             continue
-        ind.a, ind.b = float(a), float(b)
-        ind.metrics = dict(zip(METRIC_NAMES, vec))
-        _NB_GPU_STATS["f64_polished"] += 1
+        if not _nb_f64_polish_one(ind):
+            _NB_GPU_STATS["f64_rejected"] += 1
+            hof.remove(i)
 
 # %% [markdown]
 # ## 2.4 Genetic operators (verbatim from v1.0.3)
@@ -2983,6 +3013,7 @@ else:
                    **stats.compile(deme), **per_metric_mins(deme))
         hof.update(deme)
         print(hgh.format_log_row(log[-1], METRIC_NAMES))
+    _nb_f64_polish_hof()
     _nb_gpu_gen_print()
     gen = 1
 
@@ -3050,6 +3081,7 @@ else:
             if not _halted:
                 hof.update(deme)
             print(hgh.format_log_row(log[-1], METRIC_NAMES))
+        _nb_f64_polish_hof()
         _NB_GPU_STATS["gen_seconds"] += time.perf_counter() - _gen_t0
         _nb_gpu_gen_print()
 
