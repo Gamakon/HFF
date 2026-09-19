@@ -1656,6 +1656,36 @@ def _rule_radiated_power_static():
 
 _STATIC_RULE_CANDIDATES = []   # list of {wrapper_id, vec, a, b, metrics, label}
 
+# Which static rules may take an individual's FITNESS SLOT.
+#
+# A rule candidate is offered to every individual, and wins the slot of each
+# one whose own candidates are worse. When the rule is EXACT that is the
+# point: the run confirms it and stops at generation 1. When it is merely
+# decent it is a disaster: every individual below it receives the rule's
+# fitness, so they all tie, and selection among them is a coin toss until
+# something beats the rule by luck. I.18.12 is tau = r*F*sin(theta); the rule
+# library has sin(theta) at R² 0.77, and the intake island logged that rule's
+# metrics, unchanged to the last digit, for all 400 generations. The reported
+# best model was the rule. Across the registry this was the most common way
+# to fail a simple law.
+#
+#   exact (default): only a rule that already clears the early-stop bar takes
+#                    slots. Any other rule stays out of selection and is
+#                    compared with the evolved best at report time.
+#   all:             the previous behaviour, kept for A/B.
+RULE_SLOTS = os.environ.get("HFF_RULE_SLOTS", "exact")
+_RULES_FOR_SLOTS = []
+
+
+def _rules_allowed_in_slots():
+    if RULE_SLOTS == "all":
+        return list(_STATIC_RULE_CANDIDATES)
+    if RULE_SLOTS != "exact":
+        raise ValueError(f"HFF_RULE_SLOTS must be 'exact' or 'all', got {RULE_SLOTS!r}")
+    bar = 1.0 - float(os.environ.get("HFF_EARLY_STOP", 1.0 - 1e-9))
+    key = "one_minus_r2_va" if HFF_INCLUDE_VAL else "one_minus_r2_tr"
+    return [c for c in _STATIC_RULE_CANDIDATES if c["metrics"][key] <= bar]
+
 def _build_static_candidates():
     global _STATIC_RULE_CANDIDATES
     _STATIC_RULE_CANDIDATES = []
@@ -1693,6 +1723,10 @@ def _build_static_candidates():
                 cand["sym_expr"] = sym_expr
                 _STATIC_RULE_CANDIDATES.append(cand)
     print(f"[E22/23 rules] static candidate count: {len(_STATIC_RULE_CANDIDATES)}")
+    global _RULES_FOR_SLOTS
+    _RULES_FOR_SLOTS = _rules_allowed_in_slots()
+    print(f"[E22/23 rules] allowed to take a fitness slot ({RULE_SLOTS}): "
+          f"{len(_RULES_FOR_SLOTS)}")
     for c in _STATIC_RULE_CANDIDATES[:30]:
         print(f"  [{c['rule_family']}/{c['rule_label']}] "
               f"a={c['a']:.4f} b={c['b']:.4e} 1-R²_va={c['metrics']['one_minus_r2_va']:.4e}")
@@ -1731,6 +1765,20 @@ _build_static_candidates()
 ECLASS_K = int(os.environ.get("HFF_ECLASS_K", "8"))
 # Fitness is an angular distance (radians). Equivalent forms differ only by
 # f32 rounding on the device; inside this band the smaller gene wins.
+# When a variant is grafted into the individual.
+#   improve (default): only when it scores STRICTLY better than the individual
+#             as it stands (beyond ECLASS_TIE_TOL).
+#   simplify: also on a tie, preferring the form that saves the most nodes.
+#   off:      variants are scored (they still inform HFF's pool) but never
+#             grafted.
+# "simplify" is a parsimony ratchet, measured: every gene is rewritten to its
+# minimal form every generation, individuals converge on the same canonical
+# genes, and crossing identical genes makes nothing new. On II.4.23, same
+# seed, generation 30: 101 new expressed trees per generation without
+# grafting, 17 with it, and the run sat at R² 0.90 for 350 generations.
+GRAFT_MODE = os.environ.get("HFF_GRAFT_MODE", "improve")
+if GRAFT_MODE not in ("improve", "simplify", "off"):
+    raise ValueError(f"HFF_GRAFT_MODE must be improve/simplify/off, got {GRAFT_MODE!r}")
 FULLER_SNAP_IN_JOIN = os.environ.get("HFF_SNAP_IN_JOIN", "1") == "1"
 ECLASS_TIE_TOL = float(os.environ.get("HFF_ECLASS_TIE_TOL", "1e-6"))
 _NB_ECLASS_CACHE_MAX = 200_000
@@ -2015,7 +2063,7 @@ def _nb_evaluate_population(population):
             cpu_inds.append(i)
         for i, cl in enumerate(cands):
             if cl:
-                raw_results[i] = {"candidates": cl + list(_STATIC_RULE_CANDIDATES)}
+                raw_results[i] = {"candidates": cl + list(_RULES_FOR_SLOTS)}
 
     for i in cpu_inds:
         raw_results[i] = compute_raw_metrics(population[i])
@@ -2162,7 +2210,7 @@ def compute_raw_metrics(individual):
     # E22: append static rule candidates. They share the chromosome's eval
     # slot so each individual gets to "win" via a rule's vec if that vec
     # has the lowest HFF distance in the per-population batch.
-    for c in _STATIC_RULE_CANDIDATES:
+    for c in _RULES_FOR_SLOTS:
         candidates.append(c)
     return {"candidates": candidates}
 
@@ -2241,8 +2289,13 @@ def assign_fitness_batch(population, raw_results):
     )
 
     # Per individual: pick the candidate row with minimum fitness.
+    # Variant candidates are excluded HERE: a fitness must describe the genes
+    # the individual actually has. A variant only becomes the individual's
+    # fitness below, at the moment its gene is grafted in.
     best_for_ind = {}   # ind_idx -> (fitness, payload)
     for k, owner in enumerate(cand_owner):
+        if cand_payload[k].get("variant") is not None:
+            continue
         f = float(fitness[k])
         prev = best_for_ind.get(owner)
         if prev is None or f < prev[0]:
@@ -2263,8 +2316,25 @@ def assign_fitness_batch(population, raw_results):
             prev = best_join.get(owner)
             if prev is None or f < prev[0]:
                 best_join[owner] = (f, cand_payload[k])
-    graft_for = dict(best_join)
+    # The unswapped individual's own best score, per owner: the bar a graft
+    # has to clear in "improve" mode.
+    base_best = {}
     for k, owner in enumerate(cand_owner):
+        p = cand_payload[k]
+        if "saving" in p and p["variant"] is None:
+            f = float(fitness[k])
+            if owner not in base_best or f < base_best[owner]:
+                base_best[owner] = f
+    graft_for = dict(best_join)
+    if GRAFT_MODE == "off":
+        graft_for = {}
+    elif GRAFT_MODE == "improve":
+        graft_for = {o: fp for o, fp in best_join.items()
+                     if fp[1]["variant"] is not None
+                     and fp[0] < base_best.get(o, float("inf")) - ECLASS_TIE_TOL}
+    for k, owner in enumerate(cand_owner):
+        if GRAFT_MODE != "simplify":
+            break
         p = cand_payload[k]
         if "saving" not in p:
             continue
@@ -2282,10 +2352,19 @@ def assign_fitness_batch(population, raw_results):
         _NB_GPU_STATS["snap_grafts"] += int(p["saving"][1])
         _NB_GPU_STATS["nodes_saved"] += max(0, p["saving"][0])
         population[owner][j] = copy.deepcopy(new_gene)
-        # If this individual's fitness slot is a join candidate, it must be the
-        # one describing the genes it now has.
-        if "saving" in best_for_ind[owner][1]:
+        # Its genes changed, so its fitness is the grafted form's — unless a
+        # static rule holds the slot, which does not depend on the genes.
+        if owner not in best_for_ind or "saving" in best_for_ind[owner][1]:
             best_for_ind[owner] = (f, p)
+
+    # An individual whose own chromosome was rejected and which received no
+    # graft has nothing describing it: it failed, like any other rejection.
+    for i in good_idx:
+        if i not in best_for_ind:
+            ind = population[i]
+            ind.fitness.values = (FAILED_FITNESS,)
+            ind.metrics = dict.fromkeys(METRIC_NAMES, FAILED_METRIC_VALUE)
+            ind.a, ind.b, ind.wrapper_id = 1.0, 0.0, 0
 
     for i, (f, payload) in best_for_ind.items():
         ind = population[i]
@@ -3087,6 +3166,32 @@ extra_gen = settings.n_gen
 # form after it already fits. Relevant because a bloated expression can
 # clear any R^2 bar while being symbolically wrong.
 EARLY_STOP_VAL_R2 = float(os.environ.get("HFF_EARLY_STOP", 1.0 - 1e-9))
+
+# R² alone cannot confirm a recovery: it is relative to the target's VARIANCE,
+# so a law with large values hides a wrong tail. ideal_gas (R*n*T/V, values in
+# the thousands) stopped at generation 4 on
+#     8.3144*T*n/V - 1.1878*V + 0.6460 - 1.1878*(2 - V)/T
+# with val R² = 0.9999999998 — over the bar — and a 9.7% error wherever the
+# target is small. The stop also requires every holdout row to agree to a
+# RELATIVE tolerance, the same 1e-6 the recovery oracle uses.
+EARLY_STOP_MAX_REL = float(os.environ.get("HFF_EARLY_STOP_REL", "1e-6"))
+_EARLY_STOP_REL_NOTES = [0]
+
+
+def _pointwise_recovered(y, pred) -> bool:
+    y = np.asarray(y, dtype=np.float64)
+    pred = np.asarray(pred, dtype=np.float64)
+    if not np.all(np.isfinite(pred)):
+        return False
+    floor = 1e-9 * float(np.max(np.abs(y))) if y.size else 0.0
+    rel = float(np.max(np.abs(y - pred) / np.maximum(np.abs(y), floor)))
+    ok = rel <= EARLY_STOP_MAX_REL
+    if not ok and _EARLY_STOP_REL_NOTES[0] < 5:
+        _EARLY_STOP_REL_NOTES[0] += 1
+        print(f"  early-stop: R² clears the bar but the worst holdout row is off "
+              f"by {rel:.2e} relative (> {EARLY_STOP_MAX_REL:.0e}) — not a recovery, "
+              f"searching on")
+    return ok
 _early_stop_triggered = False
 
 if number_islands == 0:
@@ -3214,7 +3319,7 @@ else:
                     _vh = float(np.var(_yh))
                     _rule_r2 = (1.0 - hgh.safe_mse(_yh, _ph) / _vh
                                 if _vh > 0 else float("-inf"))
-                    if _rule_r2 >= EARLY_STOP_VAL_R2:
+                    if _rule_r2 >= EARLY_STOP_VAL_R2 and _pointwise_recovered(_yh, _ph):
                         _candidate = (_ind, _rule_r2)
                         print(f"  early-stop: rule "
                               f"{getattr(_ind, 'rule_label', '?')} confirmed "
@@ -3237,8 +3342,10 @@ else:
                 _mh = hgh.safe_mse(_yh, _ph)
                 _holdout_r2 = 1.0 - _mh / _vh if _vh > 0 else float("-inf")
                 if _holdout_r2 >= EARLY_STOP_VAL_R2:
-                    _candidate = (_ind, _holdout_r2)
-                    break
+                    if _pointwise_recovered(_yh, _ph):
+                        _candidate = (_ind, _holdout_r2)
+                        break
+                    continue
                 else:
                     # DIAGNOSTIC: recompute train and val through the EXACT
                     # same path as holdout. If the stored val_R2 says 1.0 but
@@ -3366,6 +3473,26 @@ else:
 
 # %%
 best_ind = hof[0]
+# A rule kept out of the fitness slots (RULE_SLOTS="exact") was never in
+# selection, so it is not in the hall of fame either. It is still a model: if
+# the best one beats what evolution produced, on validation 1-R², it is the
+# result, and is reported through the same rule path as before.
+_key = "one_minus_r2_va" if HFF_INCLUDE_VAL else "one_minus_r2_tr"
+_outside = [c for c in _STATIC_RULE_CANDIDATES if c not in _RULES_FOR_SLOTS]
+if _outside:
+    _best_rule = min(_outside, key=lambda c: c["metrics"][_key])
+    _evolved = getattr(best_ind, "metrics", {}).get(_key, float("inf"))
+    if _best_rule["metrics"][_key] < _evolved:
+        print(f">>> best static rule ({_best_rule['rule_family']}/{_best_rule['rule_label']}, "
+              f"1-R²={_best_rule['metrics'][_key]:.3e}) beats the evolved best "
+              f"(1-R²={_evolved:.3e}); reporting the rule")
+        best_ind = toolbox.clone(best_ind)
+        best_ind.metrics = _best_rule["metrics"]
+        best_ind.a, best_ind.b = _best_rule["a"], _best_rule["b"]
+        best_ind.wrapper_id = int(_best_rule["wrapper_id"])
+        best_ind.rule_sym_expr = _best_rule["sym_expr"]
+        best_ind.rule_label = _best_rule["rule_label"]
+        best_ind.rule_family = _best_rule["rule_family"]
 # E22: if hof[0] won via a static rule, the discovered expression IS the
 # rule's sympy expression (no chromosome sympify needed).
 _best_wrapper_raw = int(getattr(best_ind, "wrapper_id", 0))

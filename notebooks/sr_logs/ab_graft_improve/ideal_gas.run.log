@@ -1,0 +1,142 @@
+/opt/anaconda3/lib/python3.12/site-packages/geppy/__init__.py:26: UserWarning: pkg_resources is deprecated as an API. See https://setuptools.pypa.io/en/latest/pkg_resources.html. The pkg_resources package is slated for removal as early as 2025-11-30. Refrain from using this package or pin to Setuptools<81.
+  from pkg_resources import get_distribution, DistributionNotFound
+hff library OK (test fitness: (0.1415394733244273,))
+registry: ['circle_area', 'gravity', 'coulomb', 'pendulum', 'keplers3', 'ideal_gas', 'I_6_2a', 'I_6_2', 'I_6_2b', 'I_8_14', 'I_9_18', 'I_10_7', 'I_11_19', 'I_12_1', 'I_12_2', 'I_12_4', 'I_12_5', 'I_12_11', 'I_13_4', 'I_13_12', 'I_14_3', 'I_14_4', 'I_15_3x', 'I_15_3t', 'I_15_1', 'I_16_6', 'I_18_4', 'I_18_12', 'I_18_14', 'I_24_6', 'I_25_13', 'I_26_2', 'I_27_6', 'I_29_4', 'I_29_16', 'I_30_3', 'I_30_5', 'I_32_5', 'I_32_17', 'I_34_8', 'I_34_1', 'I_34_14', 'I_34_27', 'I_37_4', 'I_38_12', 'I_39_1', 'I_39_11', 'I_39_22', 'I_40_1', 'I_41_16', 'I_43_16', 'I_43_31', 'I_43_43', 'I_44_4', 'I_47_23', 'I_48_2', 'I_50_26', 'II_2_42', 'II_3_24', 'II_4_23', 'II_6_11', 'II_6_15a', 'II_6_15b', 'II_8_7', 'II_8_31', 'II_10_9', 'II_11_3', 'II_11_17', 'II_11_20', 'II_11_27', 'II_11_28', 'II_13_17', 'II_13_23', 'II_13_34', 'II_15_4', 'II_15_5', 'II_21_32', 'II_24_17', 'II_27_16', 'II_27_18', 'II_34_2a', 'II_34_2', 'II_34_11', 'II_34_29a', 'II_34_29b', 'II_35_18', 'II_35_21', 'II_36_38', 'II_37_1', 'II_38_3', 'II_38_14', 'III_4_32', 'III_4_33', 'III_7_38', 'III_8_54', 'III_9_52', 'III_10_19', 'III_12_43', 'III_13_18', 'III_14_14', 'III_15_12', 'III_15_14', 'III_15_27', 'III_17_37', 'III_19_51', 'III_21_20', 'test_1', 'test_2', 'test_3', 'test_4', 'test_5', 'test_6', 'test_7', 'test_8', 'test_9', 'test_10', 'test_11', 'test_12', 'test_13', 'test_14', 'test_15', 'test_16', 'test_17', 'test_18', 'test_19', 'test_20']
+Selected problem: ideal_gas
+  Description : Ideal gas (pressure from n, T, V):  P = n·R·T / V
+  Variables   : ['n', 'T', 'V']
+  Train range : {'n': (0.1, 5.0), 'T': (200.0, 400.0), 'V': (0.01, 1.0)}
+  Extrap range: {'n': (0.1, 5.0), 'T': (200.0, 400.0), 'V': (1.0, 5.0)}
+  Truth       : R * n * T / V
+  ✓ cache hit  (data/equations/ideal_gas, key=c9dc34c832404a7c)
+  train           (800, 4)  target range=[282.2, 9.482e+05]
+  val             (200, 4)  target range=[495.9, 3.46e+05]
+  holdout         (200, 4)  target range=[493.5, 3.587e+05]
+  extrapolation   (200, 4)  target range=[61.97, 1.088e+04]
+  saved figure → data/figures/ideal_gas/eda_pairplot.png
+[E22 rules] variable pattern tags: {'no_pattern'}
+[E22/23 rules] static candidate count: 1
+[E22/23 rules] allowed to take a fitness slot (exact): 0
+  [sum_sq_all/sum_sq] a=0.0762 b=2.5303e+04 1-R²_va=1.0406e+00
+[fuller] denoise + snap IN THE JOIN (every gene, every generation, K=8); mutation operators: physics=0.2 concretize=0.05
+Wrapper scope: per_island  (island → wrapper map: ['identity', 'identity'])
+[wgpu] process pool disabled — Metal cannot survive fork(); the population is evaluated in one dispatch instead
+Genes: head_length=16, n_genes=3, rnc_array_length=10
+Population: (per-island, see below), elites: 2, generations: 400, migration FREQ: 30
+  pump per-island sizes: intake=100 (tournsize=8), champion=50 (tournsize=5)
+Initialising evolution at 2026-09-19 06:13:20.687551
+ gen  deme   evals     min fitness          mse_tr          mse_va         max_err      mse_extrap  one_minus_r2_tr  one_minus_r2_va
+   0     0     100    0.0399129867       127902839      67021289.2      65376.1472       431050.56    0.0257891969    0.0383278691
+   0     1      50               0      28922705.2      14757643.7      27979.1536      2105771.78   0.00583171839   0.00843954274
+          wgpu 1d 474g 437c x3w 36ms | egraph 208g->287v+0snap 186ms | graft 62 (-351n, 0 snap) cpu 0 | f64 30 | gen 0.0s | dropped inexpr 6 oversz 0 unbuild 0 {}
+Extending evolution: gen 1 → 400 (+400 generations)
+   1     0     100   0.00365800525        40135444      30337861.4      36629.6771       405863156   0.00809255586    0.0173494959
+   1     1      50               0      28922705.2      14757643.7      27979.1536      2105771.78   0.00583171839   0.00843954274
+          wgpu 1d 194g 280c x3w 6ms | egraph 75g->130v+0snap 59ms | graft 15 (-70n, 0 snap) cpu 0 | f64 31 | gen 0.5s | dropped inexpr 2 oversz 0 unbuild 0 {}
+   2     0     100               0      1.29172136      1.29772379      2.84096018      104.493375  2.60451267e-10  7.42137135e-10
+   2     1      50               0      28922705.2      14757643.7      27979.1536      2105771.78   0.00583171839   0.00843954274
+          wgpu 1d 295g 360c x3w 7ms | egraph 105g->211v+0snap 49ms | graft 46 (-266n, 0 snap) cpu 0 | f64 29 | gen 0.7s | dropped inexpr 3 oversz 0 unbuild 0 {}
+
+*** Early stop at generation 2: best val_R² = 0.9999999993 ≥ 0.9999999990, holdout_R² = 0.9999999994 confirmed
+
+This sub-run: 2026-09-19 06:13:21.067250 → 2026-09-19 06:13:22.307300
+Now at generation 2 (HOF size: 31)
+[join] 3 dispatches, 963 genes, 3,231 candidates scored in 0.05s GPU+host; e-graph 388 trees -> 628 variants + 0 snaps in 0.29s; 123 grafts (0 snap), 687 nodes removed; cpu-path individuals 0, f64-rejected 0, snaps refused for naming an input 0
+[join]   inexpressible:     11  no pset token for semantic id "pow" with arity 2
+  HFF-chosen LSM kept: a=-4.15724, b=2.0416
+Chromosome wrapper: id=0  →  identity
+hof[0] runtime val: mse=1.298e+00  R²=1.000000
+Pre-snap expression (after sympify + LSM compose):
+  -1.38574627548867*V*n/Abs(sqrt(n)) - 1.38574627548867*V*Abs(n)**(1/4) + 2.0416011095258 - 1.38574627548867*n*(-6*T**2 + Abs(T)**(1/4))/(T*V)
+
+Per-level snap results (before MSE scoring):
+  strict      →  8.314462618*T*n/V - 1.38574627548867*V*n**(1/4) - 1.38574627548867*V*sqrt(n) + 2.0416011095258
+  default     →  8.314462618*T*n/V - 1.38574627548867*V*n**(1/4) - 1.38574627548867*V*sqrt(n)
+  aggressive  →  8.314462618*T*n/V
+
+Snap-level comparison (sorted by holdout MSE, lowest first)
+------------------------------------------------------------------------------------------
+  level       MSE            R²         expression                                        
+------------------------------------------------------------------------------------------
+★ aggressive  8.293e-21      1.0000     8.314462618*T*n/V                                 
+  strict      1.565          1.0000     8.314462618*T*n/V - 1.38574627548867*V*n**(1/4) - 
+  default     5.582          1.0000     8.314462618*T*n/V - 1.38574627548867*V*n**(1/4) - 
+
+Winning snap level: 'aggressive'  →  8.314462618*T*n/V
+
+Canonical discovered expression: 8.314462618*T*n/V
+[38;2;0;50;255m
+############################################################ [38;2;255;255;255m
+[38;2;0;50;255m Equation Recovery: IDEAL_GAS [38;2;255;255;255m
+[38;2;0;50;255m Truth: R * n * T / V [38;2;255;255;255m
+[38;2;0;50;255m [38;2;255;255;255m
+[38;2;255;0;255m     Exact recovery     : True [38;2;255;255;255m
+[38;2;255;0;255m     Numerical recovery : True (max rel_err 0.00e+00 on 10k samples) [38;2;255;255;255m
+[38;2;255;0;255m     Discovered         : 8.314462618*T*n/V [38;2;255;255;255m
+[38;2;255;0;255m     LSM (a, b)         : (-4.15724, 2.0416) [38;2;255;255;255m
+[38;2;0;50;255m
+############################################################ [38;2;255;255;255m
+In-range holdout : MSE=1.363  MAE=0.9679  R²=1.0000
+Extrapolation    : MSE=104.5  MAE=8.834  R²=1.0000
+
+Top 10 HOF models (north_pole=truenorth) (★ = Pareto-optimal)
+(deduped HOF: 12 unique chromosomes from 31 raw HOF entries)
+ ----------------------------------------------------------------------------------------------------------------
+       model     wrapper      length   train_mse     val_mse     max_err    train_r2      val_r2 angular_distance
+ ----------------------------------------------------------------------------------------------------------------
+★           0    identity          24      1.2917      1.2977      2.8410      1.0000      1.0000      0.0000
+            1    identity           7     18.1607     17.8294      7.8431      1.0000      1.0000      0.0000
+           10    identity           9   3702.5096   3143.1057    105.2078      1.0000      1.0000      0.0010
+           12    identity          29 3671493.0689 5646784.6590  14293.5142      0.9993      0.9968      0.1597
+           13    identity          27 10026458.7503 6095906.2804  20802.3911      0.9980      0.9965      0.2286
+           15    identity          26 28543473.2076 14517415.5041  27666.8224      0.9942      0.9917      0.3885
+           16    identity          11 28920271.5872 14755550.8741  27978.4270      0.9942      0.9916      0.3936
+           23    identity          11 28922705.1702 14757643.6662  27979.1536      0.9942      0.9916      0.3936
+            7    identity          11 28922705.1702 14757643.6662  27979.1536      0.9942      0.9916      0.3936
+            9    identity          21 28923462.3045 14758053.6819  27979.3601      0.9942      0.9916      0.3936
+
+Pareto-optimal in top 10: 1    Pareto-optimal in full HOF: 1 / 12
+
+Recovery sweep across 12/12 unique HOF chromosomes (capped):
+  Structural / exact     : 0/12  (0.0%)
+  Numerical (≤1e-6 err)  : 0/12  (0.0%)
+{
+    "date": "2026/09/19",
+    "seed": "5",
+    "task": "equation_recovery",
+    "north_pole_method": "truenorth",
+    "hff_include_val": true,
+    "problem": "ideal_gas",
+    "truth_expr": "R * n * T / V",
+    "final_terminal_inputs": [
+        "n",
+        "T",
+        "V"
+    ],
+    "wide_primitives": false,
+    "head_length": "16",
+    "n_genes": "3",
+    "rnc_array_length": "10",
+    "tournament size": "intake=8, champion=5",
+    "population size": "150",
+    "population per island": "intake=100, champion=50",
+    "gpu_join": true,
+    "eclass_k": 8,
+    "number of elites": "2",
+    "number of generations": "400",
+    "number of islands": "2",
+    "migration FREQ": "30",
+    "wrapper_id": 0,
+    "wrapper_name": "identity",
+    "recovery_exact": true,
+    "recovery_numerical": true,
+    "recovery_max_rel_err": 0.0,
+    "discovered_expr": "8.314462618*T*n/V",
+    "holdout_mse": 1.363062004917009,
+    "holdout_r2": 0.9999999993816021,
+    "extrap_mse": 104.49337453759097,
+    "extrap_r2": 0.9999705930252608,
+    "hof_size": 12,
+    "hof_exact_recoveries": 0,
+    "hof_numerical_recoveries": 0
+}

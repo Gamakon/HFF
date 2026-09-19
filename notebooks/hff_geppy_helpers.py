@@ -1466,6 +1466,73 @@ def _prune_tiny_additive(expr, rel_tol: float = 1e-3, seed: int = 0,
     return sp.Add(*pieces)
 
 
+def _prune_negligible_terms(expr, var_ranges: dict | None, rel_tol: float = 1e-8,
+                            seed: int = 0, n_probe: int = 256):
+    """Drop, from EVERY sum in the tree, a term that is nothing on the domain.
+
+    A search that stops at R² = 1 can be carrying passengers:
+      III.17.37   beta*(1 + alpha*cos(theta))
+                  + cos(beta)*sqrt(beta)/(beta - exp(beta*exp(exp(beta+theta)/sqrt(alpha))))
+                  whose denominator is astronomically large — the term is 0.0
+                  in f64 at every point of the domain;
+      keplers3    sqrt(a**2*(4*a - 1)/18 + 3*a - 3.47), a in [1e10, 1e11],
+                  where everything but 4*a**3/18 is 1e-10 of the sum.
+    Both fit to 1e-11 and were reported as the wrong form. _prune_tiny_additive
+    only looks at a TOP-LEVEL Add, and sp.simplify runs before it and folds a
+    sum into one fraction, so neither was caught.
+
+    A term goes only if its LARGEST magnitude over the probe is below rel_tol
+    times the MEDIAN magnitude of the sum it belongs to — 1e-8, far inside the
+    1e-6 the recovery oracle then checks independently. Probes are drawn from
+    `var_ranges`; a sum involving a symbol with no range is left alone, and so
+    is any term that is not finite somewhere (no evidence, no edit).
+    """
+    import sympy as sp
+    if not var_ranges:
+        return expr
+    rng = np.random.default_rng(seed)
+    probes = {}
+
+    def values(node, syms):
+        for sy in syms:
+            if sy not in probes:
+                probes[sy] = rng.uniform(*var_ranges[sy.name], size=n_probe)
+        fn = sp.lambdify(syms, node, modules="numpy")
+        with np.errstate(all="ignore"):
+            v = np.asarray(fn(*[probes[sy] for sy in syms]), dtype=np.float64)
+        return np.broadcast_to(v, (n_probe,))
+
+    def prune(node):
+        if not node.args:
+            return node
+        node = node.func(*[prune(a) for a in node.args])
+        if not isinstance(node, sp.Add):
+            return node
+        syms = sorted(node.free_symbols, key=lambda sy: sy.name)
+        if any(sy.name not in var_ranges for sy in syms):
+            return node
+        try:
+            total = values(node, syms)
+            if not np.all(np.isfinite(total)):
+                return node
+            ref = float(np.median(np.abs(total)))
+            if ref == 0.0:
+                return node
+            keep = []
+            for t in node.args:
+                tv = values(t, syms)
+                if np.all(np.isfinite(tv)) and float(np.max(np.abs(tv))) <= rel_tol * ref:
+                    continue
+                keep.append(t)
+        except (TypeError, ValueError, OverflowError, NameError):
+            return node
+        if not keep or len(keep) == len(node.args):
+            return node
+        return sp.Add(*keep)
+
+    return prune(expr)
+
+
 _SIMPLE_INT_MAX = 1000
 
 # Dimensionless constants fuller's snap can put in a gene by NAME. Next to a
@@ -1602,6 +1669,10 @@ def snap_constants(
     import sympy as sp
 
     expr = sp.sympify(expr)
+
+    # 0. Passengers: terms that are nothing on the problem's domain. BEFORE
+    # simplify, which would fold a sum into one fraction and hide them.
+    expr = _prune_negligible_terms(expr, var_ranges)
 
     # 1. Optional sympy simplify — only safe when the expression has no
     # very small floats, since sp.simplify can collapse e.g. 6.671e-11 to 0.
