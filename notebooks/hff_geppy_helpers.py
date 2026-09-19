@@ -1928,8 +1928,17 @@ def equation_recovery_report(
     try:
         f_disc = sp.lambdify(syms, discovered, modules="numpy")
         f_true = sp.lambdify(syms, truth, modules="numpy")
-        y_disc = np.asarray(f_disc(*[samples[v] for v in variables]), dtype=np.float64)
-        y_true = np.asarray(f_true(*[samples[v] for v in variables]), dtype=np.float64)
+        # A CANDIDATE expression is allowed to be partial — a losing HOF entry
+        # like log(... - sqrt(exp(x) - 2) ...) genuinely has no value where its
+        # argument goes negative. numpy signals that with
+        # "invalid value encountered in sqrt/log"; the mask below already
+        # excludes those points, so the warning is expected and says nothing
+        # a reader can act on. Suppressed HERE ONLY, around a comparison that
+        # is designed to tolerate NaN — not globally, where it would hide a
+        # real domain error in code that is supposed to be total.
+        with np.errstate(invalid="ignore", divide="ignore", over="ignore"):
+            y_disc = np.asarray(f_disc(*[samples[v] for v in variables]), dtype=np.float64)
+            y_true = np.asarray(f_true(*[samples[v] for v in variables]), dtype=np.float64)
         mask = np.isfinite(y_disc) & np.isfinite(y_true) & (np.abs(y_true) > 1e-30)
         rel = np.abs(y_disc[mask] - y_true[mask]) / np.abs(y_true[mask])
         max_rel = float(rel.max()) if rel.size else float("inf")

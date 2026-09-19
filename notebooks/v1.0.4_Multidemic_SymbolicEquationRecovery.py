@@ -2143,6 +2143,9 @@ procs = settings.procs
 pool = None
 
 
+_POOL_NOTICE = {"shown": False}
+
+
 def _ensure_pool():
     global pool
     if pool is not None:
@@ -2167,8 +2170,11 @@ def _ensure_pool():
         # unavailable.
         pool = None
         toolbox.register("map", map)
-        print("[wgpu] process pool disabled — Metal cannot survive fork(); "
-              "the population is evaluated in one dispatch instead")
+        if not _POOL_NOTICE["shown"]:
+            print("[wgpu] process pool disabled — Metal cannot survive "
+                  "fork(); the population is evaluated in one dispatch "
+                  "instead")
+            _POOL_NOTICE["shown"] = True
         return
     pool = mp.Pool(processes=procs)
     toolbox.register("map", pool.map)
@@ -2220,7 +2226,7 @@ FREQ = settings.migration_freq
 
 print(f"Genes: head_length={settings.head_length}, n_genes={settings.n_genes}, "
       f"rnc_array_length={settings.rnc_array_length}")
-print(f"Population size: {population_size}, tournament: {tournament}, "
+print(f"Population: (per-island, see below), "
       f"elites: {num_elites}, generations: {n_gen}, migration FREQ: {FREQ}")
 if MIGRATION_TOPOLOGY == "pump":
     print(f"  pump per-island sizes: intake={POP_INTAKE} (tournsize={TOURN_INTAKE}), "
@@ -3274,8 +3280,6 @@ for _, row in ranked.iterrows():
             nsimplify_mode="shallow", verbose=False,
             var_ranges=_problem_var_ranges,
         )
-        if FULLER_ENABLED:
-            print(f"[fuller-stats] {FULLER_STATS}", flush=True)
         rec = hgh.equation_recovery_report(
             snapped_i, truth_expr,
             variables=problem.variables,
