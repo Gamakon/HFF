@@ -26,7 +26,7 @@ Wrapper scope: per_island  (island → wrapper map: ['identity', 'identity'])
 Genes: head_length=48, n_genes=3, rnc_array_length=10
 Population size: 25, tournament: 3, elites: 2, generations: 400, migration FREQ: 30
   pump per-island sizes: intake=500 (tournsize=40), champion=250 (tournsize=25)
-Initialising evolution at 2026-09-19 01:56:46.722248
+Initialising evolution at 2026-09-19 02:02:56.785472
 [wgpu] process pool disabled — Metal cannot survive fork(); the population is evaluated in one dispatch instead
  gen  deme   evals     min fitness          mse_tr          mse_va         max_err      mse_extrap  one_minus_r2_tr  one_minus_r2_va
    0     0     500               0  2.36107757e-33  1.73267027e-33  1.38777878e-16  1.28823218e-33  2.74526416e-30  3.14993045e-30
@@ -59,7 +59,7 @@ Context leak detected, CoreAnalytics returned false
 
 *** Early stop at generation 1: best val_R² = 1.0000000000 ≥ 0.9999999990, holdout_R² = 1.0000000000 confirmed
 
-This sub-run: 2026-09-19 01:56:47.865517 → 2026-09-19 01:57:09.382167
+This sub-run: 2026-09-19 02:02:57.773403 → 2026-09-19 02:03:18.055684
 Now at generation 1 (HOF size: 31)
 >>> hof[0] won via static RULE: coulomb_form/q1/(4*pi*eps*r^2)
     rule sym_expr: q1/(4*pi*epsilon*r**2)

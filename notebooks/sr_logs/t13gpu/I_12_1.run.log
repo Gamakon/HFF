@@ -25,7 +25,7 @@ Wrapper scope: per_island  (island → wrapper map: ['identity', 'identity'])
 Genes: head_length=48, n_genes=3, rnc_array_length=10
 Population size: 25, tournament: 3, elites: 2, generations: 400, migration FREQ: 30
   pump per-island sizes: intake=500 (tournsize=40), champion=250 (tournsize=25)
-Initialising evolution at 2026-09-19 01:56:46.465349
+Initialising evolution at 2026-09-19 02:01:26.560067
 [wgpu] process pool disabled — Metal cannot survive fork(); the population is evaluated in one dispatch instead
  gen  deme   evals     min fitness          mse_tr          mse_va         max_err      mse_extrap  one_minus_r2_tr  one_minus_r2_va
    0     0     500  0.000446057815     0.154022705     0.145716601      1.64850992     0.703577193   0.00585316999   0.00659347947
@@ -55,7 +55,7 @@ Context leak detected, CoreAnalytics returned false
 
 *** Early stop at generation 1: best val_R² = 1.0000000000 ≥ 0.9999999990, holdout_R² = 1.0000000000 confirmed
 
-This sub-run: 2026-09-19 01:56:47.481843 → 2026-09-19 01:57:09.306016
+This sub-run: 2026-09-19 02:01:27.553524 → 2026-09-19 02:01:47.851458
 Now at generation 1 (HOF size: 31)
   HFF-chosen LSM kept: a=1.5, b=-1.125
 Chromosome wrapper: id=0  →  identity
@@ -121,3 +121,78 @@ Pareto-optimal in top 10: 1    Pareto-optimal in full HOF: 1 / 27
 [fuller-stats] {'denoise': {'calls': 151, 'resolved_rnc': 453}, 'physics': {'calls': 152, 'generated': 291, 'swapped_genes': 92, 'rule_E3': 82, 'spec_gated_in': 82, 'swapped_individuals': 73, 'rule_F': 9, 'rule_TR10-cos': 1}, 'snap': {'calls': 746, 'candidates_seen': 2208, 'no_baseline': 10}, 'concretize': {'calls': 28}}
 <lambdifygenerated-149>:2: RuntimeWarning: invalid value encountered in log
   return -Nn*mu + 1.92232065980447*log((1/3)*Nn + (1/3)*mu - 1/3*sqrt(2)*exp((1/2)*Nn*mu) + (1/3)*log(mu) + (1/3)*log(cos(Nn - exp(sin(log(mu))) - sin(Nn) + 8)) - 2/3) + 0.638659913562117*pi
+[fuller-stats] {'denoise': {'calls': 151, 'resolved_rnc': 453}, 'physics': {'calls': 152, 'generated': 291, 'swapped_genes': 92, 'rule_E3': 82, 'spec_gated_in': 82, 'swapped_individuals': 73, 'rule_F': 9, 'rule_TR10-cos': 1}, 'snap': {'calls': 746, 'candidates_seen': 2208, 'no_baseline': 10}, 'concretize': {'calls': 28}}
+<lambdifygenerated-153>:2: RuntimeWarning: invalid value encountered in sqrt
+  return -Nn*mu + 1.92232065980447*log((1/3)*Nn + (1/3)*mu - 1/3*sqrt(exp(Nn*mu) - 2) + (1/3)*log(mu)*cos(mu) + (1/3)*log(cos(Nn - exp(sin(log(mu))) - sin(Nn) + 8)) - 2/3) + 2*pi**(1/4)
+<lambdifygenerated-153>:2: RuntimeWarning: invalid value encountered in log
+  return -Nn*mu + 1.92232065980447*log((1/3)*Nn + (1/3)*mu - 1/3*sqrt(exp(Nn*mu) - 2) + (1/3)*log(mu)*cos(mu) + (1/3)*log(cos(Nn - exp(sin(log(mu))) - sin(Nn) + 8)) - 2/3) + 2*pi**(1/4)
+[fuller-stats] {'denoise': {'calls': 151, 'resolved_rnc': 453}, 'physics': {'calls': 152, 'generated': 291, 'swapped_genes': 92, 'rule_E3': 82, 'spec_gated_in': 82, 'swapped_individuals': 73, 'rule_F': 9, 'rule_TR10-cos': 1}, 'snap': {'calls': 746, 'candidates_seen': 2208, 'no_baseline': 10}, 'concretize': {'calls': 28}}
+<lambdifygenerated-157>:2: RuntimeWarning: invalid value encountered in sqrt
+  return -Nn*mu + 1.89830163188757*log((1/3)*Nn + (1/3)*mu - 1/3*sqrt(exp(Nn*mu) - 2) + (1/3)*log(mu) + (1/3)*log(cos(Nn - log(Nn) - sin(sin(Nn)) + 8)) - 2/3) + 2.83879651982401
+<lambdifygenerated-157>:2: RuntimeWarning: invalid value encountered in log
+  return -Nn*mu + 1.89830163188757*log((1/3)*Nn + (1/3)*mu - 1/3*sqrt(exp(Nn*mu) - 2) + (1/3)*log(mu) + (1/3)*log(cos(Nn - log(Nn) - sin(sin(Nn)) + 8)) - 2/3) + 2.83879651982401
+[fuller-stats] {'denoise': {'calls': 151, 'resolved_rnc': 453}, 'physics': {'calls': 152, 'generated': 291, 'swapped_genes': 92, 'rule_E3': 82, 'spec_gated_in': 82, 'swapped_individuals': 73, 'rule_F': 9, 'rule_TR10-cos': 1}, 'snap': {'calls': 746, 'candidates_seen': 2208, 'no_baseline': 10}, 'concretize': {'calls': 28}}
+<lambdifygenerated-161>:2: RuntimeWarning: invalid value encountered in sqrt
+  return -Nn*mu + 1.90575184584395*log((1/3)*Nn + (1/3)*mu - 1/3*sqrt(exp(Nn*mu) - 2) + (1/3)*log(mu)*cos(mu) + (1/3)*log(cos(Nn - exp(sin(log(Nn))) - 2*sin(Nn) + 8)) - 2/3) + 2.76139541675239
+<lambdifygenerated-161>:2: RuntimeWarning: invalid value encountered in log
+  return -Nn*mu + 1.90575184584395*log((1/3)*Nn + (1/3)*mu - 1/3*sqrt(exp(Nn*mu) - 2) + (1/3)*log(mu)*cos(mu) + (1/3)*log(cos(Nn - exp(sin(log(Nn))) - 2*sin(Nn) + 8)) - 2/3) + 2.76139541675239
+[fuller-stats] {'denoise': {'calls': 151, 'resolved_rnc': 453}, 'physics': {'calls': 152, 'generated': 291, 'swapped_genes': 92, 'rule_E3': 82, 'spec_gated_in': 82, 'swapped_individuals': 73, 'rule_F': 9, 'rule_TR10-cos': 1}, 'snap': {'calls': 746, 'candidates_seen': 2208, 'no_baseline': 10}, 'concretize': {'calls': 28}}
+<lambdifygenerated-165>:2: RuntimeWarning: invalid value encountered in sqrt
+  return -1.0*Nn*mu + 1.92232065980447*log(Nn + mu - sqrt(exp(Nn*mu) - 2) + log(cos(Nn + 7.72058450180107)) + log(cos(Nn - exp(sin(log(mu))) - sin(Nn) + 8)) - 2) - 1.92232065980447*log(3) + 2.0*pi**(1/4)
+<lambdifygenerated-165>:2: RuntimeWarning: invalid value encountered in log
+  return -1.0*Nn*mu + 1.92232065980447*log(Nn + mu - sqrt(exp(Nn*mu) - 2) + log(cos(Nn + 7.72058450180107)) + log(cos(Nn - exp(sin(log(mu))) - sin(Nn) + 8)) - 2) - 1.92232065980447*log(3) + 2.0*pi**(1/4)
+[fuller-stats] {'denoise': {'calls': 151, 'resolved_rnc': 453}, 'physics': {'calls': 152, 'generated': 291, 'swapped_genes': 92, 'rule_E3': 82, 'spec_gated_in': 82, 'swapped_individuals': 73, 'rule_F': 9, 'rule_TR10-cos': 1}, 'snap': {'calls': 746, 'candidates_seen': 2208, 'no_baseline': 10}, 'concretize': {'calls': 28}}
+<lambdifygenerated-169>:2: RuntimeWarning: invalid value encountered in sqrt
+  return -Nn*mu + 1.91015949514657*log((1/3)*Nn + (1/3)*mu - 1/3*sqrt(exp(Nn*mu) - 2) + (1/3)*log(cos(Nn/(exp(sin(log(mu))) + sin(Nn) - 8))) + (1/3)*log(cos(Nn - exp(sin(log(mu))) - sin(Nn) + 8)) - 2/3) + 2.74678099250104
+<lambdifygenerated-169>:2: RuntimeWarning: invalid value encountered in log
+  return -Nn*mu + 1.91015949514657*log((1/3)*Nn + (1/3)*mu - 1/3*sqrt(exp(Nn*mu) - 2) + (1/3)*log(cos(Nn/(exp(sin(log(mu))) + sin(Nn) - 8))) + (1/3)*log(cos(Nn - exp(sin(log(mu))) - sin(Nn) + 8)) - 2/3) + 2.74678099250104
+[fuller-stats] {'denoise': {'calls': 151, 'resolved_rnc': 453}, 'physics': {'calls': 152, 'generated': 291, 'swapped_genes': 92, 'rule_E3': 82, 'spec_gated_in': 82, 'swapped_individuals': 73, 'rule_F': 9, 'rule_TR10-cos': 1}, 'snap': {'calls': 746, 'candidates_seen': 2208, 'no_baseline': 10}, 'concretize': {'calls': 28}}
+<lambdifygenerated-173>:2: RuntimeWarning: invalid value encountered in sqrt
+  return -Nn*mu + 1.9065455320632*log((1/3)*Nn + (1/3)*mu - 1/3*sqrt(exp(Nn*mu) - 2) + (1/3)*log(cos(Nn - exp(sin(log(mu))) - sin(Nn) + 8)) - 2/3) + 2.77148753933333
+<lambdifygenerated-173>:2: RuntimeWarning: invalid value encountered in log
+  return -Nn*mu + 1.9065455320632*log((1/3)*Nn + (1/3)*mu - 1/3*sqrt(exp(Nn*mu) - 2) + (1/3)*log(cos(Nn - exp(sin(log(mu))) - sin(Nn) + 8)) - 2/3) + 2.77148753933333
+[fuller-stats] {'denoise': {'calls': 151, 'resolved_rnc': 453}, 'physics': {'calls': 152, 'generated': 291, 'swapped_genes': 92, 'rule_E3': 82, 'spec_gated_in': 82, 'swapped_individuals': 73, 'rule_F': 9, 'rule_TR10-cos': 1}, 'snap': {'calls': 746, 'candidates_seen': 2208, 'no_baseline': 10}, 'concretize': {'calls': 28}}
+<lambdifygenerated-177>:2: RuntimeWarning: invalid value encountered in sqrt
+  return -Nn*mu + 1.92232065980447*log((1/3)*Nn + (1/3)*mu - 1/3*sqrt(exp(Nn*mu) - 2) + (1/3)*log(cos(Nn - exp(sin(log(mu))) - sin(Nn) + 8)) + (1/3)*log(cos(-Nn + exp(sin(log(Nn))) + sin(Nn) + sin(mu) - 8)) - 2/3) + 2*pi**(1/4)
+<lambdifygenerated-177>:2: RuntimeWarning: invalid value encountered in log
+  return -Nn*mu + 1.92232065980447*log((1/3)*Nn + (1/3)*mu - 1/3*sqrt(exp(Nn*mu) - 2) + (1/3)*log(cos(Nn - exp(sin(log(mu))) - sin(Nn) + 8)) + (1/3)*log(cos(-Nn + exp(sin(log(Nn))) + sin(Nn) + sin(mu) - 8)) - 2/3) + 2*pi**(1/4)
+
+Recovery sweep across 12/27 unique HOF chromosomes (capped):
+  Structural / exact     : 0/12  (0.0%)
+  Numerical (≤1e-6 err)  : 1/12  (8.3%)
+{
+    "date": "2026/09/19",
+    "seed": "5",
+    "task": "equation_recovery",
+    "north_pole_method": "truenorth",
+    "hff_include_val": true,
+    "problem": "I_12_1",
+    "truth_expr": "mu*Nn",
+    "final_terminal_inputs": [
+        "mu",
+        "Nn"
+    ],
+    "wide_primitives": true,
+    "head_length": "48",
+    "n_genes": "3",
+    "rnc_array_length": "10",
+    "tournament size": "3",
+    "population size": "25",
+    "number of elites": "2",
+    "number of generations": "400",
+    "number of islands": "2",
+    "migration FREQ": "30",
+    "wrapper_id": 0,
+    "wrapper_name": "identity",
+    "recovery_exact": false,
+    "recovery_numerical": true,
+    "recovery_max_rel_err": 5.594210248692994e-09,
+    "discovered_expr": "1.00000000559421*Nn*mu",
+    "holdout_mse": 2.276173014154541e-13,
+    "holdout_r2": 0.9999999999999911,
+    "extrap_mse": 7.219859075013235e-13,
+    "extrap_r2": 0.9999999999999947,
+    "hof_size": 27,
+    "hof_exact_recoveries": 0,
+    "hof_numerical_recoveries": 1
+}

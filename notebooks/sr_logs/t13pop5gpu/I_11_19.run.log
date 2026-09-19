@@ -1,0 +1,193 @@
+/opt/anaconda3/lib/python3.12/site-packages/geppy/__init__.py:26: UserWarning: pkg_resources is deprecated as an API. See https://setuptools.pypa.io/en/latest/pkg_resources.html. The pkg_resources package is slated for removal as early as 2025-11-30. Refrain from using this package or pin to Setuptools<81.
+  from pkg_resources import get_distribution, DistributionNotFound
+hff library OK (test fitness: (0.1415394733244273,))
+registry: ['circle_area', 'gravity', 'coulomb', 'pendulum', 'keplers3', 'ideal_gas', 'I_6_2a', 'I_6_2', 'I_6_2b', 'I_8_14', 'I_9_18', 'I_10_7', 'I_11_19', 'I_12_1', 'I_12_2', 'I_12_4', 'I_12_5', 'I_12_11', 'I_13_4', 'I_13_12', 'I_14_3', 'I_14_4', 'I_15_3x', 'I_15_3t', 'I_15_1', 'I_16_6', 'I_18_4', 'I_18_12', 'I_18_14', 'I_24_6', 'I_25_13', 'I_26_2', 'I_27_6', 'I_29_4', 'I_29_16', 'I_30_3', 'I_30_5', 'I_32_5', 'I_32_17', 'I_34_8', 'I_34_1', 'I_34_14', 'I_34_27', 'I_37_4', 'I_38_12', 'I_39_1', 'I_39_11', 'I_39_22', 'I_40_1', 'I_41_16', 'I_43_16', 'I_43_31', 'I_43_43', 'I_44_4', 'I_47_23', 'I_48_2', 'I_50_26', 'II_2_42', 'II_3_24', 'II_4_23', 'II_6_11', 'II_6_15a', 'II_6_15b', 'II_8_7', 'II_8_31', 'II_10_9', 'II_11_3', 'II_11_17', 'II_11_20', 'II_11_27', 'II_11_28', 'II_13_17', 'II_13_23', 'II_13_34', 'II_15_4', 'II_15_5', 'II_21_32', 'II_24_17', 'II_27_16', 'II_27_18', 'II_34_2a', 'II_34_2', 'II_34_11', 'II_34_29a', 'II_34_29b', 'II_35_18', 'II_35_21', 'II_36_38', 'II_37_1', 'II_38_3', 'II_38_14', 'III_4_32', 'III_4_33', 'III_7_38', 'III_8_54', 'III_9_52', 'III_10_19', 'III_12_43', 'III_13_18', 'III_14_14', 'III_15_12', 'III_15_14', 'III_15_27', 'III_17_37', 'III_19_51', 'III_21_20', 'test_1', 'test_2', 'test_3', 'test_4', 'test_5', 'test_6', 'test_7', 'test_8', 'test_9', 'test_10', 'test_11', 'test_12', 'test_13', 'test_14', 'test_15', 'test_16', 'test_17', 'test_18', 'test_19', 'test_20']
+[feynman override] head_length=48 (keep n_genes=3, avgval linker)
+Selected problem: I_11_19
+  Description : Feynman I-III I.11.19: A = x1*y1+x2*y2+x3*y3
+  Variables   : ['x1', 'x2', 'x3', 'y1', 'y2', 'y3']
+  Train range : {'x1': (1.0, 5.0), 'x2': (1.0, 5.0), 'x3': (1.0, 5.0), 'y1': (1.0, 5.0), 'y2': (1.0, 5.0), 'y3': (1.0, 5.0)}
+  Extrap range: {'x1': (1.0, 7.5), 'x2': (1.0, 7.5), 'x3': (1.0, 7.5), 'y1': (1.0, 7.5), 'y2': (1.0, 7.5), 'y3': (1.0, 7.5)}
+  Truth       : x1*y1+x2*y2+x3*y3
+  ✓ cache hit  (data/equations/I_11_19, key=b729ea5ea747b159)
+  train           (800, 7)  target range=[8.176, 60.68]
+  val             (200, 7)  target range=[8.842, 50.79]
+  holdout         (200, 7)  target range=[6.761, 49.23]
+  extrapolation   (200, 7)  target range=[15.25, 115.2]
+(skipping pairplot — too many variables: 6)
+Wide primitive set enabled: sin, cos, exp, log added.
+[E22 rules] variable pattern tags: {'paired_numbered', 'x_y_pairs'}
+  x_y_pairs: [('x1', 'y1'), ('x2', 'y2'), ('x3', 'y3')]
+[E22/23 rules] static candidate count: 16
+  [pairwise_xy_product/x1*y1] a=0.9526 b=1.8224e+01 1-R²_va=6.9733e-01
+  [pairwise_xy_product/x2*y2] a=0.9897 b=1.8096e+01 1-R²_va=6.8275e-01
+  [pairwise_xy_product/x3*y3] a=0.9455 b=1.8636e+01 1-R²_va=7.8346e-01
+  [pairwise_xy_product/x1*y1+x2*y2] a=0.9735 b=9.2987e+00 1-R²_va=4.0523e-01
+  [pairwise_xy_product/x1*y1+x3*y3] a=0.9943 b=9.0731e+00 1-R²_va=3.2412e-01
+  [pairwise_xy_product/x2*y2+x3*y3] a=0.9767 b=9.5999e+00 1-R²_va=4.4073e-01
+  [pairwise_xy_product/x1*y1+x2*y2+x3*y3] a=1.0000 b=-2.4825e-16 1-R²_va=2.3650e-30
+  [sum_sq_all/sum_sq] a=0.4895 b=-3.3175e+00 1-R²_va=1.2473e-01
+  [prefix_sum_sq/x1^2+x2^2+x3^2] a=0.4849 b=1.2033e+01 1-R²_va=6.3793e-01
+  [prefix_sum_sq/y1^2+y2^2+y3^2] a=0.4852 b=1.1900e+01 1-R²_va=6.0435e-01
+  [euclidean_distance/(x1-x2)^2+(y1-y2)^2] a=-0.0226 b=2.7095e+01 1-R²_va=1.0033e+00
+  [euclidean_distance/sqrt((x1-x2)^2+(y1-y2)^2)] a=-0.1660 b=2.7324e+01 1-R²_va=1.0054e+00
+  [euclidean_distance/(x1-x3)^2+(y1-y3)^2] a=-0.0613 b=2.7310e+01 1-R²_va=1.0098e+00
+  [euclidean_distance/sqrt((x1-x3)^2+(y1-y3)^2)] a=-0.2623 b=2.7526e+01 1-R²_va=1.0091e+00
+  [euclidean_distance/(x2-x3)^2+(y2-y3)^2] a=-0.0635 b=2.7317e+01 1-R²_va=9.9932e-01
+  [euclidean_distance/sqrt((x2-x3)^2+(y2-y3)^2)] a=-0.3528 b=2.7711e+01 1-R²_va=9.9963e-01
+[fuller] gene operators ACTIVE (denoise=0.2 physics=0.2 snap=1.0 concretize=0.05)
+Wrapper scope: per_island  (island → wrapper map: ['identity', 'identity'])
+[wgpu] process pool disabled — Metal cannot survive fork(); the population is evaluated in one dispatch instead
+Genes: head_length=48, n_genes=3, rnc_array_length=10
+Population size: 25, tournament: 3, elites: 2, generations: 400, migration FREQ: 30
+  pump per-island sizes: intake=500 (tournsize=40), champion=250 (tournsize=25)
+Initialising evolution at 2026-09-19 01:57:57.661956
+[wgpu] process pool disabled — Metal cannot survive fork(); the population is evaluated in one dispatch instead
+<string>:1: RuntimeWarning: invalid value encountered in scalar multiply
+ gen  deme   evals     min fitness          mse_tr          mse_va         max_err      mse_extrap  one_minus_r2_tr  one_minus_r2_va
+   0     0     500               0  1.60063822e-28   1.5165062e-28  2.13162821e-14  7.13067149e-28   2.1259059e-30  2.36500966e-30
+   0     1     250               0  1.60063822e-28   1.5165062e-28  2.13162821e-14  7.13067149e-28   2.1259059e-30  2.36500966e-30
+[wgpu] process pool disabled — Metal cannot survive fork(); the population is evaluated in one dispatch instead
+Extending evolution: gen 1 → 400 (+400 generations)
+Context leak detected, CoreAnalytics returned false
+Context leak detected, CoreAnalytics returned false
+Context leak detected, CoreAnalytics returned false
+Context leak detected, CoreAnalytics returned false
+Context leak detected, CoreAnalytics returned false
+Context leak detected, CoreAnalytics returned false
+Context leak detected, CoreAnalytics returned false
+Context leak detected, CoreAnalytics returned false
+Context leak detected, CoreAnalytics returned false
+Context leak detected, CoreAnalytics returned false
+Context leak detected, CoreAnalytics returned false
+   1     0     500               0  1.60063822e-28   1.5165062e-28  2.13162821e-14  7.13067149e-28   2.1259059e-30  2.36500966e-30
+Context leak detected, CoreAnalytics returned false
+Context leak detected, CoreAnalytics returned false
+Context leak detected, CoreAnalytics returned false
+Context leak detected, CoreAnalytics returned false
+Context leak detected, CoreAnalytics returned false
+   1     1     250               0  1.60063822e-28   1.5165062e-28  2.13162821e-14  7.13067149e-28   2.1259059e-30  2.36500966e-30
+  early-stop: rule x1*y1+x2*y2+x3*y3 confirmed on holdout (R²=1.0000000000)
+
+*** Early stop at generation 1: best val_R² = 1.0000000000 ≥ 0.9999999990, holdout_R² = 1.0000000000 confirmed
+
+This sub-run: 2026-09-19 01:57:58.681474 → 2026-09-19 01:58:19.916686
+Now at generation 1 (HOF size: 31)
+>>> hof[0] won via static RULE: pairwise_xy_product/x1*y1+x2*y2+x3*y3
+    rule sym_expr: x1*y1 + x2*y2 + x3*y3
+  HFF-chosen LSM kept: a=1, b=-2.48248e-16
+Chromosome wrapper: id=0  →  identity
+hof[0] runtime val: mse=6.958e+02  R²=-9.851402
+Pre-snap expression (after sympify + LSM compose):
+  1.0*x1*y1 + 1.0*x2*y2 + 1.0*x3*y3 - 2.48248264907509e-16
+
+Per-level snap results (before MSE scoring):
+  strict      →  x1*y1 + x2*y2 + x3*y3
+  default     →  x1*y1 + x2*y2 + x3*y3
+  aggressive  →  x1*y1 + x2*y2 + x3*y3
+
+Snap-level comparison (sorted by holdout MSE, lowest first)
+------------------------------------------------------------------------------------------
+  level       MSE            R²         expression                                        
+------------------------------------------------------------------------------------------
+★ strict      2.209e-30      1.0000     x1*y1 + x2*y2 + x3*y3                             
+  default     2.209e-30      1.0000     x1*y1 + x2*y2 + x3*y3                             
+  aggressive  2.209e-30      1.0000     x1*y1 + x2*y2 + x3*y3                             
+
+Winning snap level: 'strict'  →  x1*y1 + x2*y2 + x3*y3
+
+Canonical discovered expression: x1*y1 + x2*y2 + x3*y3
+[38;2;0;50;255m
+############################################################ [38;2;255;255;255m
+[38;2;0;50;255m Equation Recovery: I_11_19 [38;2;255;255;255m
+[38;2;0;50;255m Truth: x1*y1+x2*y2+x3*y3 [38;2;255;255;255m
+[38;2;0;50;255m [38;2;255;255;255m
+[38;2;255;0;255m     Exact recovery     : True [38;2;255;255;255m
+[38;2;255;0;255m     Numerical recovery : True (max rel_err 0.00e+00 on 10k samples) [38;2;255;255;255m
+[38;2;255;0;255m     Discovered         : x1*y1 + x2*y2 + x3*y3 [38;2;255;255;255m
+[38;2;255;0;255m     LSM (a, b)         : (1, -2.48248e-16) [38;2;255;255;255m
+[38;2;0;50;255m
+############################################################ [38;2;255;255;255m
+In-range holdout : MSE=1.632e-28  MAE=1.201e-14  R²=1.0000
+Extrapolation    : MSE=7.131e-28  MAE=2.457e-14  R²=1.0000
+
+Top 10 HOF models (north_pole=truenorth) (★ = Pareto-optimal)
+ ----------------------------------------------------------------------------------------------------------------
+       model     wrapper      length   train_mse     val_mse     max_err    train_r2      val_r2 angular_distance
+ ----------------------------------------------------------------------------------------------------------------
+★          16     log_abs          21    546.0564    526.7122     44.4655     -6.2525     -7.2141      0.0000
+           23     log_abs          25    658.7573    640.5200     46.7767     -7.7494     -8.9890      0.4539
+           21     log_abs          32    680.4451    656.1519     47.8212     -8.0374     -9.2328      0.5539
+           20     log_abs           5    686.9027    664.1635     47.9603     -8.1232     -9.3577      0.5834
+           27     log_abs           7    694.2516    672.5398     47.3484     -8.2208     -9.4883      0.5889
+           14     log_abs          18    702.1680    679.7853     47.8932     -8.3259     -9.6013      0.6335
+           29     log_abs           5    705.6113    680.1339     48.8334     -8.3717     -9.6068      0.6764
+           19     log_abs           5    711.2541    682.1276     48.5380     -8.4466     -9.6379      0.6772
+            2     log_abs          20    726.8873    695.1051     49.0829     -8.6542     -9.8402      0.7478
+           17     log_abs          10    725.1766    698.6271     49.0754     -8.6315     -9.8952      0.7505
+
+Pareto-optimal in top 10: 1    Pareto-optimal in full HOF: 1 / 31
+[fuller-stats] {'denoise': {'calls': 147, 'resolved_rnc': 441}, 'physics': {'calls': 155, 'generated': 453, 'swapped_genes': 132, 'rule_E3': 93, 'spec_gated_in': 93, 'swapped_individuals': 98, 'rule_F': 37, 'rule_A1': 1, 'rule_TR10-sin': 1}, 'snap': {'calls': 746, 'candidates_seen': 2226, 'no_baseline': 4}, 'concretize': {'calls': 44}}
+[fuller-stats] {'denoise': {'calls': 147, 'resolved_rnc': 441}, 'physics': {'calls': 155, 'generated': 453, 'swapped_genes': 132, 'rule_E3': 93, 'spec_gated_in': 93, 'swapped_individuals': 98, 'rule_F': 37, 'rule_A1': 1, 'rule_TR10-sin': 1}, 'snap': {'calls': 746, 'candidates_seen': 2226, 'no_baseline': 4}, 'concretize': {'calls': 44}}
+<lambdifygenerated-142>:2: RuntimeWarning: invalid value encountered in sqrt
+  return -x1*y1 - x2*y2 - x3*y3 + 2.34422505230807*log((y2 - (x1*x3 - y2*(exp(x1) - log(x1)))*(-x3 + y1 + sin(x2) - sqrt(cos(y3)) + 1096.63315842846))/(-3.0*x3 + 3.0*y1 + 3.0*sin(x2) - 3.0*sqrt(cos(y3)) + 3289.89947528538)) + 20.8764479759288
+[fuller-stats] {'denoise': {'calls': 147, 'resolved_rnc': 441}, 'physics': {'calls': 155, 'generated': 453, 'swapped_genes': 132, 'rule_E3': 93, 'spec_gated_in': 93, 'swapped_individuals': 98, 'rule_F': 37, 'rule_A1': 1, 'rule_TR10-sin': 1}, 'snap': {'calls': 746, 'candidates_seen': 2226, 'no_baseline': 4}, 'concretize': {'calls': 44}}
+<lambdifygenerated-146>:2: RuntimeWarning: invalid value encountered in log
+  return -x1*y1 - x2*y2 - x3*y3 + 4.57428157647736*log((2/3)*x3 + (1/3)*exp(y2) + (1/3)*sin(((y1 + log(sqrt(y2)*cos(y1)))*(x1*exp((1/2)*y1) + 6) + sin(exp(sqrt(x2 - y3))))/(x1*exp((1/2)*y1) + 6))*cos(x3)) + 16.6973486006851
+[fuller-stats] {'denoise': {'calls': 147, 'resolved_rnc': 441}, 'physics': {'calls': 155, 'generated': 453, 'swapped_genes': 132, 'rule_E3': 93, 'spec_gated_in': 93, 'swapped_individuals': 98, 'rule_F': 37, 'rule_A1': 1, 'rule_TR10-sin': 1}, 'snap': {'calls': 746, 'candidates_seen': 2226, 'no_baseline': 4}, 'concretize': {'calls': 44}}
+[fuller-stats] {'denoise': {'calls': 147, 'resolved_rnc': 441}, 'physics': {'calls': 155, 'generated': 453, 'swapped_genes': 132, 'rule_E3': 93, 'spec_gated_in': 93, 'swapped_individuals': 98, 'rule_F': 37, 'rule_A1': 1, 'rule_TR10-sin': 1}, 'snap': {'calls': 746, 'candidates_seen': 2226, 'no_baseline': 4}, 'concretize': {'calls': 44}}
+[fuller-stats] {'denoise': {'calls': 147, 'resolved_rnc': 441}, 'physics': {'calls': 155, 'generated': 453, 'swapped_genes': 132, 'rule_E3': 93, 'spec_gated_in': 93, 'swapped_individuals': 98, 'rule_F': 37, 'rule_A1': 1, 'rule_TR10-sin': 1}, 'snap': {'calls': 746, 'candidates_seen': 2226, 'no_baseline': 4}, 'concretize': {'calls': 44}}
+<lambdifygenerated-158>:2: RuntimeWarning: invalid value encountered in log
+  return -x1*y1 - x2*y2 - x3*y3 + 4.34692007904047*log((1/3)*(y3*(x1 - 7*x2*y2*cos(sqrt(y1))) + exp(y3))/y3) + 19.2540669924698
+[fuller-stats] {'denoise': {'calls': 147, 'resolved_rnc': 441}, 'physics': {'calls': 155, 'generated': 453, 'swapped_genes': 132, 'rule_E3': 93, 'spec_gated_in': 93, 'swapped_individuals': 98, 'rule_F': 37, 'rule_A1': 1, 'rule_TR10-sin': 1}, 'snap': {'calls': 746, 'candidates_seen': 2226, 'no_baseline': 4}, 'concretize': {'calls': 44}}
+[fuller-stats] {'denoise': {'calls': 147, 'resolved_rnc': 441}, 'physics': {'calls': 155, 'generated': 453, 'swapped_genes': 132, 'rule_E3': 93, 'spec_gated_in': 93, 'swapped_individuals': 98, 'rule_F': 37, 'rule_A1': 1, 'rule_TR10-sin': 1}, 'snap': {'calls': 746, 'candidates_seen': 2226, 'no_baseline': 4}, 'concretize': {'calls': 44}}
+[fuller-stats] {'denoise': {'calls': 147, 'resolved_rnc': 441}, 'physics': {'calls': 155, 'generated': 453, 'swapped_genes': 132, 'rule_E3': 93, 'spec_gated_in': 93, 'swapped_individuals': 98, 'rule_F': 37, 'rule_A1': 1, 'rule_TR10-sin': 1}, 'snap': {'calls': 746, 'candidates_seen': 2226, 'no_baseline': 4}, 'concretize': {'calls': 44}}
+<lambdifygenerated-170>:2: RuntimeWarning: invalid value encountered in log
+  return -x1*y1 - x2*y2 - x3*y3 + 1.49328319761151*log((1/3)*(x3*(cos(sqrt(y1)) + 3.16227766016838)*log(y2) + (x1 + sin(y3 + sin(y1)))*sin(y3))/sin(y3)) + 24.9018492517385
+[fuller-stats] {'denoise': {'calls': 147, 'resolved_rnc': 441}, 'physics': {'calls': 155, 'generated': 453, 'swapped_genes': 132, 'rule_E3': 93, 'spec_gated_in': 93, 'swapped_individuals': 98, 'rule_F': 37, 'rule_A1': 1, 'rule_TR10-sin': 1}, 'snap': {'calls': 746, 'candidates_seen': 2226, 'no_baseline': 4}, 'concretize': {'calls': 44}}
+[fuller-stats] {'denoise': {'calls': 147, 'resolved_rnc': 441}, 'physics': {'calls': 155, 'generated': 453, 'swapped_genes': 132, 'rule_E3': 93, 'spec_gated_in': 93, 'swapped_individuals': 98, 'rule_F': 37, 'rule_A1': 1, 'rule_TR10-sin': 1}, 'snap': {'calls': 746, 'candidates_seen': 2226, 'no_baseline': 4}, 'concretize': {'calls': 44}}
+[fuller-stats] {'denoise': {'calls': 147, 'resolved_rnc': 441}, 'physics': {'calls': 155, 'generated': 453, 'swapped_genes': 132, 'rule_E3': 93, 'spec_gated_in': 93, 'swapped_individuals': 98, 'rule_F': 37, 'rule_A1': 1, 'rule_TR10-sin': 1}, 'snap': {'calls': 746, 'candidates_seen': 2226, 'no_baseline': 4}, 'concretize': {'calls': 44}}
+
+Recovery sweep across 12/31 unique HOF chromosomes (capped):
+  Structural / exact     : 0/12  (0.0%)
+  Numerical (≤1e-6 err)  : 0/12  (0.0%)
+{
+    "date": "2026/09/19",
+    "seed": "5",
+    "task": "equation_recovery",
+    "north_pole_method": "truenorth",
+    "hff_include_val": true,
+    "problem": "I_11_19",
+    "truth_expr": "x1*y1+x2*y2+x3*y3",
+    "final_terminal_inputs": [
+        "x1",
+        "x2",
+        "x3",
+        "y1",
+        "y2",
+        "y3"
+    ],
+    "wide_primitives": true,
+    "head_length": "48",
+    "n_genes": "3",
+    "rnc_array_length": "10",
+    "tournament size": "3",
+    "population size": "25",
+    "number of elites": "2",
+    "number of generations": "400",
+    "number of islands": "2",
+    "migration FREQ": "30",
+    "wrapper_id": 0,
+    "wrapper_name": "identity",
+    "recovery_exact": true,
+    "recovery_numerical": true,
+    "recovery_max_rel_err": 0.0,
+    "discovered_expr": "x1*y1 + x2*y2 + x3*y3",
+    "holdout_mse": 1.6318771115854461e-28,
+    "holdout_r2": 1.0,
+    "extrap_mse": 7.13067149447377e-28,
+    "extrap_r2": 1.0,
+    "hof_size": 31,
+    "hof_exact_recoveries": 0,
+    "hof_numerical_recoveries": 0
+}

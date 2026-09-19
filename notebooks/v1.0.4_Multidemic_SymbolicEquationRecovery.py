@@ -1720,6 +1720,27 @@ _NB_GPU_STATS = {"dispatches": 0, "genes": 0, "row_evals": 0, "seconds": 0.0}
 _NB_GPU_LAST = {"dispatches": 0, "genes": 0, "seconds": 0.0}
 
 
+def _nb_df_key(df) -> tuple:
+    """Stable identity for a dataframe across a fit."""
+    col = df.columns[-1]
+    return (df.shape, str(df.columns.tolist()),
+            float(df[col].iloc[0]), float(df[col].iloc[-1]))
+
+
+def _nb_gpu_cache_reset() -> None:
+    """Drop cached predictions at the start of a generation.
+
+    The cache is only useful WITHIN a generation — compute_raw_metrics reads
+    each gene once per dataframe — and the population is replaced every
+    generation, so nothing carried over is ever reused. Left unbounded it
+    grows without limit: at 5x population that is 2.7 million arrays, ~17 GB,
+    which is what made the GPU run slower than the CPU one it was meant to
+    beat. Sessions are NOT dropped; the dataset has not changed and
+    re-uploading it is the cost residency exists to avoid.
+    """
+    hgh._GPU_PRED_CACHE.clear()
+
+
 def _nb_gpu_prefill(population, df):
     """One dispatch for every gene of every individual against df."""
     if os.environ.get("HFF_GPU") != "1" or not population:
@@ -1731,7 +1752,12 @@ def _nb_gpu_prefill(population, df):
     except ImportError:
         return
 
-    key = id(df)
+    # Key on a STABLE identity, not id(). CPython reuses an id once an object
+    # is freed, so a temporary frame can inherit a dead frame's session and
+    # cached predictions — silently returning another dataframe's values.
+    # Shape plus the first and last target value is enough to separate
+    # train/val/extrap/holdout and is constant for the life of a fit.
+    key = _nb_df_key(df)
     genes, keys = [], []
     for ind in population:
         for gene in ind:
@@ -1756,6 +1782,7 @@ def _nb_gpu_prefill(population, df):
         except Exception:
             return
         hgh._GPU_SESSIONS[key] = sess
+        _NB_GPU_STATS["sessions"] = _NB_GPU_STATS.get("sessions", 0) + 1
 
     try:
         _t0 = time.perf_counter()
@@ -2565,6 +2592,7 @@ else:
         # Workers must never initialise Metal: a fork after Metal init
         # crashes the child outright. They read the cache instead, which
         # fork copies to them.
+        _nb_gpu_cache_reset()
         _nb_gpu_prefill(deme, train)
         _nb_gpu_prefill(deme, validation)
         _nb_gpu_prefill(deme, extrapolation)
@@ -2635,6 +2663,7 @@ else:
                 # Workers must never initialise Metal: a fork after Metal init
                 # crashes the child outright. They read the cache instead, which
                 # fork copies to them.
+                _nb_gpu_cache_reset()
                 _nb_gpu_prefill(invalid_ind, train)
                 _nb_gpu_prefill(invalid_ind, validation)
                 _nb_gpu_prefill(invalid_ind, extrapolation)

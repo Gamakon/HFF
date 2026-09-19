@@ -4,13 +4,13 @@
   "task": "equation_recovery",
   "north_pole_method": "truenorth",
   "hff_include_val": true,
-  "problem": "I_12_2",
-  "truth_expr": "q1*q2*r/(4*pi*epsilon*r**3)",
+  "problem": "I_15_3x",
+  "truth_expr": "(x-u*t)/sqrt(1-u**2/c**2)",
   "final_terminal_inputs": [
-    "q1",
-    "q2",
-    "epsilon",
-    "r"
+    "x",
+    "u",
+    "c",
+    "t"
   ],
   "wide_primitives": true,
   "head_length": "48",
@@ -27,13 +27,13 @@
   "recovery_exact": true,
   "recovery_numerical": true,
   "recovery_max_rel_err": 0.0,
-  "discovered_expr": "q1*q2/(4*pi*epsilon*r**2)",
-  "holdout_mse": 1.6003800753111856e-33,
+  "discovered_expr": "(-t*u + x)/sqrt(1 - u**2/c**2)",
+  "holdout_mse": 2.0335355022400394e-30,
   "holdout_r2": 1.0,
-  "extrap_mse": 2.6574232693347287e-33,
+  "extrap_mse": 3.40756213050971e-30,
   "extrap_r2": 1.0,
   "hof_size": 30,
   "hof_exact_recoveries": 0,
   "hof_numerical_recoveries": 0,
-  "elapsed_s": 28.29720529098995
+  "elapsed_s": 31.694184500025585
 }

@@ -21,119 +21,137 @@ Wide primitive set enabled: sin, cos, exp, log added.
   [sum_sq_all/sum_sq] a=-0.0042 b=1.3350e+00 1-R²_va=1.0143e+00
 [fuller] gene operators ACTIVE (denoise=0.2 physics=0.2 snap=1.0 concretize=0.05)
 Wrapper scope: per_island  (island → wrapper map: ['identity', 'identity'])
+[wgpu] process pool disabled — Metal cannot survive fork(); the population is evaluated in one dispatch instead
 Genes: head_length=48, n_genes=3, rnc_array_length=10
 Population size: 25, tournament: 3, elites: 2, generations: 400, migration FREQ: 30
   pump per-island sizes: intake=500 (tournsize=40), champion=250 (tournsize=25)
-Initialising evolution at 2026-09-19 01:53:50.618148
-objc[11686]: +[NSCheapMutableString initialize] may have been in progress in another thread when fork() was called.
-objc[11686]: +[NSCheapMutableString initialize] may have been in progress in another thread when fork() was called. We cannot safely call it or ignore it in the fork() child process. Crashing instead. Set a breakpoint on objc_initializeAfterForkError to debug.
-objc[11688]: +[NSCheapMutableString initialize] may have been in progress in another thread when fork() was called.
-objc[11688]: +[NSCheapMutableString initialize] may have been in progress in another thread when fork() was called. We cannot safely call it or ignore it in the fork() child process. Crashing instead. Set a breakpoint on objc_initializeAfterForkError to debug.
-objc[11690]: +[NSCheapMutableString initialize] may have been in progress in another thread when fork() was called.
-objc[11690]: +[NSCheapMutableString initialize] may have been in progress in another thread when fork() was called. We cannot safely call it or ignore it in the fork() child process. Crashing instead. Set a breakpoint on objc_initializeAfterForkError to debug.
-objc[11692]: +[NSCheapMutableString initialize] may have been in progress in another thread when fork() was called.
-objc[11692]: +[NSCheapMutableString initialize] may have been in progress in another thread when fork() was called. We cannot safely call it or ignore it in the fork() child process. Crashing instead. Set a breakpoint on objc_initializeAfterForkError to debug.
-objc[11694]: +[NSCheapMutableString initialize] may have been in progress in another thread when fork() was called.
-objc[11694]: +[NSCheapMutableString initialize] may have been in progress in another thread when fork() was called. We cannot safely call it or ignore it in the fork() child process. Crashing instead. Set a breakpoint on objc_initializeAfterForkError to debug.
-objc[11696]: +[NSCheapMutableString initialize] may have been in progress in another thread when fork() was called.
-objc[11696]: +[NSCheapMutableString initialize] may have been in progress in another thread when fork() was called. We cannot safely call it or ignore it in the fork() child process. Crashing instead. Set a breakpoint on objc_initializeAfterForkError to debug.
-objc[11698]: +[NSCheapMutableString initialize] may have been in progress in another thread when fork() was called.
-objc[11698]: +[NSCheapMutableString initialize] may have been in progress in another thread when fork() was called. We cannot safely call it or ignore it in the fork() child process. Crashing instead. Set a breakpoint on objc_initializeAfterForkError to debug.
-objc[11699]: +[NSCheapMutableString initialize] may have been in progress in another thread when fork() was called.
-objc[11699]: +[NSCheapMutableString initialize] may have been in progress in another thread when fork() was called. We cannot safely call it or ignore it in the fork() child process. Crashing instead. Set a breakpoint on objc_initializeAfterForkError to debug.
-objc[11701]: +[NSCheapMutableString initialize] may have been in progress in another thread when fork() was called.
-objc[11701]: +[NSCheapMutableString initialize] may have been in progress in another thread when fork() was called. We cannot safely call it or ignore it in the fork() child process. Crashing instead. Set a breakpoint on objc_initializeAfterForkError to debug.
-objc[11703]: +[NSCheapMutableString initialize] may have been in progress in another thread when fork() was called.
-objc[11703]: +[NSCheapMutableString initialize] may have been in progress in another thread when fork() was called. We cannot safely call it or ignore it in the fork() child process. Crashing instead. Set a breakpoint on objc_initializeAfterForkError to debug.
-objc[11705]: +[NSCheapMutableString initialize] may have been in progress in another thread when fork() was called.
-objc[11705]: +[NSCheapMutableString initialize] may have been in progress in another thread when fork() was called. We cannot safely call it or ignore it in the fork() child process. Crashing instead. Set a breakpoint on objc_initializeAfterForkError to debug.
-objc[11707]: +[NSCheapMutableString initialize] may have been in progress in another thread when fork() was called.
-objc[11707]: +[NSCheapMutableString initialize] may have been in progress in another thread when fork() was called. We cannot safely call it or ignore it in the fork() child process. Crashing instead. Set a breakpoint on objc_initializeAfterForkError to debug.
-objc[11709]: +[NSCheapMutableString initialize] may have been in progress in another thread when fork() was called.
-objc[11709]: +[NSCheapMutableString initialize] may have been in progress in another thread when fork() was called. We cannot safely call it or ignore it in the fork() child process. Crashing instead. Set a breakpoint on objc_initializeAfterForkError to debug.
-objc[11683]: +[NSCheapMutableString initialize] may have been in progress in another thread when fork() was called.
-objc[11683]: +[NSCheapMutableString initialize] may have been in progress in another thread when fork() was called. We cannot safely call it or ignore it in the fork() child process. Crashing instead. Set a breakpoint on objc_initializeAfterForkError to debug.
-objc[11711]: +[NSCheapMutableString initialize] may have been in progress in another thread when fork() was called.
-objc[11711]: +[NSCheapMutableString initialize] may have been in progress in another thread when fork() was called. We cannot safely call it or ignore it in the fork() child process. Crashing instead. Set a breakpoint on objc_initializeAfterForkError to debug.
-objc[11712]: +[NSCheapMutableString initialize] may have been in progress in another thread when fork() was called.
-objc[11712]: +[NSCheapMutableString initialize] may have been in progress in another thread when fork() was called. We cannot safely call it or ignore it in the fork() child process. Crashing instead. Set a breakpoint on objc_initializeAfterForkError to debug.
-objc[11713]: +[NSCheapMutableString initialize] may have been in progress in another thread when fork() was called.
-objc[11713]: +[NSCheapMutableString initialize] may have been in progress in another thread when fork() was called. We cannot safely call it or ignore it in the fork() child process. Crashing instead. Set a breakpoint on objc_initializeAfterForkError to debug.
-objc[11716]: +[NSCheapMutableString initialize] may have been in progress in another thread when fork() was called.
-objc[11716]: +[NSCheapMutableString initialize] may have been in progress in another thread when fork() was called. We cannot safely call it or ignore it in the fork() child process. Crashing instead. Set a breakpoint on objc_initializeAfterForkError to debug.
-objc[11722]: +[NSCheapMutableString initialize] may have been in progress in another thread when fork() was called.
-objc[11722]: +[NSCheapMutableString initialize] may have been in progress in another thread when fork() was called. We cannot safely call it or ignore it in the fork() child process. Crashing instead. Set a breakpoint on objc_initializeAfterForkError to debug.
-objc[11725]: +[NSCheapMutableString initialize] may have been in progress in another thread when fork() was called.
-objc[11725]: +[NSCheapMutableString initialize] may have been in progress in another thread when fork() was called. We cannot safely call it or ignore it in the fork() child process. Crashing instead. Set a breakpoint on objc_initializeAfterForkError to debug.
-objc[11728]: +[NSCheapMutableString initialize] may have been in progress in another thread when fork() was called.
-objc[11728]: +[NSCheapMutableString initialize] may have been in progress in another thread when fork() was called. We cannot safely call it or ignore it in the fork() child process. Crashing instead. Set a breakpoint on objc_initializeAfterForkError to debug.
-objc[11731]: +[NSCheapMutableString initialize] may have been in progress in another thread when fork() was called.
-objc[11731]: +[NSCheapMutableString initialize] may have been in progress in another thread when fork() was called. We cannot safely call it or ignore it in the fork() child process. Crashing instead. Set a breakpoint on objc_initializeAfterForkError to debug.
-objc[11732]: +[NSCheapMutableString initialize] may have been in progress in another thread when fork() was called.
-objc[11732]: +[NSCheapMutableString initialize] may have been in progress in another thread when fork() was called. We cannot safely call it or ignore it in the fork() child process. Crashing instead. Set a breakpoint on objc_initializeAfterForkError to debug.
-objc[11733]: +[NSCheapMutableString initialize] may have been in progress in another thread when fork() was called.
-objc[11733]: +[NSCheapMutableString initialize] may have been in progress in another thread when fork() was called. We cannot safely call it or ignore it in the fork() child process. Crashing instead. Set a breakpoint on objc_initializeAfterForkError to debug.
-objc[11741]: +[NSCheapMutableString initialize] may have been in progress in another thread when fork() was called.
-objc[11741]: +[NSCheapMutableString initialize] may have been in progress in another thread when fork() was called. We cannot safely call it or ignore it in the fork() child process. Crashing instead. Set a breakpoint on objc_initializeAfterForkError to debug.
-objc[11742]: +[NSCheapMutableString initialize] may have been in progress in another thread when fork() was called.
-objc[11742]: +[NSCheapMutableString initialize] may have been in progress in another thread when fork() was called. We cannot safely call it or ignore it in the fork() child process. Crashing instead. Set a breakpoint on objc_initializeAfterForkError to debug.
-objc[11743]: +[NSCheapMutableString initialize] may have been in progress in another thread when fork() was called.
-objc[11743]: +[NSCheapMutableString initialize] may have been in progress in another thread when fork() was called. We cannot safely call it or ignore it in the fork() child process. Crashing instead. Set a breakpoint on objc_initializeAfterForkError to debug.
-objc[11744]: +[NSCheapMutableString initialize] may have been in progress in another thread when fork() was called.
-objc[11744]: +[NSCheapMutableString initialize] may have been in progress in another thread when fork() was called. We cannot safely call it or ignore it in the fork() child process. Crashing instead. Set a breakpoint on objc_initializeAfterForkError to debug.
-objc[11745]: +[NSCheapMutableString initialize] may have been in progress in another thread when fork() was called.
-objc[11745]: +[NSCheapMutableString initialize] may have been in progress in another thread when fork() was called. We cannot safely call it or ignore it in the fork() child process. Crashing instead. Set a breakpoint on objc_initializeAfterForkError to debug.
-objc[11746]: +[NSCheapMutableString initialize] may have been in progress in another thread when fork() was called.
-objc[11746]: +[NSCheapMutableString initialize] may have been in progress in another thread when fork() was called. We cannot safely call it or ignore it in the fork() child process. Crashing instead. Set a breakpoint on objc_initializeAfterForkError to debug.
-objc[11748]: +[NSCheapMutableString initialize] may have been in progress in another thread when fork() was called.
-objc[11748]: +[NSCheapMutableString initialize] may have been in progress in another thread when fork() was called. We cannot safely call it or ignore it in the fork() child process. Crashing instead. Set a breakpoint on objc_initializeAfterForkError to debug.
-objc[11750]: +[NSCheapMutableString initialize] may have been in progress in another thread when fork() was called.
-objc[11750]: +[NSCheapMutableString initialize] may have been in progress in another thread when fork() was called. We cannot safely call it or ignore it in the fork() child process. Crashing instead. Set a breakpoint on objc_initializeAfterForkError to debug.
-objc[11752]: +[NSCheapMutableString initialize] may have been in progress in another thread when fork() was called.
-objc[11752]: +[NSCheapMutableString initialize] may have been in progress in another thread when fork() was called. We cannot safely call it or ignore it in the fork() child process. Crashing instead. Set a breakpoint on objc_initializeAfterForkError to debug.
-objc[11753]: +[NSCheapMutableString initialize] may have been in progress in another thread when fork() was called.
-objc[11753]: +[NSCheapMutableString initialize] may have been in progress in another thread when fork() was called. We cannot safely call it or ignore it in the fork() child process. Crashing instead. Set a breakpoint on objc_initializeAfterForkError to debug.
-objc[11756]: +[NSCheapMutableString initialize] may have been in progress in another thread when fork() was called.
-objc[11756]: +[NSCheapMutableString initialize] may have been in progress in another thread when fork() was called. We cannot safely call it or ignore it in the fork() child process. Crashing instead. Set a breakpoint on objc_initializeAfterForkError to debug.
-objc[11757]: +[NSCheapMutableString initialize] may have been in progress in another thread when fork() was called.
-objc[11757]: +[NSCheapMutableString initialize] may have been in progress in another thread when fork() was called. We cannot safely call it or ignore it in the fork() child process. Crashing instead. Set a breakpoint on objc_initializeAfterForkError to debug.
-objc[11758]: +[NSCheapMutableString initialize] may have been in progress in another thread when fork() was called.
-objc[11758]: +[NSCheapMutableString initialize] may have been in progress in another thread when fork() was called. We cannot safely call it or ignore it in the fork() child process. Crashing instead. Set a breakpoint on objc_initializeAfterForkError to debug.
-objc[11759]: +[NSCheapMutableString initialize] may have been in progress in another thread when fork() was called.
-objc[11759]: +[NSCheapMutableString initialize] may have been in progress in another thread when fork() was called. We cannot safely call it or ignore it in the fork() child process. Crashing instead. Set a breakpoint on objc_initializeAfterForkError to debug.
-objc[11760]: +[NSCheapMutableString initialize] may have been in progress in another thread when fork() was called.
-objc[11760]: +[NSCheapMutableString initialize] may have been in progress in another thread when fork() was called. We cannot safely call it or ignore it in the fork() child process. Crashing instead. Set a breakpoint on objc_initializeAfterForkError to debug.
-objc[11763]: +[NSCheapMutableString initialize] may have been in progress in another thread when fork() was called.
-objc[11763]: +[NSCheapMutableString initialize] may have been in progress in another thread when fork() was called. We cannot safely call it or ignore it in the fork() child process. Crashing instead. Set a breakpoint on objc_initializeAfterForkError to debug.
-objc[11766]: +[NSCheapMutableString initialize] may have been in progress in another thread when fork() was called.
-objc[11766]: +[NSCheapMutableString initialize] may have been in progress in another thread when fork() was called. We cannot safely call it or ignore it in the fork() child process. Crashing instead. Set a breakpoint on objc_initializeAfterForkError to debug.
-objc[11768]: +[NSCheapMutableString initialize] may have been in progress in another thread when fork() was called.
-objc[11768]: +[NSCheapMutableString initialize] may have been in progress in another thread when fork() was called. We cannot safely call it or ignore it in the fork() child process. Crashing instead. Set a breakpoint on objc_initializeAfterForkError to debug.
-objc[11771]: +[NSCheapMutableString initialize] may have been in progress in another thread when fork() was called.
-objc[11771]: +[NSCheapMutableString initialize] may have been in progress in another thread when fork() was called. We cannot safely call it or ignore it in the fork() child process. Crashing instead. Set a breakpoint on objc_initializeAfterForkError to debug.
-objc[11773]: +[NSCheapMutableString initialize] may have been in progress in another thread when fork() was called.
-objc[11773]: +[NSCheapMutableString initialize] may have been in progress in another thread when fork() was called. We cannot safely call it or ignore it in the fork() child process. Crashing instead. Set a breakpoint on objc_initializeAfterForkError to debug.
-objc[11774]: +[NSCheapMutableString initialize] may have been in progress in another thread when fork() was called.
-objc[11774]: +[NSCheapMutableString initialize] may have been in progress in another thread when fork() was called. We cannot safely call it or ignore it in the fork() child process. Crashing instead. Set a breakpoint on objc_initializeAfterForkError to debug.
-objc[11777]: +[NSCheapMutableString initialize] may have been in progress in another thread when fork() was called.
-objc[11777]: +[NSCheapMutableString initialize] may have been in progress in another thread when fork() was called. We cannot safely call it or ignore it in the fork() child process. Crashing instead. Set a breakpoint on objc_initializeAfterForkError to debug.
-objc[11779]: +[NSCheapMutableString initialize] may have been in progress in another thread when fork() was called.
-objc[11779]: +[NSCheapMutableString initialize] may have been in progress in another thread when fork() was called. We cannot safely call it or ignore it in the fork() child process. Crashing instead. Set a breakpoint on objc_initializeAfterForkError to debug.
-objc[11780]: +[NSCheapMutableString initialize] may have been in progress in another thread when fork() was called.
-objc[11780]: +[NSCheapMutableString initialize] may have been in progress in another thread when fork() was called. We cannot safely call it or ignore it in the fork() child process. Crashing instead. Set a breakpoint on objc_initializeAfterForkError to debug.
-objc[11788]: +[NSCheapMutableString initialize] may have been in progress in another thread when fork() was called.
-objc[11788]: +[NSCheapMutableString initialize] may have been in progress in another thread when fork() was called. We cannot safely call it or ignore it in the fork() child process. Crashing instead. Set a breakpoint on objc_initializeAfterForkError to debug.
-objc[11789]: +[NSCheapMutableString initialize] may have been in progress in another thread when fork() was called.
-objc[11789]: +[NSCheapMutableString initialize] may have been in progress in another thread when fork() was called. We cannot safely call it or ignore it in the fork() child process. Crashing instead. Set a breakpoint on objc_initializeAfterForkError to debug.
-objc[11790]: +[NSCheapMutableString initialize] may have been in progress in another thread when fork() was called.
-objc[11790]: +[NSCheapMutableString initialize] may have been in progress in another thread when fork() was called. We cannot safely call it or ignore it in the fork() child process. Crashing instead. Set a breakpoint on objc_initializeAfterForkError to debug.
-objc[11791]: +[NSCheapMutableString initialize] may have been in progress in another thread when fork() was called.
-objc[11791]: +[NSCheapMutableString initialize] may have been in progress in another thread when fork() was called. We cannot safely call it or ignore it in the fork() child process. Crashing instead. Set a breakpoint on objc_initializeAfterForkError to debug.
-objc[11792]: +[NSCheapMutableString initialize] may have been in progress in another thread when fork() was called.
-objc[11792]: +[NSCheapMutableString initialize] may have been in progress in another thread when fork() was called. We cannot safely call it or ignore it in the fork() child process. Crashing instead. Set a breakpoint on objc_initializeAfterForkError to debug.
-objc[11796]: +[NSCheapMutableString initialize] may have been in progress in another thread when fork() was called.
-objc[11796]: +[NSCheapMutableString initialize] may have been in progress in another thread when fork() was called. We cannot safely call it or ignore it in the fork() child process. Crashing instead. Set a breakpoint on objc_initializeAfterForkError to debug.
-objc[11797]: +[NSCheapMutableString initialize] may have been in progress in another thread when fork() was called.
-objc[11797]: +[NSCheapMutableString initialize] may have been in progress in another thread when fork() was called. We cannot safely call it or ignore it in the fork() child process. Crashing instead. Set a breakpoint on objc_initializeAfterForkError to debug.
-objc[11798]: +[NSCheapMutableString initialize] may have been in progress in another thread when fork() was called.
-objc[11798]: +[NSCheapMutableString initialize] may have been in progress in another thread when fork() was called. We cannot safely call it or ignore it in the fork() child process. Crashing instead. Set a breakpoint on objc_initializeAfterForkError to debug.
+Initialising evolution at 2026-09-19 01:57:26.447098
+[wgpu] process pool disabled — Metal cannot survive fork(); the population is evaluated in one dispatch instead
+ gen  deme   evals     min fitness          mse_tr          mse_va         max_err      mse_extrap  one_minus_r2_tr  one_minus_r2_va
+   0     0     500               0  5.75700704e-15  6.64107743e-15  3.15952875e-07  8.28422866e-15  8.79184969e-15  7.97921111e-15
+   0     1     250               0   0.00139205803    0.0013445809     0.122904834    0.0430884658   0.00212589022   0.00161550516
+[wgpu] process pool disabled — Metal cannot survive fork(); the population is evaluated in one dispatch instead
+Extending evolution: gen 1 → 400 (+400 generations)
+Context leak detected, CoreAnalytics returned false
+Context leak detected, CoreAnalytics returned false
+Context leak detected, CoreAnalytics returned false
+Context leak detected, CoreAnalytics returned false
+Context leak detected, CoreAnalytics returned false
+Context leak detected, CoreAnalytics returned false
+Context leak detected, CoreAnalytics returned false
+Context leak detected, CoreAnalytics returned false
+Context leak detected, CoreAnalytics returned false
+Context leak detected, CoreAnalytics returned false
+   1     0     500               0  5.75700704e-15  6.64107743e-15  3.15952875e-07  8.28422866e-15  8.79184969e-15  7.97921111e-15
+Context leak detected, CoreAnalytics returned false
+Context leak detected, CoreAnalytics returned false
+Context leak detected, CoreAnalytics returned false
+Context leak detected, CoreAnalytics returned false
+Context leak detected, CoreAnalytics returned false
+   1     1     250               0   0.00139205803    0.0013445809     0.122904834    0.0430884658   0.00212589022   0.00161550516
+
+*** Early stop at generation 1: best val_R² = 1.0000000000 ≥ 0.9999999990, holdout_R² = 1.0000000000 confirmed
+
+This sub-run: 2026-09-19 01:57:27.474394 → 2026-09-19 01:57:47.518003
+Now at generation 1 (HOF size: 31)
+  HFF-chosen LSM kept: a=3, b=-9.57182
+Chromosome wrapper: id=0  →  identity
+hof[0] runtime val: mse=6.641e-15  R²=1.000000
+Pre-snap expression (after sympify + LSM compose):
+  0.999999991762102*sin(35) + 0.428182653041636 + 0.999999991762102*q/C
+
+Per-level snap results (before MSE scoring):
+  strict      →  0.999999991762102*q/C
+  default     →  0.999999991762102*q/C
+  aggressive  →  0.75*pi**(1/4)*q/C
+
+Snap-level comparison (sorted by holdout MSE, lowest first)
+------------------------------------------------------------------------------------------
+  level       MSE            R²         expression                                        
+------------------------------------------------------------------------------------------
+★ strict      1.215e-16      1.0000     0.999999991762102*q/C                             
+  default     1.215e-16      1.0000     0.999999991762102*q/C                             
+  aggressive  4.019e-06      1.0000     0.75*pi**(1/4)*q/C                                
+
+Winning snap level: 'strict'  →  0.999999991762102*q/C
+
+Canonical discovered expression: 0.999999991762102*q/C
+[38;2;0;50;255m
+############################################################ [38;2;255;255;255m
+[38;2;0;50;255m Equation Recovery: I_25_13 [38;2;255;255;255m
+[38;2;0;50;255m Truth: q/C [38;2;255;255;255m
+[38;2;0;50;255m [38;2;255;255;255m
+[38;2;255;0;255m     Exact recovery     : False [38;2;255;255;255m
+[38;2;255;0;255m     Numerical recovery : True (max rel_err 8.24e-09 on 10k samples) [38;2;255;255;255m
+[38;2;255;0;255m     Discovered         : 0.999999991762102*q/C [38;2;255;255;255m
+[38;2;255;0;255m     LSM (a, b)         : (3, -9.57182) [38;2;255;255;255m
+[38;2;0;50;255m
+############################################################ [38;2;255;255;255m
+In-range holdout : MSE=4.929e-15  MAE=4.668e-08  R²=1.0000
+Extrapolation    : MSE=8.284e-15  MAE=5.854e-08  R²=1.0000
+
+Top 10 HOF models (north_pole=truenorth) (★ = Pareto-optimal)
+(deduped HOF: 9 unique chromosomes from 31 raw HOF entries)
+ ----------------------------------------------------------------------------------------------------------------
+       model     wrapper      length   train_mse     val_mse     max_err    train_r2      val_r2 angular_distance
+ ----------------------------------------------------------------------------------------------------------------
+★           0    identity           8      0.0000      0.0000      0.0000      1.0000      1.0000      0.0000
+★          28    identity          10      0.0000      0.0000      0.0000      1.0000      1.0000      0.0000
+           27    identity           7      0.0000      0.0000      0.0000      1.0000      1.0000      0.0000
+           19    identity           7      0.0000      0.0000      0.0000      1.0000      1.0000      0.0000
+           13    identity           7      0.0000      0.0000      0.0000      1.0000      1.0000      0.0000
+           11    identity           7      0.0000      0.0000      0.0000      1.0000      1.0000      0.0000
+★           8    identity           7      0.0000      0.0000      0.0000      1.0000      1.0000      0.0000
+★           7    identity           7      0.0000      0.0000      0.0000      1.0000      1.0000      0.0000
+           29    identity           8      0.0014      0.0013      0.1229      0.9979      0.9984      1.5708
+
+Pareto-optimal in top 9: 4    Pareto-optimal in full HOF: 4 / 9
+[fuller-stats] {'denoise': {'calls': 148, 'resolved_rnc': 444}, 'physics': {'calls': 153, 'generated': 433, 'swapped_genes': 133, 'rule_E3': 98, 'spec_gated_in': 98, 'swapped_individuals': 95, 'rule_F': 35}, 'snap': {'calls': 746, 'candidates_seen': 2235, 'no_baseline': 1}, 'concretize': {'calls': 34}}
+[fuller-stats] {'denoise': {'calls': 148, 'resolved_rnc': 444}, 'physics': {'calls': 153, 'generated': 433, 'swapped_genes': 133, 'rule_E3': 98, 'spec_gated_in': 98, 'swapped_individuals': 95, 'rule_F': 35}, 'snap': {'calls': 746, 'candidates_seen': 2235, 'no_baseline': 1}, 'concretize': {'calls': 34}}
+[fuller-stats] {'denoise': {'calls': 148, 'resolved_rnc': 444}, 'physics': {'calls': 153, 'generated': 433, 'swapped_genes': 133, 'rule_E3': 98, 'spec_gated_in': 98, 'swapped_individuals': 95, 'rule_F': 35}, 'snap': {'calls': 746, 'candidates_seen': 2235, 'no_baseline': 1}, 'concretize': {'calls': 34}}
+[fuller-stats] {'denoise': {'calls': 148, 'resolved_rnc': 444}, 'physics': {'calls': 153, 'generated': 433, 'swapped_genes': 133, 'rule_E3': 98, 'spec_gated_in': 98, 'swapped_individuals': 95, 'rule_F': 35}, 'snap': {'calls': 746, 'candidates_seen': 2235, 'no_baseline': 1}, 'concretize': {'calls': 34}}
+[fuller-stats] {'denoise': {'calls': 148, 'resolved_rnc': 444}, 'physics': {'calls': 153, 'generated': 433, 'swapped_genes': 133, 'rule_E3': 98, 'spec_gated_in': 98, 'swapped_individuals': 95, 'rule_F': 35}, 'snap': {'calls': 746, 'candidates_seen': 2235, 'no_baseline': 1}, 'concretize': {'calls': 34}}
+[fuller-stats] {'denoise': {'calls': 148, 'resolved_rnc': 444}, 'physics': {'calls': 153, 'generated': 433, 'swapped_genes': 133, 'rule_E3': 98, 'spec_gated_in': 98, 'swapped_individuals': 95, 'rule_F': 35}, 'snap': {'calls': 746, 'candidates_seen': 2235, 'no_baseline': 1}, 'concretize': {'calls': 34}}
+[fuller-stats] {'denoise': {'calls': 148, 'resolved_rnc': 444}, 'physics': {'calls': 153, 'generated': 433, 'swapped_genes': 133, 'rule_E3': 98, 'spec_gated_in': 98, 'swapped_individuals': 95, 'rule_F': 35}, 'snap': {'calls': 746, 'candidates_seen': 2235, 'no_baseline': 1}, 'concretize': {'calls': 34}}
+[fuller-stats] {'denoise': {'calls': 148, 'resolved_rnc': 444}, 'physics': {'calls': 153, 'generated': 433, 'swapped_genes': 133, 'rule_E3': 98, 'spec_gated_in': 98, 'swapped_individuals': 95, 'rule_F': 35}, 'snap': {'calls': 746, 'candidates_seen': 2235, 'no_baseline': 1}, 'concretize': {'calls': 34}}
+[fuller-stats] {'denoise': {'calls': 148, 'resolved_rnc': 444}, 'physics': {'calls': 153, 'generated': 433, 'swapped_genes': 133, 'rule_E3': 98, 'spec_gated_in': 98, 'swapped_individuals': 95, 'rule_F': 35}, 'snap': {'calls': 746, 'candidates_seen': 2235, 'no_baseline': 1}, 'concretize': {'calls': 34}}
+
+Recovery sweep across 9/9 unique HOF chromosomes (capped):
+  Structural / exact     : 0/9  (0.0%)
+  Numerical (≤1e-6 err)  : 8/9  (88.9%)
+{
+    "date": "2026/09/19",
+    "seed": "5",
+    "task": "equation_recovery",
+    "north_pole_method": "truenorth",
+    "hff_include_val": true,
+    "problem": "I_25_13",
+    "truth_expr": "q/C",
+    "final_terminal_inputs": [
+        "q",
+        "C"
+    ],
+    "wide_primitives": true,
+    "head_length": "48",
+    "n_genes": "3",
+    "rnc_array_length": "10",
+    "tournament size": "3",
+    "population size": "25",
+    "number of elites": "2",
+    "number of generations": "400",
+    "number of islands": "2",
+    "migration FREQ": "30",
+    "wrapper_id": 0,
+    "wrapper_name": "identity",
+    "recovery_exact": false,
+    "recovery_numerical": true,
+    "recovery_max_rel_err": 8.237898297950302e-09,
+    "discovered_expr": "0.999999991762102*q/C",
+    "holdout_mse": 4.928967656965244e-15,
+    "holdout_r2": 0.99999999999999,
+    "extrap_mse": 8.284228690690265e-15,
+    "extrap_r2": 0.9999999999999909,
+    "hof_size": 9,
+    "hof_exact_recoveries": 0,
+    "hof_numerical_recoveries": 8
+}
