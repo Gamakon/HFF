@@ -1745,6 +1745,7 @@ _NB_GPU_STATS = {"dispatches": 0, "genes": 0, "chromosomes": 0, "candidates": 0,
                  "variants": 0, "expand_errors": 0, "inexpressible": 0,
                  "oversized": 0, "unbuildable": 0, "cpu_individuals": 0,
                  "grafts": 0, "nodes_saved": 0, "f64_polished": 0, "snaps": 0, "snap_grafts": 0,
+                 "snap_name_collisions": 0,
                  "f64_rejected": 0, "gen_seconds": 0.0}
 _NB_GPU_LAST = dict(_NB_GPU_STATS)
 _NB_EXPAND_ERRORS: dict = {}
@@ -1893,9 +1894,17 @@ def _nb_expand_genes(genes):
                     _NB_INEXPR_WHY[_w] = _NB_INEXPR_WHY.get(_w, 0) + _c
                 _NB_GPU_STATS["oversized"] += res["n_oversized"]
                 oc, props = _NB_ECLASS_CACHE[okey]
+                # A snap that names a constant the PROBLEM uses as an input
+                # (Feynman tables carry h, c, G, gamma ... as data columns) is
+                # not that constant once it is in a gene: the name resolves to
+                # the input. Such a proposal is a different function from the
+                # one fuller verified, so it is not made.
+                _usable = [c for c in res["candidates"]
+                           if not any(n in finalTerminals for n, _ in c["constants"])]
+                _NB_GPU_STATS["snap_name_collisions"] += len(res["candidates"]) - len(_usable)
                 props = props + [(c["head"], c["tail"], None,
                                   tuple(map(tuple, c["constants"])), True)
-                                 for c in res["candidates"][:ECLASS_K]]
+                                 for c in _usable[:ECLASS_K]]
                 _NB_ECLASS_CACHE[okey] = (oc, props)
 
     out = {}
@@ -3342,7 +3351,8 @@ else:
               f"+ {_t['snaps']:,} snaps in {_t['expand_seconds']:.2f}s; "
               f"{_t['grafts']:,} grafts ({_t['snap_grafts']} snap), "
               f"{_t['nodes_saved']:,} nodes removed; "
-              f"cpu-path individuals {_t['cpu_individuals']}, f64-rejected {_t['f64_rejected']}")
+              f"cpu-path individuals {_t['cpu_individuals']}, f64-rejected {_t['f64_rejected']}, "
+              f"snaps refused for naming an input {_t['snap_name_collisions']}")
         for _label, _d in (("inexpressible", _NB_INEXPR_WHY), ("unbuildable", _NB_UNBUILDABLE),
                            ("expand errors", _NB_EXPAND_ERRORS)):
             for _w, _c in sorted(_d.items(), key=lambda kv: -kv[1])[:8]:

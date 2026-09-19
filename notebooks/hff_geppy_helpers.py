@@ -1466,6 +1466,84 @@ def _prune_tiny_additive(expr, rel_tol: float = 1e-3, seed: int = 0,
     return sp.Add(*pieces)
 
 
+_SIMPLE_INT_MAX = 1000
+
+# Dimensionless constants fuller's snap can put in a gene by NAME. Next to a
+# fitted float they are just more of the same number and get folded into it;
+# a physical constant (h, kB, c, G ...) is kept symbolic — it is the physics.
+_MATH_CONSTANT_NAMES = ("phi", "e", "gamma", "sqrt2", "sqrt3")
+
+
+def _math_constant_values(variables) -> dict:
+    """{name: value} for the dimensionless named constants, EXCLUDING any name
+    the problem uses for an input (I.47.23 has an input called gamma)."""
+    vals = {"phi": (1 + 5 ** 0.5) / 2, "e": math.e, "gamma": 0.5772156649015329,
+            "sqrt2": 2 ** 0.5, "sqrt3": 3 ** 0.5}
+    return {k: v for k, v in vals.items() if k not in set(variables or ())}
+
+
+def _assume_positive(expr, var_ranges: dict | None, extra_positive=()):
+    """Simplify under the positivity the PROBLEM guarantees, then restore the
+    original symbols.
+
+    A search over protected ops reports sqrt(Abs(x)) and Abs(kb*sqrt(1/p**2))
+    where, on a domain whose every input is > 0, the law is sqrt(x) and kb/p.
+    sympy will not drop the Abs for a bare real symbol — correctly — so the
+    recovered law stayed hidden: II.11.20 was reported as
+    0.2803*Ef*n*p_d/(T*Abs(kb*sqrt(1/(p_d**2*sqrt2)))), which IS
+    n*p_d**2*Ef/(3*kb*T). Only symbols whose whole range is > 0 are assumed
+    positive; nothing is assumed about the rest.
+    """
+    import sympy as sp
+    rng = var_ranges or {}
+    pos = {}
+    for sym in expr.free_symbols:
+        lo = rng.get(sym.name, (None, None))[0]
+        if (lo is not None and lo > 0) or sym.name in extra_positive:
+            pos[sym] = sp.Dummy(sym.name, positive=True)
+    if not pos:
+        return expr
+    out = sp.powdenest(expr.xreplace(pos), force=True)
+    return out.xreplace({d: s for s, d in pos.items()})
+
+
+def _fold_math_constants(expr, variables):
+    """Fold named MATH constants into the fitted float beside them.
+
+    `4*pi*B*mom/h + 2*pi*phi/3 - 3.38880246154351` is the law plus a constant
+    that is exactly zero: 2*pi*phi/3 = 3.3888... The existing fold only takes
+    subtrees with NO free symbols, and `phi` is a Symbol, so the zero was never
+    seen (III.7.38, II.3.24's sin(e), I.47.23's sqrt3). Within an Add or a Mul,
+    the operands made only of numbers and named math constants are collapsed
+    into one Float — but only when a fitted Float is already among them; an
+    exact symbolic product like 2*pi*x is left exactly as it is.
+    """
+    import sympy as sp
+    vals = {sp.Symbol(k, real=True): v for k, v in _math_constant_values(variables).items()}
+    vals.update({sp.Symbol(k): v for k, v in _math_constant_values(variables).items()})
+    names = set(_math_constant_values(variables))
+
+    def is_const(n):
+        return all(s.name in names for s in n.free_symbols)
+
+    def fold(node):
+        if not node.args:
+            return node
+        node = node.func(*[fold(a) for a in node.args])
+        if is_const(node) and node.has(sp.Float):
+            return sp.Float(node.xreplace(vals).evalf())
+        if isinstance(node, (sp.Add, sp.Mul)):
+            const = [a for a in node.args if is_const(a)]
+            rest = [a for a in node.args if not is_const(a)]
+            if (len(const) > 1 and any(a.has(sp.Float) for a in const)
+                    and any(a.free_symbols for a in const) and rest):
+                v = sp.Float(node.func(*const).xreplace(vals).evalf())
+                return node.func(v, *rest)
+        return node
+
+    return fold(expr)
+
+
 def _snap_simple_rational(x: float, rel_tol: float = 1e-7):
     """Return a sympy Integer/Rational if x is one to within rel_tol, else None.
 
@@ -1477,15 +1555,24 @@ def _snap_simple_rational(x: float, rel_tol: float = 1e-7):
     import sympy as sp   # module imports sympy per-function, not at top level
     if not (abs(x) < 1e12):
         return None
+    # Only SMALL integers are "simple". Without the bound, Coulomb's constant
+    # k_e = 8987551792.3 is within 3e-11 of the integer 8987551792, was snapped
+    # to it, and then could never match `k_e` in the physics library: the law
+    # was found and reported as "numerical only".
     r = round(x)
-    if r != 0 and abs(x - r) <= rel_tol * max(abs(x), 1.0):
+    if r != 0 and abs(r) <= _SIMPLE_INT_MAX and abs(x - r) <= rel_tol * max(abs(x), 1.0):
         return sp.Integer(int(r))
-    if abs(x) < rel_tol:
-        return sp.Integer(0)
+    # There is deliberately NO "small means zero" branch. It was here as
+    # `abs(x) < rel_tol -> 0`, an ABSOLUTE test, and physical constants are
+    # small: G = 6.7e-11, eps0 = 8.9e-12, kb = 1.4e-23, h = 6.6e-34. It turned
+    # gravity's fitted 7.76e-11*m1*m2/r**2 into the expression `0`, and every
+    # problem whose law carries such a constant scored R² 1.0 and "not
+    # recovered". Whether a TERM is negligible is relative to the other terms;
+    # _prune_tiny_additive decides that, with the data's ranges.
     for den in (2, 3, 4, 5, 6, 8, 10, 12, 16):
         num = x * den
         n = round(num)
-        if n != 0 and abs(num - n) <= rel_tol * max(abs(num), 1.0):
+        if n != 0 and abs(n) <= _SIMPLE_INT_MAX and abs(num - n) <= rel_tol * max(abs(num), 1.0):
             return sp.Rational(int(n), den)
     return None
 
@@ -1531,6 +1618,16 @@ def snap_constants(
                 expr = simplified
         except Exception:
             pass
+
+    # 1a. What the problem's domain guarantees, and named math constants
+    # sitting next to a fitted float. See the two helpers.
+    try:
+        expr = _assume_positive(expr, var_ranges,
+                                extra_positive=_MATH_CONSTANT_NAMES)
+        expr = _fold_math_constants(expr, (var_ranges or {}).keys())
+    except (TypeError, ValueError, AttributeError) as _e:
+        if verbose:
+            print(f"  (domain simplification skipped: {_e})")
 
     # 1b. Collapse constant subtrees into single Float atoms. Without this
     # step, ``1.158·√3·√L`` stays as three separate symbolic factors and
