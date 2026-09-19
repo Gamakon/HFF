@@ -2080,11 +2080,17 @@ def equation_recovery_report(
     # comparison and produced max_rel_err = inf on an expression that was
     # exactly right.
     _protected = set(variables or ())
-    _phys_subs = {
-        sp.Symbol(n): v
-        for n, v in NAMED_CONSTANT_VALUES.items()
-        if n not in _protected
-    }
+    # Keyed on the symbol's NAME, under both assumption sets: Symbol('G') and
+    # Symbol('G', real=True) are different objects to sympy, the discovered
+    # side is built with real symbols, and a substitution keyed on the plain
+    # one silently matched nothing. keplers3 came out as
+    # 2*pi*a**(3/2)*sqrt(1/(G*M_sun)) — the truth, to 3.8e-16 — and was scored
+    # "not exact" because G and M_sun were still symbols on one side.
+    _phys_subs = {}
+    for n, v in NAMED_CONSTANT_VALUES.items():
+        if n not in _protected:
+            _phys_subs[sp.Symbol(n)] = v
+            _phys_subs[sp.Symbol(n, real=True)] = v
     discovered = discovered.subs(_phys_subs)
     truth = truth.subs(_phys_subs)
 
@@ -2111,6 +2117,10 @@ def equation_recovery_report(
     exact = False
     try:
         diff = sp.simplify(_strip_abs_positive_domain(discovered) - truth)
+        # a**(3/2) - sqrt(a**3) is 0 for a > 0 and sympy will not say so for a
+        # merely REAL a. The problem's ranges say which symbols are positive.
+        if diff != 0:
+            diff = sp.simplify(_assume_positive(diff, var_ranges))
         if diff == 0:
             exact = True
         else:
@@ -2135,11 +2145,18 @@ def equation_recovery_report(
                     _rg = var_ranges or {}
                     pts = [_prng.uniform(*_rg.get(str(sy), (0.5, 5.0)), size=64)
                            for sy in free_syms]
+                    ft = sp.lambdify(free_syms, truth, modules="numpy")
                     with np.errstate(invalid="ignore", divide="ignore", over="ignore"):
                         dv = np.abs(np.asarray(fn(*pts), dtype=np.float64))
+                        tv = np.abs(np.asarray(ft(*pts), dtype=np.float64))
                     dv = np.broadcast_to(dv, (64,))
-                    ok = np.isfinite(dv)
-                    if ok.sum() >= 32 and float(dv[ok].max()) < 1e-12:
+                    tv = np.broadcast_to(tv, (64,))
+                    ok = np.isfinite(dv) & np.isfinite(tv)
+                    # RELATIVE to the truth's size at each point. An absolute
+                    # 1e-12 cannot be met by a law whose values are ~1e16
+                    # (Kepler, a ~ 1e10): one ulp there is ~2.
+                    if ok.sum() >= 32 and bool(np.all(
+                            dv[ok] <= 1e-12 * np.maximum(tv[ok], 1e-300))):
                         exact = True
                 else:
                     if abs(float(diff)) < 1e-12:

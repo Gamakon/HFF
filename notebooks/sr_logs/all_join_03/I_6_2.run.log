@@ -1,0 +1,139 @@
+/opt/anaconda3/lib/python3.12/site-packages/geppy/__init__.py:26: UserWarning: pkg_resources is deprecated as an API. See https://setuptools.pypa.io/en/latest/pkg_resources.html. The pkg_resources package is slated for removal as early as 2025-11-30. Refrain from using this package or pin to Setuptools<81.
+  from pkg_resources import get_distribution, DistributionNotFound
+hff library OK (test fitness: (0.1415394733244273,))
+registry: ['circle_area', 'gravity', 'coulomb', 'pendulum', 'keplers3', 'ideal_gas', 'I_6_2a', 'I_6_2', 'I_6_2b', 'I_8_14', 'I_9_18', 'I_10_7', 'I_11_19', 'I_12_1', 'I_12_2', 'I_12_4', 'I_12_5', 'I_12_11', 'I_13_4', 'I_13_12', 'I_14_3', 'I_14_4', 'I_15_3x', 'I_15_3t', 'I_15_1', 'I_16_6', 'I_18_4', 'I_18_12', 'I_18_14', 'I_24_6', 'I_25_13', 'I_26_2', 'I_27_6', 'I_29_4', 'I_29_16', 'I_30_3', 'I_30_5', 'I_32_5', 'I_32_17', 'I_34_8', 'I_34_1', 'I_34_14', 'I_34_27', 'I_37_4', 'I_38_12', 'I_39_1', 'I_39_11', 'I_39_22', 'I_40_1', 'I_41_16', 'I_43_16', 'I_43_31', 'I_43_43', 'I_44_4', 'I_47_23', 'I_48_2', 'I_50_26', 'II_2_42', 'II_3_24', 'II_4_23', 'II_6_11', 'II_6_15a', 'II_6_15b', 'II_8_7', 'II_8_31', 'II_10_9', 'II_11_3', 'II_11_17', 'II_11_20', 'II_11_27', 'II_11_28', 'II_13_17', 'II_13_23', 'II_13_34', 'II_15_4', 'II_15_5', 'II_21_32', 'II_24_17', 'II_27_16', 'II_27_18', 'II_34_2a', 'II_34_2', 'II_34_11', 'II_34_29a', 'II_34_29b', 'II_35_18', 'II_35_21', 'II_36_38', 'II_37_1', 'II_38_3', 'II_38_14', 'III_4_32', 'III_4_33', 'III_7_38', 'III_8_54', 'III_9_52', 'III_10_19', 'III_12_43', 'III_13_18', 'III_14_14', 'III_15_12', 'III_15_14', 'III_15_27', 'III_17_37', 'III_19_51', 'III_21_20', 'test_1', 'test_2', 'test_3', 'test_4', 'test_5', 'test_6', 'test_7', 'test_8', 'test_9', 'test_10', 'test_11', 'test_12', 'test_13', 'test_14', 'test_15', 'test_16', 'test_17', 'test_18', 'test_19', 'test_20']
+[feynman override] head_length=48 (keep n_genes=3, avgval linker)
+Selected problem: I_6_2
+  Description : Feynman I-III I.6.2: f = exp(-(theta/sigma)**2/2)/(sqrt(2*pi)*sigma)
+  Variables   : ['sigma', 'theta']
+  Train range : {'sigma': (1.0, 3.0), 'theta': (1.0, 3.0)}
+  Extrap range: {'sigma': (1.0, 4.5), 'theta': (1.0, 4.5)}
+  Truth       : exp(-(theta/sigma)**2/2)/(sqrt(2*pi)*sigma)
+  ✓ cache hit  (data/equations/I_6_2, key=c56431d6a7c44220)
+  train           (800, 3)  target range=[0.006196, 0.2366]
+  val             (200, 3)  target range=[0.005321, 0.2277]
+  holdout         (200, 3)  target range=[0.008201, 0.2332]
+  extrapolation   (200, 3)  target range=[0.0001393, 0.2194]
+  saved figure → data/figures/I_6_2/eda_pairplot.png
+Wide primitive set enabled: sin, cos, exp, log added.
+[E22 rules] variable pattern tags: {'has_gaussian_input'}
+[E22/23 rules] static candidate count: 6
+[E22/23 rules] allowed to take a fitness slot (exact): 1
+  [sum_sq_all/sum_sq] a=-0.0075 b=1.7910e-01 1-R²_va=6.4326e-01
+  [gaussian_density/N(theta;0,sigma)] a=1.0000 b=-8.3950e-17 1-R²_va=5.2409e-30
+  [angle_diff_trig/sin(2*theta/2)] a=0.1196 b=2.1867e-02 1-R²_va=5.2331e-01
+  [angle_diff_trig/sin(2*theta/2)^2] a=0.0933 b=5.3012e-02 1-R²_va=5.0437e-01
+  [angle_diff_trig/sin(3*theta/2)] a=0.0529 b=1.0806e-01 1-R²_va=2.7006e-01
+  [angle_diff_trig/sin(3*theta/2)^2] a=0.0382 b=9.4436e-02 1-R²_va=8.6911e-01
+[fuller] denoise + snap IN THE JOIN (every gene, every generation, K=8); mutation operators: physics=0.2 concretize=0.05
+Wrapper scope: per_island  (island → wrapper map: ['identity', 'identity'])
+[wgpu] process pool disabled — Metal cannot survive fork(); the population is evaluated in one dispatch instead
+Genes: head_length=48, n_genes=3, rnc_array_length=10
+Population: (per-island, see below), elites: 2, generations: 400, migration FREQ: 30
+  pump per-island sizes: intake=100 (tournsize=8), champion=50 (tournsize=5)
+Initialising evolution at 2026-09-19 06:44:29.984268
+ gen  deme   evals     min fitness          mse_tr          mse_va         max_err      mse_extrap  one_minus_r2_tr  one_minus_r2_va
+   0     0     100               0  9.36137088e-33   9.3011282e-33  1.66533454e-16  6.22525584e-33  5.11151804e-30  5.24091166e-30
+   0     1      50               0  9.36137088e-33   9.3011282e-33  1.66533454e-16  6.22525584e-33  5.11151804e-30  5.24091166e-30
+          wgpu 1d 358g 318c x3w 20ms | egraph 192g->168v+0snap 89ms | graft 26 (-116n, 0 snap) cpu 0 | f64 0 | gen 0.0s | dropped inexpr 8 oversz 0 unbuild 0 {}
+Extending evolution: gen 1 → 400 (+400 generations)
+   1     0     100               0  9.36137088e-33   9.3011282e-33  1.66533454e-16  6.22525584e-33  5.11151804e-30  5.24091166e-30
+   1     1      50               0  9.36137088e-33   9.3011282e-33  1.66533454e-16  6.22525584e-33  5.11151804e-30  5.24091166e-30
+          wgpu 1d 260g 262c x3w 5ms | egraph 94g->116v+0snap 18ms | graft 13 (-42n, 0 snap) cpu 0 | f64 0 | gen 0.2s | dropped inexpr 6 oversz 0 unbuild 0 {}
+  early-stop: rule N(theta;0,sigma) confirmed on holdout (R²=1.0000000000)
+
+*** Early stop at generation 1: best val_R² = 1.0000000000 ≥ 0.9999999990, holdout_R² = 1.0000000000 confirmed
+
+This sub-run: 2026-09-19 06:44:30.193297 → 2026-09-19 06:44:30.371710
+Now at generation 1 (HOF size: 31)
+[join] 2 dispatches, 618 genes, 1,740 candidates scored in 0.02s GPU+host; e-graph 286 trees -> 284 variants + 0 snaps in 0.11s; 39 grafts (0 snap), 158 nodes removed; cpu-path individuals 0, f64-rejected 0, snaps refused for naming an input 0
+[join]   inexpressible:     14  no pset token for semantic id "pow" with arity 2
+>>> hof[0] won via static RULE: gaussian_density/N(theta;0,sigma)
+    rule sym_expr: sqrt(2)*exp(-theta**2/(2*sigma**2))/(2*sqrt(pi)*sigma)
+  HFF-chosen LSM kept: a=1, b=-8.39501e-17
+Chromosome wrapper: id=0  →  identity
+hof[0] runtime val (rule): mse=8.331e-33  R²=1.000000
+Pre-snap expression (after sympify + LSM compose):
+  -8.39501165918307e-17 + 0.5*sqrt(2)*exp(-theta**2/(2*sigma**2))/(sqrt(pi)*sigma)
+
+Per-level snap results (before MSE scoring):
+  strict      →  sqrt(2)*exp(-theta**2/(2*sigma**2))/(2*sqrt(pi)*sigma)
+  default     →  sqrt(2)*exp(-theta**2/(2*sigma**2))/(2*sqrt(pi)*sigma)
+  aggressive  →  sqrt(2)*exp(-theta**2/(2*sigma**2))/(2*sqrt(pi)*sigma)
+
+Snap-level comparison (sorted by holdout MSE, lowest first)
+------------------------------------------------------------------------------------------
+  level       MSE            R²         expression                                        
+------------------------------------------------------------------------------------------
+★ strict      2.822e-33      1.0000     sqrt(2)*exp(-theta**2/(2*sigma**2))/(2*sqrt(pi)*si
+  default     2.822e-33      1.0000     sqrt(2)*exp(-theta**2/(2*sigma**2))/(2*sqrt(pi)*si
+  aggressive  2.822e-33      1.0000     sqrt(2)*exp(-theta**2/(2*sigma**2))/(2*sqrt(pi)*si
+
+Winning snap level: 'strict'  →  sqrt(2)*exp(-theta**2/(2*sigma**2))/(2*sqrt(pi)*sigma)
+
+Canonical discovered expression: sqrt(2)*exp(-theta**2/(2*sigma**2))/(2*sqrt(pi)*sigma)
+[38;2;0;50;255m
+############################################################ [38;2;255;255;255m
+[38;2;0;50;255m Equation Recovery: I_6_2 [38;2;255;255;255m
+[38;2;0;50;255m Truth: exp(-(theta/sigma)**2/2)/(sqrt(2*pi)*sigma) [38;2;255;255;255m
+[38;2;0;50;255m [38;2;255;255;255m
+[38;2;255;0;255m     Exact recovery     : True [38;2;255;255;255m
+[38;2;255;0;255m     Numerical recovery : True (max rel_err 0.00e+00 on 10k samples) [38;2;255;255;255m
+[38;2;255;0;255m     Discovered         : sqrt(2)*exp(-theta**2/(2*sigma**2))/(2*sqrt(pi)*sigma) [38;2;255;255;255m
+[38;2;255;0;255m     LSM (a, b)         : (1, -8.39501e-17) [38;2;255;255;255m
+[38;2;0;50;255m
+############################################################ [38;2;255;255;255m
+In-range holdout : MSE=7.608e-33  MAE=8.011e-17  R²=1.0000
+Extrapolation    : MSE=5.631e-33  MAE=6.581e-17  R²=1.0000
+
+Top 10 HOF models (north_pole=truenorth) (★ = Pareto-optimal)
+(deduped HOF: 1 unique chromosomes from 31 raw HOF entries)
+ ----------------------------------------------------------------------------------------------------------------
+       model     wrapper      length   train_mse     val_mse     max_err    train_r2      val_r2 angular_distance
+ ----------------------------------------------------------------------------------------------------------------
+★           0        rule          13      0.0000      0.0000      0.0000      1.0000      1.0000      0.0000
+
+Pareto-optimal in top 1: 1    Pareto-optimal in full HOF: 1 / 1
+
+Recovery sweep across 1/1 unique HOF chromosomes (capped):
+  Structural / exact     : 1/1  (100.0%)
+  Numerical (≤1e-6 err)  : 1/1  (100.0%)
+{
+    "date": "2026/09/19",
+    "seed": "5",
+    "task": "equation_recovery",
+    "north_pole_method": "truenorth",
+    "hff_include_val": true,
+    "problem": "I_6_2",
+    "truth_expr": "exp(-(theta/sigma)**2/2)/(sqrt(2*pi)*sigma)",
+    "final_terminal_inputs": [
+        "sigma",
+        "theta"
+    ],
+    "wide_primitives": true,
+    "head_length": "48",
+    "n_genes": "3",
+    "rnc_array_length": "10",
+    "tournament size": "intake=8, champion=5",
+    "population size": "150",
+    "population per island": "intake=100, champion=50",
+    "gpu_join": true,
+    "eclass_k": 8,
+    "number of elites": "2",
+    "number of generations": "400",
+    "number of islands": "2",
+    "migration FREQ": "30",
+    "wrapper_id": 0,
+    "wrapper_name": "identity",
+    "recovery_exact": true,
+    "recovery_numerical": true,
+    "recovery_max_rel_err": 0.0,
+    "discovered_expr": "sqrt(2)*exp(-theta**2/(2*sigma**2))/(2*sqrt(pi)*sigma)",
+    "holdout_mse": 7.608386245301776e-33,
+    "holdout_r2": 1.0,
+    "extrap_mse": 5.6305606350891546e-33,
+    "extrap_r2": 1.0,
+    "hof_size": 1,
+    "hof_exact_recoveries": 1,
+    "hof_numerical_recoveries": 1
+}
