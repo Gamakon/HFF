@@ -2570,10 +2570,45 @@ else:
                 # is neither confirmed nor rejected here.
                 _wraw = int(getattr(_ind, "wrapper_id", 0))
                 if _wraw >= RULE_WRAPPER_ID_OFFSET:
-                    print(f"  early-stop: candidate won via rule "
-                          f"{_wraw - RULE_WRAPPER_ID_OFFSET}; holdout check "
-                          f"skipped (rule predictions are not a chromosome "
-                          f"evaluation)")
+                    # Won via a static RULE. Its predictions come from the
+                    # rule's own sympy expression, not from evaluating the
+                    # chromosome, so compile_and_predict cannot reproduce
+                    # them — and taking wrapper_id % N_WRAPPERS would apply an
+                    # arbitrary wrapper and score a different function
+                    # entirely. Evaluate the rule's expression directly, the
+                    # same way the post-run path does, and hold it to the SAME
+                    # holdout bar as any other candidate. Skipping instead
+                    # would let a run that has already found the truth burn to
+                    # the generation cap, never able to confirm.
+                    _rs = getattr(_ind, "rule_sym_expr", None)
+                    if _rs is None:
+                        continue
+                    try:
+                        _fn = sp.lambdify(
+                            [sp.Symbol(v) for v in finalTerminals], _rs, "numpy")
+                        _rh = np.asarray(
+                            _fn(*[holdout[v].values for v in finalTerminals]),
+                            dtype=np.float64)
+                        if _rh.ndim == 0:
+                            _rh = np.full(len(holdout), float(_rh))
+                    except Exception:
+                        continue
+                    if not np.all(np.isfinite(_rh)):
+                        continue
+                    _ph = _ind.a * _rh + _ind.b
+                    _yh = holdout[target_col].values
+                    _vh = float(np.var(_yh))
+                    _rule_r2 = (1.0 - float(np.mean((_yh - _ph) ** 2)) / _vh
+                                if _vh > 0 else float("-inf"))
+                    if _rule_r2 >= EARLY_STOP_VAL_R2:
+                        _candidate = (_ind, _rule_r2)
+                        print(f"  early-stop: rule "
+                              f"{getattr(_ind, 'rule_label', '?')} confirmed "
+                              f"on holdout (R²={_rule_r2:.10f})")
+                        break
+                    print(f"  early-stop: rule "
+                          f"{getattr(_ind, 'rule_label', '?')} rejected — "
+                          f"holdout R²={_rule_r2:.6f}")
                     continue
                 _raw_h = hgh.compile_and_predict(_ind, holdout, finalTerminals, toolbox)
                 if _raw_h is None:
