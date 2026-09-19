@@ -1,0 +1,229 @@
+/opt/anaconda3/lib/python3.12/site-packages/geppy/__init__.py:26: UserWarning: pkg_resources is deprecated as an API. See https://setuptools.pypa.io/en/latest/pkg_resources.html. The pkg_resources package is slated for removal as early as 2025-11-30. Refrain from using this package or pin to Setuptools<81.
+  from pkg_resources import get_distribution, DistributionNotFound
+hff library OK (test fitness: (0.1415394733244273,))
+registry: ['circle_area', 'gravity', 'coulomb', 'pendulum', 'keplers3', 'ideal_gas', 'I_6_2a', 'I_6_2', 'I_6_2b', 'I_8_14', 'I_9_18', 'I_10_7', 'I_11_19', 'I_12_1', 'I_12_2', 'I_12_4', 'I_12_5', 'I_12_11', 'I_13_4', 'I_13_12', 'I_14_3', 'I_14_4', 'I_15_3x', 'I_15_3t', 'I_15_1', 'I_16_6', 'I_18_4', 'I_18_12', 'I_18_14', 'I_24_6', 'I_25_13', 'I_26_2', 'I_27_6', 'I_29_4', 'I_29_16', 'I_30_3', 'I_30_5', 'I_32_5', 'I_32_17', 'I_34_8', 'I_34_1', 'I_34_14', 'I_34_27', 'I_37_4', 'I_38_12', 'I_39_1', 'I_39_11', 'I_39_22', 'I_40_1', 'I_41_16', 'I_43_16', 'I_43_31', 'I_43_43', 'I_44_4', 'I_47_23', 'I_48_2', 'I_50_26', 'II_2_42', 'II_3_24', 'II_4_23', 'II_6_11', 'II_6_15a', 'II_6_15b', 'II_8_7', 'II_8_31', 'II_10_9', 'II_11_3', 'II_11_17', 'II_11_20', 'II_11_27', 'II_11_28', 'II_13_17', 'II_13_23', 'II_13_34', 'II_15_4', 'II_15_5', 'II_21_32', 'II_24_17', 'II_27_16', 'II_27_18', 'II_34_2a', 'II_34_2', 'II_34_11', 'II_34_29a', 'II_34_29b', 'II_35_18', 'II_35_21', 'II_36_38', 'II_37_1', 'II_38_3', 'II_38_14', 'III_4_32', 'III_4_33', 'III_7_38', 'III_8_54', 'III_9_52', 'III_10_19', 'III_12_43', 'III_13_18', 'III_14_14', 'III_15_12', 'III_15_14', 'III_15_27', 'III_17_37', 'III_19_51', 'III_21_20', 'test_1', 'test_2', 'test_3', 'test_4', 'test_5', 'test_6', 'test_7', 'test_8', 'test_9', 'test_10', 'test_11', 'test_12', 'test_13', 'test_14', 'test_15', 'test_16', 'test_17', 'test_18', 'test_19', 'test_20']
+[feynman override] head_length=48 (keep n_genes=3, avgval linker)
+Selected problem: I_14_3
+  Description : Feynman I-III I.14.3: U = m*g*z
+  Variables   : ['m', 'g', 'z']
+  Train range : {'m': (1.0, 5.0), 'g': (1.0, 5.0), 'z': (1.0, 5.0)}
+  Extrap range: {'m': (1.0, 7.5), 'g': (1.0, 7.5), 'z': (1.0, 7.5)}
+  Truth       : m*g*z
+  ✓ cache hit  (data/equations/I_14_3, key=8a1f90d1a09f3679)
+  train           (800, 4)  target range=[1.665, 103.6]
+  val             (200, 4)  target range=[2.599, 97.39]
+  holdout         (200, 4)  target range=[2.309, 96.07]
+  extrapolation   (200, 4)  target range=[4.279, 295.7]
+  saved figure → data/figures/I_14_3/eda_pairplot.png
+Wide primitive set enabled: sin, cos, exp, log added.
+[E22 rules] variable pattern tags: {'no_pattern'}
+[E22/23 rules] static candidate count: 1
+  [sum_sq_all/sum_sq] a=1.4384 b=-1.7630e+01 1-R²_va=1.5694e-01
+[fuller] gene operators ACTIVE (denoise=0.2 physics=0.2 snap=1.0 concretize=0.05)
+Wrapper scope: per_island  (island → wrapper map: ['identity', 'identity'])
+Genes: head_length=48, n_genes=3, rnc_array_length=10
+Population size: 25, tournament: 3, elites: 2, generations: 400, migration FREQ: 30
+  pump per-island sizes: intake=100 (tournsize=8), champion=50 (tournsize=5)
+Initialising evolution at 2026-09-19 01:45:17.491598
+ gen  deme   evals     min fitness          mse_tr          mse_va         max_err      mse_extrap  one_minus_r2_tr  one_minus_r2_va
+   0     0     100    0.0410297711      58.0065062      59.5105911      23.1503954      974.020063     0.160233567      0.15693894
+   0     1      50    0.0126719397      58.0065062      59.5105911      23.1503954      974.020063     0.160233567      0.15693894
+Extending evolution: gen 1 → 400 (+400 generations)
+   1     0     100               0      58.0065062      59.5105911      23.1503954      974.020063     0.160233567      0.15693894
+   1     1      50    0.0126719397      58.0065062      59.5105911      23.1503954      974.020063     0.160233567      0.15693894
+   2     0     100               0      58.0065062      59.5105911      23.1503954      974.020063     0.160233567      0.15693894
+   2     1      50               0      58.0065062      59.5105911      23.1503954      974.020063     0.160233567      0.15693894
+   3     0     100               0      58.0065062      59.5105911      23.1503954      974.020063     0.160233567      0.15693894
+   3     1      50               0      58.0065062      59.5105911      23.1503954      974.020063     0.160233567      0.15693894
+   4     0     100               0      58.0065062      59.5105911      23.1503954      974.020063     0.160233567      0.15693894
+   4     1      50               0      58.0065062      59.5105911      23.1503954      974.020063     0.160233567      0.15693894
+   5     0     100               0      58.0065062      59.5105911      23.1503954      974.020063     0.160233567      0.15693894
+   5     1      50               0      58.0065062      59.5105911      23.1503954      974.020063     0.160233567      0.15693894
+   6     0     100               0      58.0065062      59.5105911      23.1503954      974.020063     0.160233567      0.15693894
+   6     1      50               0      58.0065062      59.5105911      23.1503954      974.020063     0.160233567      0.15693894
+   7     0     100               0      58.0065062      59.5105911      23.1503954      974.020063     0.160233567      0.15693894
+   7     1      50               0      58.0065062      59.5105911      23.1503954      974.020063     0.160233567      0.15693894
+   8     0     100               0      58.0065062      59.5105911      23.1503954      974.020063     0.160233567      0.15693894
+   8     1      50               0      58.0065062      59.5105911      23.1503954      974.020063     0.160233567      0.15693894
+   9     0     100               0      58.0065062      59.5105911      23.1503954      974.020063     0.160233567      0.15693894
+   9     1      50               0      58.0065062      59.5105911      23.1503954      974.020063     0.160233567      0.15693894
+  10     0     100               0      58.0065062      59.5105911      23.1503954      974.020063     0.160233567      0.15693894
+  10     1      50               0      1.41429354      1.57153845      3.92948115       11.985837   0.00390675655   0.00414439807
+--------- pump migration: intra (promote-2 + intake-reset) ---------
+  11     0     100               0      58.0065062      59.5105911      23.1503954      974.020063     0.160233567      0.15693894
+  11     1      50               0      58.0065062      59.5105911      23.1503954      974.020063     0.160233567      0.15693894
+  12     0     100               0      58.0065062      59.5105911      23.1503954      974.020063     0.160233567      0.15693894
+  12     1      50               0      58.0065062      59.5105911      23.1503954      974.020063     0.160233567      0.15693894
+  13     0     100               0      58.0065062      59.5105911      23.1503954      974.020063     0.160233567      0.15693894
+  13     1      50               0      1.41429354      1.57153845      3.92948115       11.985837   0.00390675655   0.00414439807
+  14     0     100               0      58.0065062      59.5105911      23.1503954      974.020063     0.160233567      0.15693894
+  14     1      50               0      1.41429354      1.57153845      3.92948115       11.985837   0.00390675655   0.00414439807
+  15     0     100               0      58.0065062      59.5105911      23.1503954      974.020063     0.160233567      0.15693894
+  15     1      50               0      1.41429354      1.57153845      3.92948115       11.985837   0.00390675655   0.00414439807
+  16     0     100               0      58.0065062      59.5105911      23.1503954      974.020063     0.160233567      0.15693894
+  16     1      50               0     0.208434397     0.202923722      1.12257875      1.25371089  0.000575766221  0.000535142286
+  17     0     100               0      1.50833245      1.44707321      3.37468059      21.0030564    0.0041665238   0.00381616332
+  17     1      50               0     0.208434397     0.202923722      1.12257875      1.25371089  0.000575766221  0.000535142286
+  18     0     100               0      1.50833245      1.44707321      3.37468059      21.0030564    0.0041665238   0.00381616332
+  18     1      50               0     0.208434397     0.202923722      1.12257875      1.25371089  0.000575766221  0.000535142286
+  19     0     100               0      1.50833245      1.44707321      3.37468059      21.0030564    0.0041665238   0.00381616332
+/Users/andrewmorgan/Dev/gamakon/hff/notebooks/v1.0.4_Multidemic_SymbolicEquationRecovery.py:1744: RuntimeWarning: overflow encountered in square
+  mse_extrap = float(np.mean((Y_extrap - pred_extr) ** 2))
+  19     1      50               0     0.208434397     0.202923722      1.12257875      1.25371089  0.000575766221  0.000535142286
+  20     0     100               0      1.50833245      1.44707321      3.37468059      21.0030564    0.0041665238   0.00381616332
+/Users/andrewmorgan/Dev/gamakon/hff/notebooks/_snap_op.py:147: RuntimeWarning: overflow encountered in square
+  return 1.0 - float(np.mean((y - p) ** 2)) / var
+  20     1      50               0     0.208434397     0.202923722      1.12257875      1.25371089  0.000575766221  0.000535142286
+--------- pump migration: intra (promote-2 + intake-reset) ---------
+  21     0     100               0      1.50833245      1.44707321      3.37468059      21.0030564    0.0041665238   0.00381616332
+  21     1      50               0     0.208434397     0.202923722      1.12257875      1.25371089  0.000575766221  0.000535142286
+  22     0     100               0      1.50833245      1.44707321      3.37468059      21.0030564    0.0041665238   0.00381616332
+  22     1      50               0     0.208434397     0.202923722      1.12257875      1.25371089  0.000575766221  0.000535142286
+  23     0     100               0      1.50833245      1.44707321      3.37468059      21.0030564    0.0041665238   0.00381616332
+/Users/andrewmorgan/Dev/gamakon/hff/notebooks/v1.0.4_Multidemic_SymbolicEquationRecovery.py:1744: RuntimeWarning: overflow encountered in square
+  mse_extrap = float(np.mean((Y_extrap - pred_extr) ** 2))
+  23     1      50               0  7.98924036e-05  7.91885876e-05    0.0927859672  2.15645343e-05  2.20689809e-07  2.08832961e-07
+  24     0     100               0      1.50833245      1.44707321      3.37468059      21.0030564    0.0041665238   0.00381616332
+  24     1      50               0  7.98924036e-05  7.91885876e-05    0.0927859672  2.15645343e-05  2.20689809e-07  2.08832961e-07
+  25     0     100               0     0.326908848     0.330008514      1.71675798      4.49445043  0.000903032681  0.000870285192
+  25     1      50               0  7.98924036e-05  7.91885876e-05    0.0927859672  2.15645343e-05  2.20689809e-07  2.08832961e-07
+  26     0     100               0      1.50833245      1.44707321      3.37468059      21.0030564    0.0041665238   0.00381616332
+  26     1      50               0  7.98924036e-05  7.91885876e-05    0.0927859672  2.15645343e-05  2.20689809e-07  2.08832961e-07
+  27     0     100               0     0.326908848     0.330008514      1.71675798      4.49445043  0.000903032681  0.000870285192
+  27     1      50               0  7.98924036e-05  7.91885876e-05    0.0927859672  2.15645343e-05  2.20689809e-07  2.08832961e-07
+  28     0     100               0     0.326908848     0.330008514      1.71675798      4.49445043  0.000903032681  0.000870285192
+  28     1      50               0  6.41168944e-06  4.84306657e-06     0.025380793  2.84137226e-06  1.77112523e-08  1.27719406e-08
+  29     0     100               0     0.326908848     0.330008514      1.71675798      4.49445043  0.000903032681  0.000870285192
+  29     1      50               0  7.98924036e-05  7.91885876e-05    0.0927859672  2.15645343e-05  2.20689809e-07  2.08832961e-07
+  30     0     100               0     0.326908848     0.330008514      1.71675798      4.49445043  0.000903032681  0.000870285192
+  30     1      50               0  7.98924036e-05  7.91885876e-05    0.0927859672  2.15645343e-05  2.20689809e-07  2.08832961e-07
+--------- pump migration: intra (promote-2 + intake-reset) ---------
+  31     0     100               0     0.326908848     0.330008514      1.71675798      4.49445043  0.000903032681  0.000870285192
+/Users/andrewmorgan/Dev/gamakon/hff/notebooks/v1.0.4_Multidemic_SymbolicEquationRecovery.py:1744: RuntimeWarning: overflow encountered in square
+  mse_extrap = float(np.mean((Y_extrap - pred_extr) ** 2))
+  31     1      50               0    0.0160063056    0.0144119839     0.295443036     0.655692513  4.42148236e-05  3.80067048e-05
+  32     0     100               0     0.326908848     0.330008514      1.71675798      4.49445043  0.000903032681  0.000870285192
+  32     1      50               0     0.326908848     0.330008514      1.71675798      4.49445043  0.000903032681  0.000870285192
+  33     0     100               0     0.326908848     0.330008514      1.71675798      4.49445043  0.000903032681  0.000870285192
+/Users/andrewmorgan/Dev/gamakon/hff/notebooks/_snap_op.py:147: RuntimeWarning: overflow encountered in square
+  return 1.0 - float(np.mean((y - p) ** 2)) / var
+  33     1      50               0     0.326908848     0.330008514      1.71675798      4.49445043  0.000903032681  0.000870285192
+  34     0     100               0    0.0118824255    0.0110745904     0.273411559     0.513436838  3.28232736e-05  2.92054649e-05
+  34     1      50               0  1.76574218e-27  1.26158383e-27  2.12718732e-13  1.01090632e-26  4.87757645e-30  3.32699819e-30
+
+*** Early stop at generation 34: best val_R² = 1.0000000000 ≥ 0.9999999990, holdout_R² = 1.0000000000 confirmed
+
+This sub-run: 2026-09-19 01:45:17.719403 → 2026-09-19 01:47:21.038642
+Now at generation 34 (HOF size: 31)
+  HFF-chosen LSM kept: a=1, b=1.09861
+Chromosome wrapper: id=1  →  log_abs
+hof[0] runtime val: mse=1.262e-27  R²=1.000000
+Pre-snap expression (after sympify + LSM compose):
+  1.0*log(exp(g*m*z)/3) + 1.0986122886681
+
+Per-level snap results (before MSE scoring):
+  strict      →  g*m*z
+  default     →  g*m*z
+  aggressive  →  g*m*z
+
+Snap-level comparison (sorted by holdout MSE, lowest first)
+------------------------------------------------------------------------------------------
+  level       MSE            R²         expression                                        
+------------------------------------------------------------------------------------------
+★ strict      3.239e-30      1.0000     g*m*z                                             
+  default     3.239e-30      1.0000     g*m*z                                             
+  aggressive  3.239e-30      1.0000     g*m*z                                             
+
+Winning snap level: 'strict'  →  g*m*z
+
+Canonical discovered expression: g*m*z
+[38;2;0;50;255m
+############################################################ [38;2;255;255;255m
+[38;2;0;50;255m Equation Recovery: I_14_3 [38;2;255;255;255m
+[38;2;0;50;255m Truth: m*g*z [38;2;255;255;255m
+[38;2;0;50;255m [38;2;255;255;255m
+[38;2;255;0;255m     Exact recovery     : True [38;2;255;255;255m
+[38;2;255;0;255m     Numerical recovery : True (max rel_err 0.00e+00 on 10k samples) [38;2;255;255;255m
+[38;2;255;0;255m     Discovered         : g*m*z [38;2;255;255;255m
+[38;2;255;0;255m     LSM (a, b)         : (1, 1.09861) [38;2;255;255;255m
+[38;2;0;50;255m
+############################################################ [38;2;255;255;255m
+In-range holdout : MSE=1.653e-27  MAE=2.291e-14  R²=1.0000
+Extrapolation    : MSE=1.011e-26  MAE=6.959e-14  R²=1.0000
+
+Top 10 HOF models (north_pole=truenorth) (★ = Pareto-optimal)
+(deduped HOF: 29 unique chromosomes from 31 raw HOF entries)
+ ----------------------------------------------------------------------------------------------------------------
+       model     wrapper      length   train_mse     val_mse     max_err    train_r2      val_r2 angular_distance
+ ----------------------------------------------------------------------------------------------------------------
+★           0     log_abs          10      0.0000      0.0000      0.0000      1.0000      1.0000      0.0000
+            1     log_abs          18   1183.4351   1260.1483     84.7055     -2.2690     -2.3232      0.7775
+           30     log_abs          10   1537.8888   1603.2447    104.9953     -3.2482     -3.2280      1.0036
+           21     log_abs          22   1854.3265   1925.3076    109.2972     -4.1223     -4.0773      1.1714
+            7     log_abs           5   2043.0353   2116.9273    111.6264     -4.6436     -4.5827      1.2775
+           13     log_abs           6   2118.9496   2165.6655    109.6382     -4.8533     -4.7112      1.3044
+           29     log_abs           9   2140.4425   2186.3872    109.7524     -4.9126     -4.7659      1.3163
+           17     log_abs           5   2118.5104   2192.8828    111.6286     -4.8520     -4.7830      1.3182
+            6     log_abs           5   2119.7123   2192.7716    111.7287     -4.8554     -4.7827      1.3188
+           24     log_abs           3   2122.4551   2199.6588    112.4139     -4.8629     -4.8009      1.3237
+
+Pareto-optimal in top 10: 1    Pareto-optimal in full HOF: 1 / 29
+[fuller-stats] {'denoise': {'calls': 963, 'resolved_rnc': 2886}, 'physics': {'calls': 998, 'generated': 2606, 'swapped_genes': 772, 'rule_E3': 520, 'spec_gated_in': 520, 'swapped_individuals': 597, 'rule_F': 252}, 'snap': {'calls': 4964, 'candidates_seen': 14841, 'no_baseline': 17}, 'concretize': {'calls': 242}}
+[fuller-stats] {'denoise': {'calls': 963, 'resolved_rnc': 2886}, 'physics': {'calls': 998, 'generated': 2606, 'swapped_genes': 772, 'rule_E3': 520, 'spec_gated_in': 520, 'swapped_individuals': 597, 'rule_F': 252}, 'snap': {'calls': 4964, 'candidates_seen': 14841, 'no_baseline': 17}, 'concretize': {'calls': 242}}
+[fuller-stats] {'denoise': {'calls': 963, 'resolved_rnc': 2886}, 'physics': {'calls': 998, 'generated': 2606, 'swapped_genes': 772, 'rule_E3': 520, 'spec_gated_in': 520, 'swapped_individuals': 597, 'rule_F': 252}, 'snap': {'calls': 4964, 'candidates_seen': 14841, 'no_baseline': 17}, 'concretize': {'calls': 242}}
+<lambdifygenerated-133>:2: RuntimeWarning: invalid value encountered in log
+  return -g*m*z - 29089.7926478447*log((1/3)*g - 1068.18683925368) + 202863.519609043
+[fuller-stats] {'denoise': {'calls': 963, 'resolved_rnc': 2886}, 'physics': {'calls': 998, 'generated': 2606, 'swapped_genes': 772, 'rule_E3': 520, 'spec_gated_in': 520, 'swapped_individuals': 597, 'rule_F': 252}, 'snap': {'calls': 4964, 'candidates_seen': 14841, 'no_baseline': 17}, 'concretize': {'calls': 242}}
+[fuller-stats] {'denoise': {'calls': 963, 'resolved_rnc': 2886}, 'physics': {'calls': 998, 'generated': 2606, 'swapped_genes': 772, 'rule_E3': 520, 'spec_gated_in': 520, 'swapped_individuals': 597, 'rule_F': 252}, 'snap': {'calls': 4964, 'candidates_seen': 14841, 'no_baseline': 17}, 'concretize': {'calls': 242}}
+[fuller-stats] {'denoise': {'calls': 963, 'resolved_rnc': 2886}, 'physics': {'calls': 998, 'generated': 2606, 'swapped_genes': 772, 'rule_E3': 520, 'spec_gated_in': 520, 'swapped_individuals': 597, 'rule_F': 252}, 'snap': {'calls': 4964, 'candidates_seen': 14841, 'no_baseline': 17}, 'concretize': {'calls': 242}}
+<lambdifygenerated-145>:2: RuntimeWarning: invalid value encountered in log
+  return -g*m*z + 5.73652562845561*log((2/3)*z + (1/3)*exp(z) - 10/3) + 6*pi
+[fuller-stats] {'denoise': {'calls': 963, 'resolved_rnc': 2886}, 'physics': {'calls': 998, 'generated': 2606, 'swapped_genes': 772, 'rule_E3': 520, 'spec_gated_in': 520, 'swapped_individuals': 597, 'rule_F': 252}, 'snap': {'calls': 4964, 'candidates_seen': 14841, 'no_baseline': 17}, 'concretize': {'calls': 242}}
+<lambdifygenerated-149>:2: RuntimeWarning: invalid value encountered in log
+  return -g*m*z + 5.30131138018711*log((1/3)*exp(z) + (1/3)*cos(g - 1) - 3) + 20.1271840261016
+[fuller-stats] {'denoise': {'calls': 963, 'resolved_rnc': 2886}, 'physics': {'calls': 998, 'generated': 2606, 'swapped_genes': 772, 'rule_E3': 520, 'spec_gated_in': 520, 'swapped_individuals': 597, 'rule_F': 252}, 'snap': {'calls': 4964, 'candidates_seen': 14841, 'no_baseline': 17}, 'concretize': {'calls': 242}}
+[fuller-stats] {'denoise': {'calls': 963, 'resolved_rnc': 2886}, 'physics': {'calls': 998, 'generated': 2606, 'swapped_genes': 772, 'rule_E3': 520, 'spec_gated_in': 520, 'swapped_individuals': 597, 'rule_F': 252}, 'snap': {'calls': 4964, 'candidates_seen': 14841, 'no_baseline': 17}, 'concretize': {'calls': 242}}
+[fuller-stats] {'denoise': {'calls': 963, 'resolved_rnc': 2886}, 'physics': {'calls': 998, 'generated': 2606, 'swapped_genes': 772, 'rule_E3': 520, 'spec_gated_in': 520, 'swapped_individuals': 597, 'rule_F': 252}, 'snap': {'calls': 4964, 'candidates_seen': 14841, 'no_baseline': 17}, 'concretize': {'calls': 242}}
+[fuller-stats] {'denoise': {'calls': 963, 'resolved_rnc': 2886}, 'physics': {'calls': 998, 'generated': 2606, 'swapped_genes': 772, 'rule_E3': 520, 'spec_gated_in': 520, 'swapped_individuals': 597, 'rule_F': 252}, 'snap': {'calls': 4964, 'candidates_seen': 14841, 'no_baseline': 17}, 'concretize': {'calls': 242}}
+[fuller-stats] {'denoise': {'calls': 963, 'resolved_rnc': 2886}, 'physics': {'calls': 998, 'generated': 2606, 'swapped_genes': 772, 'rule_E3': 520, 'spec_gated_in': 520, 'swapped_individuals': 597, 'rule_F': 252}, 'snap': {'calls': 4964, 'candidates_seen': 14841, 'no_baseline': 17}, 'concretize': {'calls': 242}}
+
+Recovery sweep across 12/29 unique HOF chromosomes (capped):
+  Structural / exact     : 1/12  (8.3%)
+  Numerical (≤1e-6 err)  : 1/12  (8.3%)
+{
+    "date": "2026/09/19",
+    "seed": "5",
+    "task": "equation_recovery",
+    "north_pole_method": "truenorth",
+    "hff_include_val": true,
+    "problem": "I_14_3",
+    "truth_expr": "m*g*z",
+    "final_terminal_inputs": [
+        "m",
+        "g",
+        "z"
+    ],
+    "wide_primitives": true,
+    "head_length": "48",
+    "n_genes": "3",
+    "rnc_array_length": "10",
+    "tournament size": "3",
+    "population size": "25",
+    "number of elites": "2",
+    "number of generations": "400",
+    "number of islands": "2",
+    "migration FREQ": "30",
+    "wrapper_id": 1,
+    "wrapper_name": "log_abs",
+    "recovery_exact": true,
+    "recovery_numerical": true,
+    "recovery_max_rel_err": 0.0,
+    "discovered_expr": "g*m*z",
+    "holdout_mse": 1.6532088965387536e-27,
+    "holdout_r2": 1.0,
+    "extrap_mse": 1.0109063173790013e-26,
+    "extrap_r2": 1.0,
+    "hof_size": 29,
+    "hof_exact_recoveries": 1,
+    "hof_numerical_recoveries": 1
+}

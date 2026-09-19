@@ -1,0 +1,161 @@
+/opt/anaconda3/lib/python3.12/site-packages/geppy/__init__.py:26: UserWarning: pkg_resources is deprecated as an API. See https://setuptools.pypa.io/en/latest/pkg_resources.html. The pkg_resources package is slated for removal as early as 2025-11-30. Refrain from using this package or pin to Setuptools<81.
+  from pkg_resources import get_distribution, DistributionNotFound
+hff library OK (test fitness: (0.1415394733244273,))
+registry: ['circle_area', 'gravity', 'coulomb', 'pendulum', 'keplers3', 'ideal_gas', 'I_6_2a', 'I_6_2', 'I_6_2b', 'I_8_14', 'I_9_18', 'I_10_7', 'I_11_19', 'I_12_1', 'I_12_2', 'I_12_4', 'I_12_5', 'I_12_11', 'I_13_4', 'I_13_12', 'I_14_3', 'I_14_4', 'I_15_3x', 'I_15_3t', 'I_15_1', 'I_16_6', 'I_18_4', 'I_18_12', 'I_18_14', 'I_24_6', 'I_25_13', 'I_26_2', 'I_27_6', 'I_29_4', 'I_29_16', 'I_30_3', 'I_30_5', 'I_32_5', 'I_32_17', 'I_34_8', 'I_34_1', 'I_34_14', 'I_34_27', 'I_37_4', 'I_38_12', 'I_39_1', 'I_39_11', 'I_39_22', 'I_40_1', 'I_41_16', 'I_43_16', 'I_43_31', 'I_43_43', 'I_44_4', 'I_47_23', 'I_48_2', 'I_50_26', 'II_2_42', 'II_3_24', 'II_4_23', 'II_6_11', 'II_6_15a', 'II_6_15b', 'II_8_7', 'II_8_31', 'II_10_9', 'II_11_3', 'II_11_17', 'II_11_20', 'II_11_27', 'II_11_28', 'II_13_17', 'II_13_23', 'II_13_34', 'II_15_4', 'II_15_5', 'II_21_32', 'II_24_17', 'II_27_16', 'II_27_18', 'II_34_2a', 'II_34_2', 'II_34_11', 'II_34_29a', 'II_34_29b', 'II_35_18', 'II_35_21', 'II_36_38', 'II_37_1', 'II_38_3', 'II_38_14', 'III_4_32', 'III_4_33', 'III_7_38', 'III_8_54', 'III_9_52', 'III_10_19', 'III_12_43', 'III_13_18', 'III_14_14', 'III_15_12', 'III_15_14', 'III_15_27', 'III_17_37', 'III_19_51', 'III_21_20', 'test_1', 'test_2', 'test_3', 'test_4', 'test_5', 'test_6', 'test_7', 'test_8', 'test_9', 'test_10', 'test_11', 'test_12', 'test_13', 'test_14', 'test_15', 'test_16', 'test_17', 'test_18', 'test_19', 'test_20']
+[feynman override] head_length=48 (keep n_genes=3, avgval linker)
+Selected problem: I_13_4
+  Description : Feynman I-III I.13.4: K = 1/2*m*(v**2+u**2+w**2)
+  Variables   : ['m', 'v', 'u', 'w']
+  Train range : {'m': (1.0, 5.0), 'v': (1.0, 5.0), 'u': (1.0, 5.0), 'w': (1.0, 5.0)}
+  Extrap range: {'m': (1.0, 7.5), 'v': (1.0, 7.5), 'u': (1.0, 7.5), 'w': (1.0, 7.5)}
+  Truth       : 1/2*m*(v**2+u**2+w**2)
+  ✓ cache hit  (data/equations/I_13_4, key=65543e739a6b6c38)
+  train           (800, 5)  target range=[3.466, 146.3]
+  val             (200, 5)  target range=[4.128, 128.3]
+  holdout         (200, 5)  target range=[3.463, 123.5]
+  extrapolation   (200, 5)  target range=[12.48, 428.6]
+  saved figure → data/figures/I_13_4/eda_pairplot.png
+Wide primitive set enabled: sin, cos, exp, log added.
+[E22 rules] variable pattern tags: {'no_pattern'}
+[E22/23 rules] static candidate count: 2
+  [sum_sq_all/sum_sq] a=1.7716 b=-2.6260e+01 1-R²_va=1.1362e-01
+  [kinetic_energy/m*(v^2+u^2+w^2)/2] a=1.0000 b=7.9188e-16 1-R²_va=2.5912e-31
+[fuller] gene operators ACTIVE (denoise=0.2 physics=0.2 snap=1.0 concretize=0.05)
+Wrapper scope: per_island  (island → wrapper map: ['identity', 'identity'])
+Genes: head_length=48, n_genes=3, rnc_array_length=10
+Population size: 25, tournament: 3, elites: 2, generations: 400, migration FREQ: 30
+  pump per-island sizes: intake=100 (tournsize=8), champion=50 (tournsize=5)
+Initialising evolution at 2026-09-19 01:45:32.458667
+ gen  deme   evals     min fitness          mse_tr          mse_va         max_err      mse_extrap  one_minus_r2_tr  one_minus_r2_va
+   0     0     100               0  1.47762522e-28  1.73888609e-28  4.26325641e-14  1.40240536e-27  2.15861724e-31  2.59124712e-31
+   0     1      50               0  1.47762522e-28  1.73888609e-28  4.26325641e-14  1.40240536e-27  2.15861724e-31  2.59124712e-31
+Extending evolution: gen 1 → 400 (+400 generations)
+   1     0     100               0  1.47762522e-28  1.73888609e-28  4.26325641e-14  1.40240536e-27  2.15861724e-31  2.59124712e-31
+   1     1      50               0  1.47762522e-28  1.73888609e-28  4.26325641e-14  1.40240536e-27  2.15861724e-31  2.59124712e-31
+  early-stop: rule m*(v^2+u^2+w^2)/2 confirmed on holdout (R²=1.0000000000)
+
+*** Early stop at generation 1: best val_R² = 1.0000000000 ≥ 0.9999999990, holdout_R² = 1.0000000000 confirmed
+
+This sub-run: 2026-09-19 01:45:32.669497 → 2026-09-19 01:45:36.492037
+Now at generation 1 (HOF size: 31)
+>>> hof[0] won via static RULE: kinetic_energy/m*(v^2+u^2+w^2)/2
+    rule sym_expr: m*(u**2 + v**2 + w**2)/2
+  HFF-chosen LSM kept: a=1, b=7.9188e-16
+Chromosome wrapper: id=0  →  identity
+hof[0] runtime val: mse=2.683e+03  R²=-2.997584
+Pre-snap expression (after sympify + LSM compose):
+  0.5*m*(u**2 + v**2 + w**2) + 7.91880381676253e-16
+
+Per-level snap results (before MSE scoring):
+  strict      →  m*(u**2 + v**2 + w**2)/2
+  default     →  m*(u**2 + v**2 + w**2)/2
+  aggressive  →  m*(u**2 + v**2 + w**2)/2
+
+Snap-level comparison (sorted by holdout MSE, lowest first)
+------------------------------------------------------------------------------------------
+  level       MSE            R²         expression                                        
+------------------------------------------------------------------------------------------
+★ strict      1.709e-29      1.0000     m*(u**2 + v**2 + w**2)/2                          
+  default     1.709e-29      1.0000     m*(u**2 + v**2 + w**2)/2                          
+  aggressive  1.709e-29      1.0000     m*(u**2 + v**2 + w**2)/2                          
+
+Winning snap level: 'strict'  →  m*(u**2 + v**2 + w**2)/2
+
+Canonical discovered expression: m*(u**2 + v**2 + w**2)/2
+[38;2;0;50;255m
+############################################################ [38;2;255;255;255m
+[38;2;0;50;255m Equation Recovery: I_13_4 [38;2;255;255;255m
+[38;2;0;50;255m Truth: 1/2*m*(v**2+u**2+w**2) [38;2;255;255;255m
+[38;2;0;50;255m [38;2;255;255;255m
+[38;2;255;0;255m     Exact recovery     : True [38;2;255;255;255m
+[38;2;255;0;255m     Numerical recovery : True (max rel_err 0.00e+00 on 10k samples) [38;2;255;255;255m
+[38;2;255;0;255m     Discovered         : m*(u**2 + v**2 + w**2)/2 [38;2;255;255;255m
+[38;2;255;0;255m     LSM (a, b)         : (1, 7.9188e-16) [38;2;255;255;255m
+[38;2;0;50;255m
+############################################################ [38;2;255;255;255m
+In-range holdout : MSE=1.575e-28  MAE=1.031e-14  R²=1.0000
+Extrapolation    : MSE=1.402e-27  MAE=2.97e-14  R²=1.0000
+
+Top 10 HOF models (north_pole=truenorth) (★ = Pareto-optimal)
+(deduped HOF: 29 unique chromosomes from 31 raw HOF entries)
+ ----------------------------------------------------------------------------------------------------------------
+       model     wrapper      length   train_mse     val_mse     max_err    train_r2      val_r2 angular_distance
+ ----------------------------------------------------------------------------------------------------------------
+★          11    sqrt_abs          10   1360.2493   1187.4801     99.6117     -0.9871     -0.7696      0.0000
+           27    sqrt_abs           8   2476.4268   2407.4680    122.5375     -2.6177     -2.5876      1.1942
+           23    sqrt_abs           9   2483.5508   2415.6666    122.6629     -2.6281     -2.5998      1.2028
+            8    sqrt_abs           5   2518.8255   2423.3698    122.3218     -2.6797     -2.6112      1.2191
+            2    sqrt_abs          15   2525.4714   2445.0508    121.9920     -2.6894     -2.6436      1.2284
+            4    sqrt_abs           7   2532.4354   2435.2173    122.4379     -2.6996     -2.6289      1.2325
+            5    sqrt_abs           4   2571.2679   2516.1450    124.1521     -2.7563     -2.7495      1.3104
+           14    sqrt_abs           9   2655.8780   2572.9978    126.0682     -2.8799     -2.8342      1.4050
+            6    sqrt_abs          16   2672.1534   2580.5918    126.4362     -2.9037     -2.8455      1.4220
+           24    sqrt_abs           3   2673.3515   2590.4449    126.1316     -2.9054     -2.8602      1.4234
+
+Pareto-optimal in top 10: 1    Pareto-optimal in full HOF: 1 / 29
+[fuller-stats] {'denoise': {'calls': 38, 'resolved_rnc': 114}, 'physics': {'calls': 26, 'generated': 80, 'swapped_genes': 23, 'rule_F': 8, 'swapped_individuals': 16, 'rule_E3': 15, 'spec_gated_in': 15}, 'snap': {'calls': 146, 'candidates_seen': 438}, 'concretize': {'calls': 10}}
+[fuller-stats] {'denoise': {'calls': 38, 'resolved_rnc': 114}, 'physics': {'calls': 26, 'generated': 80, 'swapped_genes': 23, 'rule_F': 8, 'swapped_individuals': 16, 'rule_E3': 15, 'spec_gated_in': 15}, 'snap': {'calls': 146, 'candidates_seen': 438}, 'concretize': {'calls': 10}}
+[fuller-stats] {'denoise': {'calls': 38, 'resolved_rnc': 114}, 'physics': {'calls': 26, 'generated': 80, 'swapped_genes': 23, 'rule_F': 8, 'swapped_individuals': 16, 'rule_E3': 15, 'spec_gated_in': 15}, 'snap': {'calls': 146, 'candidates_seen': 438}, 'concretize': {'calls': 10}}
+[fuller-stats] {'denoise': {'calls': 38, 'resolved_rnc': 114}, 'physics': {'calls': 26, 'generated': 80, 'swapped_genes': 23, 'rule_F': 8, 'swapped_individuals': 16, 'rule_E3': 15, 'spec_gated_in': 15}, 'snap': {'calls': 146, 'candidates_seen': 438}, 'concretize': {'calls': 10}}
+[fuller-stats] {'denoise': {'calls': 38, 'resolved_rnc': 114}, 'physics': {'calls': 26, 'generated': 80, 'swapped_genes': 23, 'rule_F': 8, 'swapped_individuals': 16, 'rule_E3': 15, 'spec_gated_in': 15}, 'snap': {'calls': 146, 'candidates_seen': 438}, 'concretize': {'calls': 10}}
+<lambdifygenerated-145>:2: RuntimeWarning: invalid value encountered in sqrt
+  return -1/2*m*(u**2 + v**2 + w**2) + 3.16485273769171*sqrt((8.39495883417946*u - (w - sin(w))*exp(m))/u) + 30.7009748167851
+[fuller-stats] {'denoise': {'calls': 38, 'resolved_rnc': 114}, 'physics': {'calls': 26, 'generated': 80, 'swapped_genes': 23, 'rule_F': 8, 'swapped_individuals': 16, 'rule_E3': 15, 'spec_gated_in': 15}, 'snap': {'calls': 146, 'candidates_seen': 438}, 'concretize': {'calls': 10}}
+<lambdifygenerated-149>:2: RuntimeWarning: divide by zero encountered in log
+  return -1/2*m*(u**2 + v**2 + w**2) + 3.82645898482436*sqrt(exp(w) + log(v - w) + 1) + 26.0876171660863
+<lambdifygenerated-149>:2: RuntimeWarning: invalid value encountered in sqrt
+  return -1/2*m*(u**2 + v**2 + w**2) + 3.82645898482436*sqrt(exp(w) + log(v - w) + 1) + 26.0876171660863
+[fuller-stats] {'denoise': {'calls': 38, 'resolved_rnc': 114}, 'physics': {'calls': 26, 'generated': 80, 'swapped_genes': 23, 'rule_F': 8, 'swapped_individuals': 16, 'rule_E3': 15, 'spec_gated_in': 15}, 'snap': {'calls': 146, 'candidates_seen': 438}, 'concretize': {'calls': 10}}
+<lambdifygenerated-153>:2: RuntimeWarning: invalid value encountered in sqrt
+  return -1/2*m*(u**2 + v**2 + w**2) + 3.36705865321724*sqrt(m + exp(u) - 7) + 31.4301169335489
+[fuller-stats] {'denoise': {'calls': 38, 'resolved_rnc': 114}, 'physics': {'calls': 26, 'generated': 80, 'swapped_genes': 23, 'rule_F': 8, 'swapped_individuals': 16, 'rule_E3': 15, 'spec_gated_in': 15}, 'snap': {'calls': 146, 'candidates_seen': 438}, 'concretize': {'calls': 10}}
+[fuller-stats] {'denoise': {'calls': 38, 'resolved_rnc': 114}, 'physics': {'calls': 26, 'generated': 80, 'swapped_genes': 23, 'rule_F': 8, 'swapped_individuals': 16, 'rule_E3': 15, 'spec_gated_in': 15}, 'snap': {'calls': 146, 'candidates_seen': 438}, 'concretize': {'calls': 10}}
+<lambdifygenerated-159>:2: RuntimeWarning: invalid value encountered in log
+  return -1/2*m*u**2 - 1/2*m*v**2 - 1/2*m*w**2 - 0.213380925705841*sqrt(sqrt(m) + m/log(u + (1/3)*sqrt(w)/m - (2/3)/m) + w) + 47.1393851136944
+<lambdifygenerated-159>:2: RuntimeWarning: invalid value encountered in sqrt
+  return -1/2*m*u**2 - 1/2*m*v**2 - 1/2*m*w**2 - 0.213380925705841*sqrt(sqrt(m) + m/log(u + (1/3)*sqrt(w)/m - (2/3)/m) + w) + 47.1393851136944
+[fuller-stats] {'denoise': {'calls': 38, 'resolved_rnc': 114}, 'physics': {'calls': 26, 'generated': 80, 'swapped_genes': 23, 'rule_F': 8, 'swapped_individuals': 16, 'rule_E3': 15, 'spec_gated_in': 15}, 'snap': {'calls': 146, 'candidates_seen': 438}, 'concretize': {'calls': 10}}
+[fuller-stats] {'denoise': {'calls': 38, 'resolved_rnc': 114}, 'physics': {'calls': 26, 'generated': 80, 'swapped_genes': 23, 'rule_F': 8, 'swapped_individuals': 16, 'rule_E3': 15, 'spec_gated_in': 15}, 'snap': {'calls': 146, 'candidates_seen': 438}, 'concretize': {'calls': 10}}
+[fuller-stats] {'denoise': {'calls': 38, 'resolved_rnc': 114}, 'physics': {'calls': 26, 'generated': 80, 'swapped_genes': 23, 'rule_F': 8, 'swapped_individuals': 16, 'rule_E3': 15, 'spec_gated_in': 15}, 'snap': {'calls': 146, 'candidates_seen': 438}, 'concretize': {'calls': 10}}
+
+Recovery sweep across 12/29 unique HOF chromosomes (capped):
+  Structural / exact     : 0/12  (0.0%)
+  Numerical (≤1e-6 err)  : 0/12  (0.0%)
+{
+    "date": "2026/09/19",
+    "seed": "5",
+    "task": "equation_recovery",
+    "north_pole_method": "truenorth",
+    "hff_include_val": true,
+    "problem": "I_13_4",
+    "truth_expr": "1/2*m*(v**2+u**2+w**2)",
+    "final_terminal_inputs": [
+        "m",
+        "v",
+        "u",
+        "w"
+    ],
+    "wide_primitives": true,
+    "head_length": "48",
+    "n_genes": "3",
+    "rnc_array_length": "10",
+    "tournament size": "3",
+    "population size": "25",
+    "number of elites": "2",
+    "number of generations": "400",
+    "number of islands": "2",
+    "migration FREQ": "30",
+    "wrapper_id": 0,
+    "wrapper_name": "identity",
+    "recovery_exact": true,
+    "recovery_numerical": true,
+    "recovery_max_rel_err": 0.0,
+    "discovered_expr": "m*(u**2 + v**2 + w**2)/2",
+    "holdout_mse": 1.575483417623459e-28,
+    "holdout_r2": 1.0,
+    "extrap_mse": 1.402405362865706e-27,
+    "extrap_r2": 1.0,
+    "hof_size": 29,
+    "hof_exact_recoveries": 0,
+    "hof_numerical_recoveries": 0
+}

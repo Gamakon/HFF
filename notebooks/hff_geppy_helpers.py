@@ -299,6 +299,52 @@ _GPU_ENABLED = os.environ.get("HFF_GPU") == "1"
 # back to CPU every generation. They are literals; emit them as such.
 _CONST_VALUES: dict = {}
 
+# Predictions filled by a population-level prefill in the PARENT process.
+# Keyed (id(df), gene tokens) so a forked worker can read it without ever
+# touching Metal.
+_GPU_PRED_CACHE: dict = {}
+_GPU_SESSIONS: dict = {}
+
+
+def _link_cached_genes(parts, individual):
+    """Combine per-gene arrays with the individual's linker.
+
+    Only the linkers this engine uses are handled; anything else returns None
+    so the caller falls back to the compiled callable rather than guessing at
+    semantics.
+    """
+    if len(parts) == 1:
+        return parts[0]
+    name = getattr(getattr(individual, "linker", None), "__name__", "")
+    stacked = np.vstack(parts)
+    if name in ("avgval", "_round_avg_eng"):
+        return stacked.mean(axis=0)
+    if name in ("addval", "_round_add_eng"):
+        return stacked.sum(axis=0)
+    if name in ("mulval", "_round_mul_eng"):
+        return stacked.prod(axis=0)
+    return None
+
+
+def _in_forked_worker() -> bool:
+    """True inside a multiprocessing worker. Metal must not be initialised
+    here — the process was forked from a parent that may already have."""
+    import multiprocessing as _mp
+    try:
+        return _mp.current_process().name != "MainProcess"
+    except Exception:
+        return False
+
+
+def _gene_cache_key(gene) -> tuple:
+    """Identify a gene's COMPUTATION, not its printed form. str(gene) renders
+    the simplified expression and collides across structurally different
+    genes."""
+    return (tuple(str(t) for t in getattr(gene, "head", ())),
+            tuple(str(t) for t in getattr(gene, "tail", ())),
+            tuple(getattr(gene, "dc", ()) or ()),
+            tuple(getattr(gene, "rnc_array", ()) or ()))
+
 GPU_STATS: dict = {
     "gpu_calls": 0,       # individuals answered on the GPU
     "gpu_rows": 0,        # row-evaluations done on the GPU
@@ -522,7 +568,27 @@ def compile_and_predict(individual, df: pd.DataFrame, terminals: Sequence[str], 
     whenever the GPU cannot answer, so enabling the flag can change speed but
     not results.
     """
-    if _GPU_ENABLED:
+    # Cache first: a population-level prefill (run in the PARENT process,
+    # before any fork) may hold every GENE of this individual. Link them the
+    # same way the compiled callable would, so the cached path and the CPU
+    # path return the same thing.
+    if _GPU_PRED_CACHE:
+        key_df = id(df)
+        parts = [_GPU_PRED_CACHE.get((key_df, _gene_cache_key(g)))
+                 for g in individual]
+        if parts and all(p is not None for p in parts):
+            linked = _link_cached_genes(parts, individual)
+            if linked is not None and np.all(np.isfinite(linked)):
+                return linked
+
+    # Per-individual GPU dispatch is disabled inside a forked worker.
+    # Initialising Metal touches Objective-C runtime state, and a fork after
+    # that crashes the child outright:
+    #   "+[NSCheapMutableString initialize] may have been in progress in
+    #    another thread when fork() was called ... Crashing instead."
+    # Every pool worker dies and the run produces no generations at all. The
+    # GPU therefore only ever runs in the parent, via the prefill.
+    if _GPU_ENABLED and not _in_forked_worker():
         out = _gpu_predict(individual, df, terminals)
         if out is not None:
             return out

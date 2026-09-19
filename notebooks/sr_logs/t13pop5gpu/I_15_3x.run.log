@@ -1,0 +1,147 @@
+/opt/anaconda3/lib/python3.12/site-packages/geppy/__init__.py:26: UserWarning: pkg_resources is deprecated as an API. See https://setuptools.pypa.io/en/latest/pkg_resources.html. The pkg_resources package is slated for removal as early as 2025-11-30. Refrain from using this package or pin to Setuptools<81.
+  from pkg_resources import get_distribution, DistributionNotFound
+hff library OK (test fitness: (0.1415394733244273,))
+registry: ['circle_area', 'gravity', 'coulomb', 'pendulum', 'keplers3', 'ideal_gas', 'I_6_2a', 'I_6_2', 'I_6_2b', 'I_8_14', 'I_9_18', 'I_10_7', 'I_11_19', 'I_12_1', 'I_12_2', 'I_12_4', 'I_12_5', 'I_12_11', 'I_13_4', 'I_13_12', 'I_14_3', 'I_14_4', 'I_15_3x', 'I_15_3t', 'I_15_1', 'I_16_6', 'I_18_4', 'I_18_12', 'I_18_14', 'I_24_6', 'I_25_13', 'I_26_2', 'I_27_6', 'I_29_4', 'I_29_16', 'I_30_3', 'I_30_5', 'I_32_5', 'I_32_17', 'I_34_8', 'I_34_1', 'I_34_14', 'I_34_27', 'I_37_4', 'I_38_12', 'I_39_1', 'I_39_11', 'I_39_22', 'I_40_1', 'I_41_16', 'I_43_16', 'I_43_31', 'I_43_43', 'I_44_4', 'I_47_23', 'I_48_2', 'I_50_26', 'II_2_42', 'II_3_24', 'II_4_23', 'II_6_11', 'II_6_15a', 'II_6_15b', 'II_8_7', 'II_8_31', 'II_10_9', 'II_11_3', 'II_11_17', 'II_11_20', 'II_11_27', 'II_11_28', 'II_13_17', 'II_13_23', 'II_13_34', 'II_15_4', 'II_15_5', 'II_21_32', 'II_24_17', 'II_27_16', 'II_27_18', 'II_34_2a', 'II_34_2', 'II_34_11', 'II_34_29a', 'II_34_29b', 'II_35_18', 'II_35_21', 'II_36_38', 'II_37_1', 'II_38_3', 'II_38_14', 'III_4_32', 'III_4_33', 'III_7_38', 'III_8_54', 'III_9_52', 'III_10_19', 'III_12_43', 'III_13_18', 'III_14_14', 'III_15_12', 'III_15_14', 'III_15_27', 'III_17_37', 'III_19_51', 'III_21_20', 'test_1', 'test_2', 'test_3', 'test_4', 'test_5', 'test_6', 'test_7', 'test_8', 'test_9', 'test_10', 'test_11', 'test_12', 'test_13', 'test_14', 'test_15', 'test_16', 'test_17', 'test_18', 'test_19', 'test_20']
+[feynman override] head_length=48 (keep n_genes=3, avgval linker)
+Selected problem: I_15_3x
+  Description : Feynman I-III I.15.3x: x1 = (x-u*t)/sqrt(1-u**2/c**2)
+  Variables   : ['x', 'u', 'c', 't']
+  Train range : {'x': (5.0, 10.0), 'u': (1.0, 2.0), 'c': (3.0, 20.0), 't': (1.0, 2.0)}
+  Extrap range: {'x': (5.0, 15.0), 'u': (1.0, 3.0), 'c': (3.0, 30.0), 't': (1.0, 3.0)}
+  Truth       : (x-u*t)/sqrt(1-u**2/c**2)
+  ✓ cache hit  (data/equations/I_15_3x, key=d37115933e6135aa)
+  train           (800, 5)  target range=[1.512, 8.818]
+  val             (200, 5)  target range=[1.82, 8.959]
+  holdout         (200, 5)  target range=[1.711, 9.028]
+  extrapolation   (200, 5)  target range=[-1.708, 13.13]
+  saved figure → data/figures/I_15_3x/eda_pairplot.png
+Wide primitive set enabled: sin, cos, exp, log added.
+[E22 rules] variable pattern tags: {'lorentz_pair'}
+[E22/23 rules] static candidate count: 9
+  [sum_sq_all/sum_sq] a=0.0011 b=5.2205e+00 1-R²_va=9.9878e-01
+  [lorentz_factor/gamma(u)] a=2.0866 b=3.3282e+00 1-R²_va=1.0111e+00
+  [lorentz_factor/x*gamma(u)] a=0.9757 b=-2.1076e+00 1-R²_va=1.6682e-01
+  [lorentz_factor/x*u*gamma(u)] a=0.2210 b=2.8890e+00 1-R²_va=8.1911e-01
+  [lorentz_factor/t*gamma(u)] a=-1.3850 b=7.5835e+00 1-R²_va=9.4662e-01
+  [lorentz_factor/t*u*gamma(u)] a=-0.8668 b=7.4522e+00 1-R²_va=8.5969e-01
+  [lorentz_factor/(x-u*t)*gamma(u)] a=1.0000 b=8.8323e-17 1-R²_va=8.8003e-31
+  [doppler_ratio/1/(1-u/c)] a=0.3040 b=5.0865e+00 1-R²_va=1.0104e+00
+  [doppler_ratio/1/(1+u/c)] a=-0.6699 b=6.0369e+00 1-R²_va=1.0090e+00
+[fuller] gene operators ACTIVE (denoise=0.2 physics=0.2 snap=1.0 concretize=0.05)
+Wrapper scope: per_island  (island → wrapper map: ['identity', 'identity'])
+Genes: head_length=48, n_genes=3, rnc_array_length=10
+Population size: 25, tournament: 3, elites: 2, generations: 400, migration FREQ: 30
+  pump per-island sizes: intake=500 (tournsize=40), champion=250 (tournsize=25)
+Initialising evolution at 2026-09-19 01:53:51.238692
+objc[11847]: +[NSCheapMutableString initialize] may have been in progress in another thread when fork() was called.
+objc[11847]: +[NSCheapMutableString initialize] may have been in progress in another thread when fork() was called. We cannot safely call it or ignore it in the fork() child process. Crashing instead. Set a breakpoint on objc_initializeAfterForkError to debug.
+objc[11852]: +[NSCheapMutableString initialize] may have been in progress in another thread when fork() was called.
+objc[11852]: +[NSCheapMutableString initialize] may have been in progress in another thread when fork() was called. We cannot safely call it or ignore it in the fork() child process. Crashing instead. Set a breakpoint on objc_initializeAfterForkError to debug.
+objc[11854]: +[NSCheapMutableString initialize] may have been in progress in another thread when fork() was called.
+objc[11854]: +[NSCheapMutableString initialize] may have been in progress in another thread when fork() was called. We cannot safely call it or ignore it in the fork() child process. Crashing instead. Set a breakpoint on objc_initializeAfterForkError to debug.
+objc[11858]: +[NSCheapMutableString initialize] may have been in progress in another thread when fork() was called.
+objc[11858]: +[NSCheapMutableString initialize] may have been in progress in another thread when fork() was called. We cannot safely call it or ignore it in the fork() child process. Crashing instead. Set a breakpoint on objc_initializeAfterForkError to debug.
+objc[11862]: +[NSCheapMutableString initialize] may have been in progress in another thread when fork() was called.
+objc[11862]: +[NSCheapMutableString initialize] may have been in progress in another thread when fork() was called. We cannot safely call it or ignore it in the fork() child process. Crashing instead. Set a breakpoint on objc_initializeAfterForkError to debug.
+objc[11865]: +[NSCheapMutableString initialize] may have been in progress in another thread when fork() was called.
+objc[11865]: +[NSCheapMutableString initialize] may have been in progress in another thread when fork() was called. We cannot safely call it or ignore it in the fork() child process. Crashing instead. Set a breakpoint on objc_initializeAfterForkError to debug.
+objc[11867]: +[NSCheapMutableString initialize] may have been in progress in another thread when fork() was called.
+objc[11867]: +[NSCheapMutableString initialize] may have been in progress in another thread when fork() was called. We cannot safely call it or ignore it in the fork() child process. Crashing instead. Set a breakpoint on objc_initializeAfterForkError to debug.
+objc[11869]: +[NSCheapMutableString initialize] may have been in progress in another thread when fork() was called.
+objc[11869]: +[NSCheapMutableString initialize] may have been in progress in another thread when fork() was called. We cannot safely call it or ignore it in the fork() child process. Crashing instead. Set a breakpoint on objc_initializeAfterForkError to debug.
+objc[11871]: +[NSCheapMutableString initialize] may have been in progress in another thread when fork() was called.
+objc[11871]: +[NSCheapMutableString initialize] may have been in progress in another thread when fork() was called. We cannot safely call it or ignore it in the fork() child process. Crashing instead. Set a breakpoint on objc_initializeAfterForkError to debug.
+objc[11874]: +[NSCheapMutableString initialize] may have been in progress in another thread when fork() was called.
+objc[11874]: +[NSCheapMutableString initialize] may have been in progress in another thread when fork() was called. We cannot safely call it or ignore it in the fork() child process. Crashing instead. Set a breakpoint on objc_initializeAfterForkError to debug.
+objc[11877]: +[NSCheapMutableString initialize] may have been in progress in another thread when fork() was called.
+objc[11877]: +[NSCheapMutableString initialize] may have been in progress in another thread when fork() was called. We cannot safely call it or ignore it in the fork() child process. Crashing instead. Set a breakpoint on objc_initializeAfterForkError to debug.
+objc[11878]: +[NSCheapMutableString initialize] may have been in progress in another thread when fork() was called.
+objc[11878]: +[NSCheapMutableString initialize] may have been in progress in another thread when fork() was called. We cannot safely call it or ignore it in the fork() child process. Crashing instead. Set a breakpoint on objc_initializeAfterForkError to debug.
+objc[11879]: +[NSCheapMutableString initialize] may have been in progress in another thread when fork() was called.
+objc[11879]: +[NSCheapMutableString initialize] may have been in progress in another thread when fork() was called. We cannot safely call it or ignore it in the fork() child process. Crashing instead. Set a breakpoint on objc_initializeAfterForkError to debug.
+objc[11827]: +[NSCheapMutableString initialize] may have been in progress in another thread when fork() was called.
+objc[11827]: +[NSCheapMutableString initialize] may have been in progress in another thread when fork() was called. We cannot safely call it or ignore it in the fork() child process. Crashing instead. Set a breakpoint on objc_initializeAfterForkError to debug.
+objc[11882]: +[NSCheapMutableString initialize] may have been in progress in another thread when fork() was called.
+objc[11882]: +[NSCheapMutableString initialize] may have been in progress in another thread when fork() was called. We cannot safely call it or ignore it in the fork() child process. Crashing instead. Set a breakpoint on objc_initializeAfterForkError to debug.
+objc[11883]: +[NSCheapMutableString initialize] may have been in progress in another thread when fork() was called.
+objc[11883]: +[NSCheapMutableString initialize] may have been in progress in another thread when fork() was called. We cannot safely call it or ignore it in the fork() child process. Crashing instead. Set a breakpoint on objc_initializeAfterForkError to debug.
+objc[11888]: +[NSCheapMutableString initialize] may have been in progress in another thread when fork() was called.
+objc[11888]: +[NSCheapMutableString initialize] may have been in progress in another thread when fork() was called. We cannot safely call it or ignore it in the fork() child process. Crashing instead. Set a breakpoint on objc_initializeAfterForkError to debug.
+objc[11892]: +[NSCheapMutableString initialize] may have been in progress in another thread when fork() was called.
+objc[11892]: +[NSCheapMutableString initialize] may have been in progress in another thread when fork() was called. We cannot safely call it or ignore it in the fork() child process. Crashing instead. Set a breakpoint on objc_initializeAfterForkError to debug.
+objc[11894]: +[NSCheapMutableString initialize] may have been in progress in another thread when fork() was called.
+objc[11894]: +[NSCheapMutableString initialize] may have been in progress in another thread when fork() was called. We cannot safely call it or ignore it in the fork() child process. Crashing instead. Set a breakpoint on objc_initializeAfterForkError to debug.
+objc[11899]: +[NSCheapMutableString initialize] may have been in progress in another thread when fork() was called.
+objc[11899]: +[NSCheapMutableString initialize] may have been in progress in another thread when fork() was called. We cannot safely call it or ignore it in the fork() child process. Crashing instead. Set a breakpoint on objc_initializeAfterForkError to debug.
+objc[11900]: +[NSCheapMutableString initialize] may have been in progress in another thread when fork() was called.
+objc[11900]: +[NSCheapMutableString initialize] may have been in progress in another thread when fork() was called. We cannot safely call it or ignore it in the fork() child process. Crashing instead. Set a breakpoint on objc_initializeAfterForkError to debug.
+objc[11902]: +[NSCheapMutableString initialize] may have been in progress in another thread when fork() was called.
+objc[11902]: +[NSCheapMutableString initialize] may have been in progress in another thread when fork() was called. We cannot safely call it or ignore it in the fork() child process. Crashing instead. Set a breakpoint on objc_initializeAfterForkError to debug.
+objc[11903]: +[NSCheapMutableString initialize] may have been in progress in another thread when fork() was called.
+objc[11903]: +[NSCheapMutableString initialize] may have been in progress in another thread when fork() was called. We cannot safely call it or ignore it in the fork() child process. Crashing instead. Set a breakpoint on objc_initializeAfterForkError to debug.
+objc[11905]: +[NSCheapMutableString initialize] may have been in progress in another thread when fork() was called.
+objc[11905]: +[NSCheapMutableString initialize] may have been in progress in another thread when fork() was called. We cannot safely call it or ignore it in the fork() child process. Crashing instead. Set a breakpoint on objc_initializeAfterForkError to debug.
+objc[11918]: +[NSCheapMutableString initialize] may have been in progress in another thread when fork() was called.
+objc[11918]: +[NSCheapMutableString initialize] may have been in progress in another thread when fork() was called. We cannot safely call it or ignore it in the fork() child process. Crashing instead. Set a breakpoint on objc_initializeAfterForkError to debug.
+objc[11927]: +[NSCheapMutableString initialize] may have been in progress in another thread when fork() was called.
+objc[11927]: +[NSCheapMutableString initialize] may have been in progress in another thread when fork() was called. We cannot safely call it or ignore it in the fork() child process. Crashing instead. Set a breakpoint on objc_initializeAfterForkError to debug.
+objc[11931]: +[NSCheapMutableString initialize] may have been in progress in another thread when fork() was called.
+objc[11931]: +[NSCheapMutableString initialize] may have been in progress in another thread when fork() was called. We cannot safely call it or ignore it in the fork() child process. Crashing instead. Set a breakpoint on objc_initializeAfterForkError to debug.
+objc[11937]: +[NSCheapMutableString initialize] may have been in progress in another thread when fork() was called.
+objc[11937]: +[NSCheapMutableString initialize] may have been in progress in another thread when fork() was called. We cannot safely call it or ignore it in the fork() child process. Crashing instead. Set a breakpoint on objc_initializeAfterForkError to debug.
+objc[11944]: +[NSCheapMutableString initialize] may have been in progress in another thread when fork() was called.
+objc[11944]: +[NSCheapMutableString initialize] may have been in progress in another thread when fork() was called. We cannot safely call it or ignore it in the fork() child process. Crashing instead. Set a breakpoint on objc_initializeAfterForkError to debug.
+objc[11947]: +[NSCheapMutableString initialize] may have been in progress in another thread when fork() was called.
+objc[11947]: +[NSCheapMutableString initialize] may have been in progress in another thread when fork() was called. We cannot safely call it or ignore it in the fork() child process. Crashing instead. Set a breakpoint on objc_initializeAfterForkError to debug.
+objc[11949]: +[NSCheapMutableString initialize] may have been in progress in another thread when fork() was called.
+objc[11949]: +[NSCheapMutableString initialize] may have been in progress in another thread when fork() was called. We cannot safely call it or ignore it in the fork() child process. Crashing instead. Set a breakpoint on objc_initializeAfterForkError to debug.
+objc[11953]: +[NSCheapMutableString initialize] may have been in progress in another thread when fork() was called.
+objc[11953]: +[NSCheapMutableString initialize] may have been in progress in another thread when fork() was called. We cannot safely call it or ignore it in the fork() child process. Crashing instead. Set a breakpoint on objc_initializeAfterForkError to debug.
+objc[11958]: +[NSCheapMutableString initialize] may have been in progress in another thread when fork() was called.
+objc[11958]: +[NSCheapMutableString initialize] may have been in progress in another thread when fork() was called. We cannot safely call it or ignore it in the fork() child process. Crashing instead. Set a breakpoint on objc_initializeAfterForkError to debug.
+objc[11959]: +[NSCheapMutableString initialize] may have been in progress in another thread when fork() was called.
+objc[11959]: +[NSCheapMutableString initialize] may have been in progress in another thread when fork() was called. We cannot safely call it or ignore it in the fork() child process. Crashing instead. Set a breakpoint on objc_initializeAfterForkError to debug.
+objc[11960]: +[NSCheapMutableString initialize] may have been in progress in another thread when fork() was called.
+objc[11960]: +[NSCheapMutableString initialize] may have been in progress in another thread when fork() was called. We cannot safely call it or ignore it in the fork() child process. Crashing instead. Set a breakpoint on objc_initializeAfterForkError to debug.
+objc[11961]: +[NSCheapMutableString initialize] may have been in progress in another thread when fork() was called.
+objc[11961]: +[NSCheapMutableString initialize] may have been in progress in another thread when fork() was called. We cannot safely call it or ignore it in the fork() child process. Crashing instead. Set a breakpoint on objc_initializeAfterForkError to debug.
+objc[11965]: +[NSCheapMutableString initialize] may have been in progress in another thread when fork() was called.
+objc[11965]: +[NSCheapMutableString initialize] may have been in progress in another thread when fork() was called. We cannot safely call it or ignore it in the fork() child process. Crashing instead. Set a breakpoint on objc_initializeAfterForkError to debug.
+objc[11988]: +[NSCheapMutableString initialize] may have been in progress in another thread when fork() was called.
+objc[11988]: +[NSCheapMutableString initialize] may have been in progress in another thread when fork() was called. We cannot safely call it or ignore it in the fork() child process. Crashing instead. Set a breakpoint on objc_initializeAfterForkError to debug.
+objc[11990]: +[NSCheapMutableString initialize] may have been in progress in another thread when fork() was called.
+objc[11990]: +[NSCheapMutableString initialize] may have been in progress in another thread when fork() was called. We cannot safely call it or ignore it in the fork() child process. Crashing instead. Set a breakpoint on objc_initializeAfterForkError to debug.
+objc[11991]: +[NSCheapMutableString initialize] may have been in progress in another thread when fork() was called.
+objc[11991]: +[NSCheapMutableString initialize] may have been in progress in another thread when fork() was called. We cannot safely call it or ignore it in the fork() child process. Crashing instead. Set a breakpoint on objc_initializeAfterForkError to debug.
+objc[11993]: +[NSCheapMutableString initialize] may have been in progress in another thread when fork() was called.
+objc[11993]: +[NSCheapMutableString initialize] may have been in progress in another thread when fork() was called. We cannot safely call it or ignore it in the fork() child process. Crashing instead. Set a breakpoint on objc_initializeAfterForkError to debug.
+objc[11994]: +[NSCheapMutableString initialize] may have been in progress in another thread when fork() was called.
+objc[11994]: +[NSCheapMutableString initialize] may have been in progress in another thread when fork() was called. We cannot safely call it or ignore it in the fork() child process. Crashing instead. Set a breakpoint on objc_initializeAfterForkError to debug.
+objc[12003]: +[NSCheapMutableString initialize] may have been in progress in another thread when fork() was called.
+objc[12003]: +[NSCheapMutableString initialize] may have been in progress in another thread when fork() was called. We cannot safely call it or ignore it in the fork() child process. Crashing instead. Set a breakpoint on objc_initializeAfterForkError to debug.
+objc[12004]: +[NSCheapMutableString initialize] may have been in progress in another thread when fork() was called.
+objc[12004]: +[NSCheapMutableString initialize] may have been in progress in another thread when fork() was called. We cannot safely call it or ignore it in the fork() child process. Crashing instead. Set a breakpoint on objc_initializeAfterForkError to debug.
+objc[12005]: +[NSCheapMutableString initialize] may have been in progress in another thread when fork() was called.
+objc[12005]: +[NSCheapMutableString initialize] may have been in progress in another thread when fork() was called. We cannot safely call it or ignore it in the fork() child process. Crashing instead. Set a breakpoint on objc_initializeAfterForkError to debug.
+objc[12007]: +[NSCheapMutableString initialize] may have been in progress in another thread when fork() was called.
+objc[12007]: +[NSCheapMutableString initialize] may have been in progress in another thread when fork() was called. We cannot safely call it or ignore it in the fork() child process. Crashing instead. Set a breakpoint on objc_initializeAfterForkError to debug.
+objc[12008]: +[NSCheapMutableString initialize] may have been in progress in another thread when fork() was called.
+objc[12008]: +[NSCheapMutableString initialize] may have been in progress in another thread when fork() was called. We cannot safely call it or ignore it in the fork() child process. Crashing instead. Set a breakpoint on objc_initializeAfterForkError to debug.
+objc[12014]: +[NSCheapMutableString initialize] may have been in progress in another thread when fork() was called.
+objc[12014]: +[NSCheapMutableString initialize] may have been in progress in another thread when fork() was called. We cannot safely call it or ignore it in the fork() child process. Crashing instead. Set a breakpoint on objc_initializeAfterForkError to debug.
+objc[12019]: +[NSCheapMutableString initialize] may have been in progress in another thread when fork() was called.
+objc[12019]: +[NSCheapMutableString initialize] may have been in progress in another thread when fork() was called. We cannot safely call it or ignore it in the fork() child process. Crashing instead. Set a breakpoint on objc_initializeAfterForkError to debug.
+objc[12038]: +[NSCheapMutableString initialize] may have been in progress in another thread when fork() was called.
+objc[12038]: +[NSCheapMutableString initialize] may have been in progress in another thread when fork() was called. We cannot safely call it or ignore it in the fork() child process. Crashing instead. Set a breakpoint on objc_initializeAfterForkError to debug.
+objc[12039]: +[NSCheapMutableString initialize] may have been in progress in another thread when fork() was called.
+objc[12039]: +[NSCheapMutableString initialize] may have been in progress in another thread when fork() was called. We cannot safely call it or ignore it in the fork() child process. Crashing instead. Set a breakpoint on objc_initializeAfterForkError to debug.
+objc[12040]: +[NSCheapMutableString initialize] may have been in progress in another thread when fork() was called.
+objc[12040]: +[NSCheapMutableString initialize] may have been in progress in another thread when fork() was called. We cannot safely call it or ignore it in the fork() child process. Crashing instead. Set a breakpoint on objc_initializeAfterForkError to debug.
+objc[12046]: +[NSCheapMutableString initialize] may have been in progress in another thread when fork() was called.
+objc[12046]: +[NSCheapMutableString initialize] may have been in progress in another thread when fork() was called. We cannot safely call it or ignore it in the fork() child process. Crashing instead. Set a breakpoint on objc_initializeAfterForkError to debug.
+objc[12052]: +[NSCheapMutableString initialize] may have been in progress in another thread when fork() was called.
+objc[12052]: +[NSCheapMutableString initialize] may have been in progress in another thread when fork() was called. We cannot safely call it or ignore it in the fork() child process. Crashing instead. Set a breakpoint on objc_initializeAfterForkError to debug.
+objc[12058]: +[NSCheapMutableString initialize] may have been in progress in another thread when fork() was called.
+objc[12058]: +[NSCheapMutableString initialize] may have been in progress in another thread when fork() was called. We cannot safely call it or ignore it in the fork() child process. Crashing instead. Set a breakpoint on objc_initializeAfterForkError to debug.
+objc[12060]: +[NSCheapMutableString initialize] may have been in progress in another thread when fork() was called.
+objc[12060]: +[NSCheapMutableString initialize] may have been in progress in another thread when fork() was called. We cannot safely call it or ignore it in the fork() child process. Crashing instead. Set a breakpoint on objc_initializeAfterForkError to debug.

@@ -1700,6 +1700,91 @@ def _build_static_candidates():
 _build_static_candidates()
 
 
+# ---------------------------------------------------------------------------
+# Population-level GPU prefill (HFF_GPU=1)
+# ---------------------------------------------------------------------------
+# compute_raw_metrics evaluates ONE individual at a time, three times over
+# (train, val, extrap). Routing each of those through the GPU individually is
+# slower than the CPU row loop — measured 3.4x slower — because the dispatch
+# overhead is paid per call.
+#
+# So the whole deme is dispatched ONCE per dataframe before evaluation
+# begins, and compile_and_predict reads the cached result. Data stays resident
+# on the device across generations via fuller's GpuSession.
+#
+# Any gene that cannot be converted is simply absent from the cache and falls
+# back to the CPU row loop, so this changes where a value is computed, never
+# whether it is correct.
+
+_NB_GPU_STATS = {"dispatches": 0, "genes": 0, "row_evals": 0, "seconds": 0.0}
+_NB_GPU_LAST = {"dispatches": 0, "genes": 0, "seconds": 0.0}
+
+
+def _nb_gpu_prefill(population, df):
+    """One dispatch for every gene of every individual against df."""
+    if os.environ.get("HFF_GPU") != "1" or not population:
+        return
+    try:
+        import fuller as _f
+        if not hasattr(_f._fuller, "GpuSession"):
+            return
+    except ImportError:
+        return
+
+    key = id(df)
+    genes, keys = [], []
+    for ind in population:
+        for gene in ind:
+            r = hgh._resolve_rnc(gene)
+            if r is None:
+                continue
+            k = (key, hgh._gene_cache_key(gene))
+            if k in hgh._GPU_PRED_CACHE:
+                continue
+            genes.append(r)
+            keys.append(k)
+    if not genes:
+        return
+
+    sess = hgh._GPU_SESSIONS.get(key)
+    if sess is None:
+        fns = {n: (n, a) for n, a in _f.master_pset()}
+        try:
+            sess = _f._fuller.GpuSession(
+                list(finalTerminals), fns, [1.0],
+                df[list(finalTerminals)].values.tolist())
+        except Exception:
+            return
+        hgh._GPU_SESSIONS[key] = sess
+
+    try:
+        _t0 = time.perf_counter()
+        preds = sess.predict(genes)
+        _dt = time.perf_counter() - _t0
+    except Exception:
+        return
+
+    _NB_GPU_STATS["dispatches"] += 1
+    _NB_GPU_STATS["genes"] += len(genes)
+    _NB_GPU_STATS["row_evals"] += len(genes) * sess.n_rows
+    _NB_GPU_STATS["seconds"] += _dt
+    for k, pr in zip(keys, preds):
+        if pr is not None:
+            hgh._GPU_PRED_CACHE[k] = np.asarray(pr, dtype=np.float64)
+
+
+def _nb_gpu_gen_delta() -> str:
+    """wgpu work done since the last call — this generation's share."""
+    if os.environ.get("HFF_GPU") != "1":
+        return ""
+    d = _NB_GPU_STATS["dispatches"] - _NB_GPU_LAST["dispatches"]
+    g = _NB_GPU_STATS["genes"] - _NB_GPU_LAST["genes"]
+    ms = (_NB_GPU_STATS["seconds"] - _NB_GPU_LAST["seconds"]) * 1000.0
+    _NB_GPU_LAST.update({k: _NB_GPU_STATS[k]
+                         for k in ("dispatches", "genes", "seconds")})
+    return f"  wgpu {d}d {g}g {ms:.1f}ms"
+
+
 def compute_raw_metrics(individual):
     """Phase 1: per-individual. Returns a bundle dict or None.
 
@@ -2040,6 +2125,24 @@ def _ensure_pool():
             return
         except (ValueError, AssertionError, OSError):
             pass
+    if os.environ.get("HFF_GPU") == "1":
+        # NO process pool when the GPU is in use. mp.Pool forks on macOS, and
+        # a fork from a process that has initialised Metal crashes the child
+        # outright:
+        #   "+[NSCheapMutableString initialize] may have been in progress in
+        #    another thread when fork() was called ... Crashing instead."
+        # Every worker dies and the run produces zero generations — measured,
+        # 28 crashes and no output. Ordering cannot fix it either: the pool is
+        # built at module load, before any prefill runs.
+        #
+        # The GPU exists to replace this parallelism: one dispatch evaluates
+        # the whole population, so the pool is redundant rather than merely
+        # unavailable.
+        pool = None
+        toolbox.register("map", map)
+        print("[wgpu] process pool disabled — Metal cannot survive fork(); "
+              "the population is evaluated in one dispatch instead")
+        return
     pool = mp.Pool(processes=procs)
     toolbox.register("map", pool.map)
 
@@ -2065,8 +2168,14 @@ population_size = settings.population_size
 _POP_SCALE = float(os.environ.get("HFF_POP_SCALE", "1"))
 POP_INTAKE = int(100 * _POP_SCALE)   # E20: 1 intake (100) + 1 champion (50)
 POP_CHAMPION = int(50 * _POP_SCALE)
-TOURN_INTAKE = 8      # wider net per 100-pop intake
-TOURN_CHAMPION = 5    # slightly wider on the bigger champion pool
+# Tournament size scales WITH the population: selection pressure is the
+# fraction of the pool a tournament samples, not the absolute count. The
+# tuned values are 8/100 intake and 5/50 champion — 8% and 10% — so at
+# HFF_POP_SCALE=5 a fixed 8 would sample 8/500 = 1.6% and selection would
+# nearly vanish. HFF_TOURN_FRAC overrides the fraction.
+_TOURN_FRAC = float(os.environ.get("HFF_TOURN_FRAC", "0.08"))
+TOURN_INTAKE = max(2, int(round(POP_INTAKE * _TOURN_FRAC)))
+TOURN_CHAMPION = max(2, int(round(POP_CHAMPION * 0.10)))
 def _island_pop_size(island_idx):
     if MIGRATION_TOPOLOGY != "pump":
         return population_size
@@ -2452,6 +2561,13 @@ else:
     log.header = ("gen", "deme", "evals", "min fitness", *METRIC_NAMES)
 
     for idx, deme in enumerate(demes):
+        # GPU prefill runs HERE, in the parent, before pool.map forks.
+        # Workers must never initialise Metal: a fork after Metal init
+        # crashes the child outright. They read the cache instead, which
+        # fork copies to them.
+        _nb_gpu_prefill(deme, train)
+        _nb_gpu_prefill(deme, validation)
+        _nb_gpu_prefill(deme, extrapolation)
         raw_results = list(toolbox.map(toolbox.evaluate, deme))
         assign_fitness_batch(deme, raw_results)
         log.record(gen=0, deme=idx, evals=len(deme),
@@ -2515,6 +2631,13 @@ else:
             deme[:] = elites + offspring
             invalid_ind = [ind for ind in deme if not ind.fitness.valid]
             if invalid_ind:
+                # GPU prefill runs HERE, in the parent, before pool.map forks.
+                # Workers must never initialise Metal: a fork after Metal init
+                # crashes the child outright. They read the cache instead, which
+                # fork copies to them.
+                _nb_gpu_prefill(invalid_ind, train)
+                _nb_gpu_prefill(invalid_ind, validation)
+                _nb_gpu_prefill(invalid_ind, extrapolation)
                 raw_results = list(toolbox.map(toolbox.evaluate, invalid_ind))
                 assign_fitness_batch(invalid_ind, raw_results)
             log.record(gen=gen, deme=idx, evals=len(deme),
