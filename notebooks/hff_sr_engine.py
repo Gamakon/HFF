@@ -684,6 +684,28 @@ GPU_BATCH_STATS: dict = {
 }
 
 
+_GPU_LAST = {"dispatches": 0, "genes": 0, "seconds": 0.0}
+
+
+def gpu_gen_delta() -> str:
+    """wgpu work done since the last call — i.e. during THIS generation.
+
+    Printed on every logbook row so the GPU's contribution is visible per
+    generation rather than only as a total at the end of the fit. A generation
+    that silently fell back to CPU shows "wgpu 0" here instead of looking the
+    same as one that did not.
+    """
+    if os.environ.get("HFF_GPU") != "1":
+        return ""
+    d = GPU_BATCH_STATS["dispatches"] - _GPU_LAST["dispatches"]
+    g = GPU_BATCH_STATS["genes"] - _GPU_LAST["genes"]
+    ms = (GPU_BATCH_STATS["seconds"] - _GPU_LAST["seconds"]) * 1000.0
+    _GPU_LAST["dispatches"] = GPU_BATCH_STATS["dispatches"]
+    _GPU_LAST["genes"] = GPU_BATCH_STATS["genes"]
+    _GPU_LAST["seconds"] = GPU_BATCH_STATS["seconds"]
+    return f"  wgpu {d}d {g}g {ms:.1f}ms"
+
+
 def gpu_batch_stats_line() -> str:
     """One line for the run log; empty when the GPU path is off."""
     if os.environ.get("HFF_GPU") != "1":
@@ -1404,7 +1426,9 @@ class HFFSREngine:
         log.header = ("gen", "deme", "evals", "min fitness", *metric_names)
         if verbose:
             try:
-                print(hgh.format_log_header(metric_names))
+                print(hgh.format_log_header(metric_names)
+                      + ("  wgpu(disp/genes/ms)"
+                         if os.environ.get("HFF_GPU") == "1" else ""))
             except Exception:
                 print("\t".join(log.header))
 
@@ -1508,7 +1532,8 @@ class HFFSREngine:
                            **{"min fitness": min_fit}, **metric_mins)
                 if verbose:
                     try:
-                        print(hgh.format_log_row(log[-1], metric_names))
+                        print(hgh.format_log_row(log[-1], metric_names)
+                              + gpu_gen_delta())
                     except Exception:
                         pass
 
