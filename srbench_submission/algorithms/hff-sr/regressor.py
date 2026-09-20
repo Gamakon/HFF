@@ -286,9 +286,15 @@ def model(est, X=None) -> str:
     # fuller's final form of the same model (pruned on the data, |x| = x where
     # the column is positive), when the engine produced one: it predicts what
     # discovered_expr_ predicts, to the engine's FINAL_FORM_AGREE.
+    # Both describe the same predictions; the one with FEWER nodes as SRBench
+    # counts them (sympy preorder) is reported. At III.13.18 seed 15795 the
+    # final form still carried an Abs the engine's own expression did not.
     final = getattr(est._engine, "final_form_", None)
     if final is not None:
-        expr = sp.sympify(final["infix"])
+        candidate = sp.sympify(final["infix"])
+        size = lambda e: sum(1 for _ in sp.preorder_traversal(_tidy_reported(e)))
+        if size(candidate) <= size(expr):
+            expr = candidate
     # The engine saw col_0..col_n. SRBench's clean_pred_model maps x_0..x_n back
     # to the dataset's feature names (highest index first, so x_10 before x_1).
     import re
