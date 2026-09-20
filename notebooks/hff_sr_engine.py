@@ -276,6 +276,21 @@ def _pset_neg(x):    return -x
 def _pset_inv(x):    return 1.0 / x if x != 0 else 1.0
 
 
+def _resolved_gene(gene):
+    """The gene as compress_gene must see it: its EXPRESSED tokens with every
+    "?" placeholder already replaced by the constant it denotes (geppy's own
+    kexpression does that, through the Dc domain).
+
+    compress_gene reads gene.head / gene.tail, where a constant is the bare
+    placeholder "?". "?" is an INDEX, not a symbol: each occurrence stands for a
+    different number. Read as one symbol, (64*x)/14 is (?*x)/? and sympy cancels
+    it to x — no "?" is left, so nothing notices. Feynman test_17 was selected as
+    ..*(col_3 + 32*col_5/7) and reported as ..*(col_3 + col_5): test R2 0.365
+    from a chromosome whose own test R2 is 0.9995."""
+    import types
+    return types.SimpleNamespace(head=list(gene.kexpression), tail=[])
+
+
 def _has_unresolved_rnc(expr) -> bool:
     """True when a symbolic gene still carries the GEP random-constant
     placeholder "?" as a free symbol — its constants were never resolved."""
@@ -1580,6 +1595,7 @@ class HFFSREngine:
         self.b_ = 0.0
         self.final_form_ = None
         self.final_form_note_ = ""
+        self.report_fault_ = ""
         self.wrapper_id_ = 0
         self.wrapper_name_ = "identity"
         self.linker_id_ = 0
@@ -2630,6 +2646,43 @@ class HFFSREngine:
         # argument, or a valid individual becomes an unscorable `zoo`:
         # protected_log(0) is +inf, and _pset_inv(0) is 1.0 (see their defs).
         sym_map["protected_log"] = lambda x: sp.oo if x == 0 else sp.log(sp.Abs(x))
+        # protected_div_zero returns 0 whenever |divisor| < 1e-6 — in the Python
+        # primitive, on the device and in fuller. The shared symbolic map only
+        # knows an EXACTLY zero divisor, so a divisor that is tiny but not zero
+        # was divided by literally: Feynman I.18.14's law, found at generation 1
+        # as sin(t)*(r/4.7e-15 + v*r)*m, was reported as 2.1e14*r*.. and
+        # predict() scored R2 = -2.64 on a model whose fitness was R2 = 1.
+        # The threshold is decided on the DATA the model was selected on.
+        _div_frames = [bundle.train, bundle.validation] + (
+            [bundle.extrapolation] if self.config.mode != "wild_regression" else [])
+        _div_rows = pd.concat([f[bundle.variables] for f in _div_frames], ignore_index=True).astype(float)
+
+        def _sym_protected_div_zero(a, b, _rows=_div_rows, _vars=list(bundle.variables)):
+            a, b = sp.sympify(a), sp.sympify(b)
+            piecewise = sp.Piecewise((sp.Integer(0), sp.Abs(b) < 1e-6), (a / b, True))
+            if not b.free_symbols:
+                try:
+                    return sp.Integer(0) if abs(float(b)) < 1e-6 else a / b
+                except (TypeError, ValueError):
+                    return piecewise
+            if not all(str(sym) in _vars for sym in b.free_symbols):
+                return piecewise                       # a named constant or "?": not decidable here
+            try:
+                with np.errstate(all="ignore"):
+                    mag = np.abs(np.broadcast_to(np.asarray(
+                        sp.lambdify([sp.Symbol(v) for v in _vars], b, "numpy")(*[_rows[v].values for v in _vars]),
+                        dtype=float), (len(_rows),)))
+            except Exception:
+                return piecewise
+            if not np.all(np.isfinite(mag)):
+                return piecewise
+            if np.all(mag >= 1e-6):
+                return a / b
+            if np.all(mag < 1e-6):
+                return sp.Integer(0)
+            return piecewise
+
+        sym_map["protected_div_zero"] = _sym_protected_div_zero
         # Sympy mappings for the extended primitive set.
         sym_map["tanh"] = sp.tanh
         sym_map["_pset_square"] = lambda x: x ** 2
@@ -2788,7 +2841,7 @@ class HFFSREngine:
             _per_gene_sym = []
             for _g in best:
                 try:
-                    _nh, _nt = _compress_gene(_g, self._pset, _visit_subtree,
+                    _nh, _nt = _compress_gene(_resolved_gene(_g), self._pset, _visit_subtree,
                                               sub_h=10, max_passes=2)
                     _ng = _Gene.from_genome(list(_nh) + list(_nt),
                                             head_length=len(_nh))
@@ -2869,7 +2922,7 @@ class HFFSREngine:
                     _snap_gene_sym = []
                     for _g in snapped_ind:
                         try:
-                            _nh, _nt = _compress_gene(_g, self._pset, _visit_subtree,
+                            _nh, _nt = _compress_gene(_resolved_gene(_g), self._pset, _visit_subtree,
                                                       sub_h=10, max_passes=2)
                             _ng = _Gene.from_genome(list(_nh) + list(_nt), head_length=len(_nh))
                             _snap_sym = _real_subs(_simplify_kexpr(_ng.kexpression, sym_map))
@@ -3110,7 +3163,14 @@ class HFFSREngine:
             return
         mine = np.asarray(self.predict(X), dtype=np.float64)
         if float(np.mean((mine - ref) ** 2)) / var > 1e-6:
-            self.final_form_note_ = "the chromosome's Math form does not reproduce predict(); not used"
+            # The model that was SELECTED (the chromosome) and the model that is
+            # REPORTED and used by predict() (its symbolic translation) are not
+            # the same function. That is a fault, never a note.
+            self.report_fault_ = ("REPORT FAULT: the reported expression does not compute what the selected "
+                                  f"chromosome computes (relative mean squared difference "
+                                  f"{float(np.mean((mine - ref) ** 2)) / var:.3g} on train+validation)")
+            self.final_form_note_ = self.report_fault_
+            print(f"[engine] {self.report_fault_}", flush=True)
             return
         positive = [c for c in cols if bool((X[c] > 0).all())]
         nonzero = [c for c in cols if bool((X[c] != 0).all())]

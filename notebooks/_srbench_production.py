@@ -108,6 +108,8 @@ def _job_inner(name, seed, tn, out):
         out.update(status=f"FIT FAILED: {type(e).__name__}: {str(e)[:120]}", fit_wall=time.time() - t0)
         return out
     out["fit_wall"] = time.time() - t0
+    if alg.LAST_FIT.get("report_fault"):
+        out["status"] = alg.LAST_FIT["report_fault"]
     out.update({k: alg.LAST_FIT.get(k) for k in ("generations", "population", "islands", "tournaments", "pump_every", "individuals")})
     signal.alarm(ASSESS_TIMEOUT_S)
     try:

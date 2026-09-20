@@ -178,6 +178,7 @@ class HFFSymbolicRegressor(BaseEstimator, RegressorMixin):
                         pump_every=f"{config.migration_freq_intra}/{config.migration_freq}",
                         stopped_by=getattr(self._engine, "stopped_by_", "before_evolution"),
                         resumed_from=getattr(self._engine, "resumed_from_gen_", 0),
+                        report_fault=getattr(self._engine, "report_fault_", "") or None,
                         edge_rows=EDGE_INFO.get("edge_rows"),
                         r2_val=(1.0 - _m["one_minus_r2_va"]) if "one_minus_r2_va" in _m else None,
                         r2_edge=(1.0 - _m["one_minus_r2_extrap"]) if "one_minus_r2_extrap" in _m else None,
