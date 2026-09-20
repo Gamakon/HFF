@@ -133,6 +133,7 @@ def main():
     ap.add_argument("--pick", type=int, default=0, help="run a RANDOM sample of this many datasets (0 = all)")
     ap.add_argument("--pick-seed", type=int, default=20260920, help="seed of that draw, so it can be reproduced")
     ap.add_argument("--seeds", type=int, default=N_SEEDS, help="how many of SRBench's seeds, from the first")
+    ap.add_argument("--first-seed", type=int, default=0, help="index into SRBench's seeds.py of the first seed to run")
     ap.add_argument("--results", default=os.path.join(HERE, "sr_logs", "srbench_production"))
     args = ap.parse_args()
     os.makedirs(args.results, exist_ok=True)
@@ -143,7 +144,7 @@ def main():
         import random
         names = sorted(random.Random(args.pick_seed).sample(names, args.pick))
         print(f"random draw of {args.pick} of the official datasets (seed {args.pick_seed}):\n  " + ", ".join(names), flush=True)
-    jobs = [(n, s, tn) for s in SEEDS[:args.seeds] for tn in args.noise for n in names]
+    jobs = [(n, s, tn) for s in SEEDS[args.first_seed:args.first_seed + args.seeds] for tn in args.noise for n in names]
     deadline = time.time() + args.budget
     print(f"protocol: {len(names)} datasets x {args.seeds} seeds x {len(args.noise)} noise levels = {len(jobs)} fits | "
           f"search cap {args.max_time} s | {args.workers} workers | fitting budget {args.budget:.0f} s", flush=True)
