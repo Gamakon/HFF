@@ -274,6 +274,12 @@ def _pset_cube(x):   return x * x * x
 def _pset_abs(x):    return abs(x)
 def _pset_neg(x):    return -x
 def _pset_inv(x):    return 1.0 / x if x != 0 else 1.0
+
+
+def _has_unresolved_rnc(expr) -> bool:
+    """True when a symbolic gene still carries the GEP random-constant
+    placeholder "?" as a free symbol — its constants were never resolved."""
+    return any(getattr(sym, "name", "") == "?" for sym in getattr(expr, "free_symbols", ()))
 def _diff_sq(a, b):  return (a - b) * (a - b)   # (a-b)² — common physics
 
 # Raw (un-protected) ops matching fuller's master_pset. These exist ONLY so
@@ -1481,6 +1487,7 @@ class HFFSREngine:
     def __init__(self, config: Optional[HFFSRConfig] = None):
         self.config = config or HFFSRConfig()
         self.discovered_expr_ = None
+        self.extract_notes_ = []
         self.a_ = 1.0
         self.b_ = 0.0
         self.wrapper_id_ = 0
@@ -2469,17 +2476,21 @@ class HFFSREngine:
             self._lambdified_var_order = bundle.variables[:]
             return
 
+        self.extract_notes_ = []
         sym_map = hgh.custom_symbolic_function_map()
         sym_map["protected_sqrt"] = lambda x: sp.sqrt(sp.Abs(x))
         sym_map["protected_exp"] = sp.exp
-        sym_map["protected_log"] = lambda x: sp.log(sp.Abs(x))
+        # The symbolic form must agree with the NUMERIC primitive on a constant
+        # argument, or a valid individual becomes an unscorable `zoo`:
+        # protected_log(0) is +inf, and _pset_inv(0) is 1.0 (see their defs).
+        sym_map["protected_log"] = lambda x: sp.oo if x == 0 else sp.log(sp.Abs(x))
         # Sympy mappings for the extended primitive set.
         sym_map["tanh"] = sp.tanh
         sym_map["_pset_square"] = lambda x: x ** 2
         sym_map["_pset_cube"] = lambda x: x ** 3
         sym_map["_pset_abs"] = sp.Abs
         sym_map["_pset_neg"] = lambda x: -x
-        sym_map["_pset_inv"] = lambda x: 1 / x
+        sym_map["_pset_inv"] = lambda x: sp.Integer(1) if x == 0 else 1 / x
         sym_map["_diff_sq"] = lambda a, b: (a - b) ** 2
         # Raw ops (master_pset coverage) — distinct symbolic forms from
         # their protected counterparts so sympy stays in real domain.
@@ -2553,8 +2564,11 @@ class HFFSREngine:
                 pred = np.asarray(fn(*[ho_df[v].values for v in bundle.variables]),
                                   dtype=np.float64)
                 if pred.shape == () or pred.shape[0] != len(ho_y):
+                    self.extract_notes_.append(f"holdout prediction is not a column (constant?) for {str(expr)[:80]}")
                     return None
                 if not np.all(np.isfinite(pred)):
+                    self.extract_notes_.append(
+                        f"{int(np.sum(~np.isfinite(pred)))} non-finite holdout predictions for {str(expr)[:80]}")
                     return None
                 err = ho_y - pred
                 mse = float(np.mean(err ** 2))
@@ -2564,7 +2578,9 @@ class HFFSREngine:
                 if not all(np.isfinite(vec)):
                     return None
                 return vec
-            except Exception:
+            except Exception as _hv_err:
+                self.extract_notes_.append(
+                    f"holdout scoring failed ({type(_hv_err).__name__}: {str(_hv_err)[:80]}) for {str(expr)[:80]}")
                 return None
 
         def _r2_of(expr) -> str:
@@ -2631,6 +2647,15 @@ class HFFSREngine:
                     _ng = _Gene.from_genome(list(_nh) + list(_nt),
                                             head_length=len(_nh))
                     _compressed_sym = _real_subs(_simplify_kexpr(_ng.kexpression, sym_map))
+                    # _compress_gene's tokens are rebuilt as a PLAIN Gene, which
+                    # has no Dc domain: geppy resolves the "?" placeholder only
+                    # on a GeneDc, so a compressed gene that still carries "?"
+                    # has lost its constants. Nothing could evaluate it, every
+                    # candidate was discarded and the engine reported 0. Use the
+                    # original gene (whose constants resolve) and count it.
+                    if _has_unresolved_rnc(_compressed_sym):
+                        self.extract_notes_.append("compressed gene kept a '?' placeholder; used the original gene")
+                        raise ValueError("compressed gene lost its constants")
                     # Instrumented tidy: if the tournament yields an equivalent
                     # form, prefer it (it ranked variants on train+val already).
                     _tidied = None
@@ -2639,6 +2664,8 @@ class HFFSREngine:
                             from _snap_op import instrumented_tidy_gene as _tidy
                             _tidied = _tidy(_g, self._pset, _tidy_rows_tr, _tidy_rows_va)
                         except Exception:
+                            _tidied = None
+                        if _tidied is not None and _has_unresolved_rnc(_tidied):
                             _tidied = None
                     _per_gene_sym.append(_tidied if _tidied is not None else _compressed_sym)
                 except Exception:
@@ -2699,7 +2726,11 @@ class HFFSREngine:
                             _nh, _nt = _compress_gene(_g, self._pset, _visit_subtree,
                                                       sub_h=10, max_passes=2)
                             _ng = _Gene.from_genome(list(_nh) + list(_nt), head_length=len(_nh))
-                            _snap_gene_sym.append(_real_subs(_simplify_kexpr(_ng.kexpression, sym_map)))
+                            _snap_sym = _real_subs(_simplify_kexpr(_ng.kexpression, sym_map))
+                            if _has_unresolved_rnc(_snap_sym):
+                                self.extract_notes_.append("snapped compressed gene kept a '?' placeholder; used the original gene")
+                                raise ValueError("compressed gene lost its constants")
+                            _snap_gene_sym.append(_snap_sym)
                         except Exception:
                             _snap_gene_sym.append(_real_subs(_simplify_kexpr(_g.kexpression, sym_map)))
                     _snap_linker = sym_map.get(snapped_ind.linker.__name__, snapped_ind.linker)
@@ -2819,6 +2850,11 @@ class HFFSREngine:
                 for e in scorable
             ]
         else:
+            # No candidate could be scored. This is a FAILURE, not a model of
+            # zero: say so, with the reasons, whatever the verbosity.
+            print(f"[engine] NO MODEL: none of {len(pool)} candidate forms could be scored on the holdout. Reasons:")
+            for _note in self.extract_notes_[-8:]:
+                print(f"[engine]   - {_note}")
             self.discovered_expr_ = sp.Integer(0)
             self.discovered_source_ = "fallback"
             self.hff_holdout_ = None

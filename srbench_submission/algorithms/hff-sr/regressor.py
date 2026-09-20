@@ -59,6 +59,7 @@ class HFFSymbolicRegressor(BaseEstimator, RegressorMixin):
                  val_fraction: float = 0.15,
                  holdout_fraction: float = 0.25,
                  random_state: int = 5,
+                 max_rows: int = 5000,
                  config_overrides: dict | None = None):
         self.head_length = head_length
         self.n_genes = n_genes
@@ -67,6 +68,11 @@ class HFFSymbolicRegressor(BaseEstimator, RegressorMixin):
         self.val_fraction = val_fraction
         self.holdout_fraction = holdout_fraction
         self.random_state = random_state
+        # SRBench's ground-truth sets hand over 75,000 training rows and every
+        # part of the engine scales with rows: at 75,000 a fit manages 1-3
+        # generations in 18 s. How the data is used is the entrant's choice; a
+        # random subsample of this many rows is what the engine sees. 0 = all.
+        self.max_rows = max_rows
         # HFFSRConfig fields to set on top of the wild-regression defaults
         # (population, RNC range, which fuller operators run ...). Unknown
         # names raise: a typo must not silently run the default experiment.
@@ -77,6 +83,9 @@ class HFFSymbolicRegressor(BaseEstimator, RegressorMixin):
     def fit(self, X, y):
         X_df = self._coerce_df(X)
         y_arr = np.asarray(y).ravel()
+        if self.max_rows and len(X_df) > self.max_rows:
+            keep = np.random.RandomState(self.random_state).choice(len(X_df), self.max_rows, replace=False)
+            X_df, y_arr = X_df.iloc[keep].reset_index(drop=True), y_arr[keep]
         X_tr, y_tr, X_va, y_va, X_ho, y_ho = self._split(X_df, y_arr)
 
         # Rule library defaults ON for every dataset (Feynman, PMLB, wild).
@@ -104,13 +113,12 @@ class HFFSymbolicRegressor(BaseEstimator, RegressorMixin):
                               float(os.environ.get("HFF_SRBENCH_MAX_TIME", self.max_time))),
             random_state=self.random_state,
             use_wide_primitives=True,
-            # Mathematical constants only (pi, e ...). No physical constant may
-            # be offered: on Feynman that is a prior about the answer.
-            constant_atoms="math",
-            # Grafting the fitted scale into the gene draws on the FULL constant
-            # table, physical constants included; the engine refuses it without
-            # them. Off for a fair entry.
-            snap_lsm_into_gene=False,
+            # SNAP ON. The engine's snap draws on the full constant table, and
+            # that is allowed here because the entry is NAME-BLIND: every
+            # column is col_i, so no constant can be suggested by a variable's
+            # name — it has to earn its place on the data.
+            constant_atoms="all",
+            snap_lsm_into_gene=True,
             # Adaptive intake — shrink to hit n_gen, then grow with the
             # slack so we fill the SRBench 3600s budget with the biggest
             # population that still completes the target gens.
@@ -183,13 +191,35 @@ class HFFSymbolicRegressor(BaseEstimator, RegressorMixin):
 
 # The fit budget can be set from the environment for a first pass; SRBench's
 # own limit is 3600 s.
+def _tidy_reported(expr):
+    """The reported expression, tidied without changing what it computes:
+      * a float within 8 units in the last place of an integer or half-integer
+        IS that number (0.9999999999999997*x/y -> x/y; -7.000000000000002 -> -7);
+      * re(x) is x and im(x) is 0: every column is real, and sympy only wrote
+        them because a symbol reached it without that assumption."""
+    try:
+        expr = sp.sympify(expr)
+        expr = expr.replace(sp.re, lambda a: a).replace(sp.im, lambda a: sp.Integer(0))
+        subs = {}
+        for f in expr.atoms(sp.Float):
+            v = float(f)
+            r = round(2.0 * v) / 2.0
+            if r != 0.0 and r != v and abs(v - r) <= 8.0 * np.finfo(float).eps * max(1.0, abs(v)):
+                subs[f] = sp.Rational(int(round(2.0 * r)), 2)
+        return expr.subs(subs) if subs else expr
+    except Exception as e:                      # never lose a model to tidying
+        print(f"[hff-sr] tidy of the reported expression failed ({type(e).__name__}: {e}); reporting it as is")
+        return expr
+
+
 def _load_constant_values() -> dict:
     """name -> value for every constant the engine may leave in an expression."""
-    # MATH atoms only — the only ones a fair entry is offered. (The master
-    # table also holds c, h, G ...: substituting those names could collide
-    # with nothing here, the engine sees col_i, but they must never be needed.)
-    from _lsm_snap import MATH_ATOMS, master_constants
-    return {str(n): float(v) for n, v in master_constants() if n in MATH_ATOMS}
+    # Every constant the engine may leave in an expression, written as a
+    # NUMBER for SRBench: its parser would read `phi` or `eps0` as an unknown
+    # variable and score a correct model wrong. The engine's columns are col_i
+    # / x_i, so a constant's name can never collide with a variable's.
+    from _lsm_snap import master_constants
+    return {str(n): float(v) for n, v in master_constants()}
 
 
 _CONSTANT_VALUES = _load_constant_values()
@@ -209,6 +239,7 @@ def model(est, X=None) -> str:
     # The engine saw col_0..col_n. SRBench's clean_pred_model maps x_0..x_n back
     # to the dataset's feature names (highest index first, so x_10 before x_1).
     import re
+    expr = _tidy_reported(expr)
     text = re.sub(r"\bcol_(\d+)\b", r"x_\1", str(expr))
     # Named constants must reach SRBench as NUMBERS: its parser would read `phi`
     # or `sqrt2` as an unknown variable and score a correct model wrong.
