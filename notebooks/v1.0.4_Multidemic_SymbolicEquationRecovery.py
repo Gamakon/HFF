@@ -190,7 +190,8 @@ print(f"registry: {list(eq.REGISTRY.keys())}")
 # %%
 # CONFIGURE HERE
 settings = hgh.GeppySettings(
-    seed=5,
+    # HFF_SEED lets a sweep repeat a problem on several seeds.
+    seed=int(os.environ.get("HFF_SEED", "5")),
     # Splits: filled in by the problem registry, ignored here.
     # Genes
     head_length=16,
