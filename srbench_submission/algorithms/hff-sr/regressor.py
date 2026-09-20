@@ -124,6 +124,11 @@ class HFFSymbolicRegressor(BaseEstimator, RegressorMixin):
             # FIXED population; time is the only stop. Adaptive intake resizes
             # the population to finish n_gen inside the budget, and with a
             # long n_gen it shrank it (150 -> 101 in a measured 30 s fit).
+            # GROUND-TRUTH track: only the exact equation scores, so an early
+            # stop at the engine's 0.999 (the black-box threshold) abandons the
+            # search holding an approximation — II_11_20 quit after 17 s of a
+            # 600 s cap. Stop early only on a fit that is 1 to ten decimals.
+            early_stop_val_r2=1.0 - 1e-10,
             adaptive_intake=False,
             pop_intake=300,
             pop_champion=100,
@@ -145,6 +150,7 @@ class HFFSymbolicRegressor(BaseEstimator, RegressorMixin):
         LAST_FIT.clear()
         LAST_FIT.update(generations=getattr(self._engine, "generations_run_", None),
                         population=getattr(self._engine, "final_population_", None),
+                        islands="+".join(str(n) for n in getattr(self._engine, "island_sizes_", [])) or None,
                         individuals=getattr(self._engine, "individuals_evaluated_", None),
                         search_seconds=getattr(self._engine, "fit_seconds_", None))
         self.is_fitted_ = True

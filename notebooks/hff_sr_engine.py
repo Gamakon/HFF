@@ -1890,7 +1890,8 @@ class HFFSREngine:
 
             gen += 1
             self.generations_run_ = gen - 1
-            self.final_population_ = sum(len(d) for d in demes)
+            self.island_sizes_ = [len(d) for d in demes]
+            self.final_population_ = sum(self.island_sizes_)
             self.individuals_evaluated_ = getattr(self, "individuals_evaluated_", 0) + self.final_population_
 
         self.fit_seconds_ = time.perf_counter() - fit_start
