@@ -130,8 +130,11 @@ class HFFSymbolicRegressor(BaseEstimator, RegressorMixin):
             # 600 s cap. Stop early only on a fit that is 1 to ten decimals.
             early_stop_val_r2=1.0 - 1e-10,
             adaptive_intake=False,
-            pop_intake=300,
-            pop_champion=100,
+            pop_intake=POP_INTAKE,
+            pop_champion=POP_CHAMPION,
+            # Tournament size is CALCULATED: 7% of the island it selects from.
+            tourn_intake=_tournament_size(POP_INTAKE),
+            tourn_champion=_tournament_size(POP_CHAMPION),
         )
         for _k, _v in self.config_overrides.items():
             if not hasattr(config, _k):
@@ -151,6 +154,7 @@ class HFFSymbolicRegressor(BaseEstimator, RegressorMixin):
         LAST_FIT.update(generations=getattr(self._engine, "generations_run_", None),
                         population=getattr(self._engine, "final_population_", None),
                         islands="+".join(str(n) for n in getattr(self._engine, "island_sizes_", [])) or None,
+                        tournaments=f"{config.tourn_intake}+{config.tourn_champion}",
                         individuals=getattr(self._engine, "individuals_evaluated_", None),
                         search_seconds=getattr(self._engine, "fit_seconds_", None))
         self.is_fitted_ = True
@@ -255,6 +259,15 @@ def _load_constant_values() -> dict:
 
 
 _CONSTANT_VALUES = _load_constant_values()
+
+POP_INTAKE = 600
+POP_CHAMPION = 200
+TOURNAMENT_FRACTION = 0.07
+
+
+def _tournament_size(island_population: int) -> int:
+    return max(2, round(TOURNAMENT_FRACTION * island_population))
+
 
 LAST_FIT = {}
 
