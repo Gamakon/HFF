@@ -128,13 +128,32 @@ def _rebuild_tokens_with_consts(token_tuples: list, pset) -> list:
     return out
 
 
+# The engine may register a device predictor: (individual, X) -> the linked
+# prediction over X's rows, or None when the device cannot take it (a gene it
+# cannot decode; an X it does not hold). Without one, or on None, the row loop
+# below scores it. Both are COUNTED in SCORER_STATS.
+_DEVICE_PREDICT = None
+SCORER_STATS = {"device": 0, "row_loop": 0}
+
+
+def set_device_predictor(fn) -> None:
+    global _DEVICE_PREDICT
+    _DEVICE_PREDICT = fn
+
+
 def _r2_on_holdout(individual, toolbox, X_ho, y_ho):
-    """Score the individual on holdout via compile_and_predict (engine's
-    source of truth). Returns R² or None on failure."""
+    """Score the individual on holdout: the registered device predictor when it
+    can take it, else compile_and_predict's row loop. Returns R² or None on
+    failure."""
     if X_ho is None or y_ho is None or len(y_ho) == 0:
         return None
     try:
-        pred = hgh.compile_and_predict(individual, X_ho, list(X_ho.columns), toolbox)
+        pred = _DEVICE_PREDICT(individual, X_ho) if _DEVICE_PREDICT is not None else None
+        if pred is not None:
+            SCORER_STATS["device"] += 1
+        else:
+            SCORER_STATS["row_loop"] += 1
+            pred = hgh.compile_and_predict(individual, X_ho, list(X_ho.columns), toolbox)
         if pred is None:
             return None
         p = np.asarray(pred, dtype=np.float64)

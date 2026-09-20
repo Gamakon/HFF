@@ -83,25 +83,43 @@ def _lattice() -> list:
     return _LATTICE_CACHE
 
 
+_LATTICE_SORTED: Optional[tuple] = None
+
+
+def _lattice_sorted() -> tuple:
+    """(values ascending, entries in that order), built once. Entries whose
+    |value| < 1e-15 are left out, as the scan always skipped them."""
+    global _LATTICE_SORTED
+    if _LATTICE_SORTED is None:
+        # Stable sort on value alone: equal values keep the table's own order,
+        # so a tie resolves to the same entry the full scan returned.
+        entries = sorted((e for e in _lattice() if abs(e[0]) >= 1e-15), key=lambda e: e[0])
+        _LATTICE_SORTED = ([e[0] for e in entries], entries)
+    return _LATTICE_SORTED
+
+
 def _lattice_lookup(x: float, tolerance: float = 1e-3) -> Optional[dict]:
-    """Find a lattice entry matching x within tolerance."""
+    """Find the lattice entry closest to x within tolerance.
+
+    err = |v - x| / max(|x|, |v|) < tol bounds v to x's sign and to
+    [|x|(1-tol), |x|/(1-tol)], so only that window of the sorted table is
+    examined (bisect) instead of all 7,051 entries per coefficient.
+    """
+    import bisect
     if not FULLER_AVAILABLE:
         return None
-    if not (-1e10 < x < 1e10):
+    if not (-1e10 < x < 1e10) or x == 0.0:
         return None
-    try:
-        best = None
-        best_err = float("inf")
-        for value, math_sexpr, label in _lattice():
-            if abs(value) < 1e-15:
-                continue
-            err = abs(value - x) / max(abs(x), abs(value), 1e-300)
-            if err < tolerance and err < best_err:
-                best_err = err
-                best = {"value": value, "math_sexpr": math_sexpr, "label": label}
-        return best
-    except Exception:
-        return None
+    values, entries = _lattice_sorted()
+    a, b = abs(x) * (1.0 - tolerance), abs(x) / (1.0 - tolerance)
+    lo, hi = (a, b) if x > 0 else (-b, -a)
+    best, best_err = None, float("inf")
+    for value, math_sexpr, label in entries[bisect.bisect_left(values, lo):bisect.bisect_right(values, hi)]:
+        err = abs(value - x) / max(abs(x), abs(value), 1e-300)
+        if err < tolerance and err < best_err:
+            best_err = err
+            best = {"value": value, "math_sexpr": math_sexpr, "label": label}
+    return best
 
 
 # ---------------------------------------------------------------------------

@@ -17,6 +17,7 @@ Stats dict (caller-supplied, mutated in place):
 #     "skipped_rnc"}
 """
 from __future__ import annotations
+import os
 import random
 import numpy as np
 from typing import Any
@@ -175,6 +176,25 @@ def _safety_recheck(orig_ind, new_ind, toolbox, X_train_df,
     return bool(np.all(diff / scale < agree_tol))
 
 
+def _lint_gene(head_tuples, tail_tuples, variables, functions, rnc_values,
+               head_length, rng_seed):
+    """One gene through fuller's linter, in denoise_karva's result shape: the
+    smallest form that fits this gene's head, or the gene unchanged."""
+    from fuller._fuller import lint_karva_candidates_batch
+    res = lint_karva_candidates_batch(
+        [(head_tuples, tail_tuples, list(rnc_values))], variables, functions,
+        k_variants=8, rng_seed=rng_seed, target_head_length=head_length,
+        exactness=os.environ.get("HFF_LINT_EXACTNESS", "finite"))[0]
+    if res.get("error"):
+        raise ValueError(res["error"])
+    forms = [c for c in res["candidates"] if not c["is_original"] and c["cost"] < res["orig_cost"]]
+    if not forms:
+        return {"changed": False, "inexpressible": bool(res.get("n_inexpressible"))}
+    best = min(forms, key=lambda c: c["cost"])
+    return {"changed": True, "head": best["head"], "tail": best["tail"],
+            "inexpressible": bool(res.get("n_inexpressible"))}
+
+
 def mut_denoise(individual, toolbox, pset, X_train_df, y_train,
                 pb_each_gene: float = 1.0, sample_rows: int = 64,
                 agree_tol: float = 1e-4, rng_seed: int = 0,
@@ -217,9 +237,17 @@ def mut_denoise(individual, toolbox, pset, X_train_df, y_train,
     rnc_values = sorted(set(rnc_values))
     functions = _build_functions_dict(pset)
 
-    # Convert ALL training rows once; denoise will subsample internally as
-    # fuller sees fit (its k_variants param is per-call).
-    rows = X_train_df.to_dict(orient="records")
+    # HFF_FULLER picks the simplifier, as it does in the recovery notebook:
+    #   lint   (default) fuller's table-driven linter: meaning-preserving
+    #          forms, no data, ~0.03 ms an expression;
+    #   egglog the e-graph denoise, scored on the rows, ~6 ms a gene — it was
+    #          43% of a measured SRBench fit.
+    # Either way the rebuilt individual passes _safety_recheck before it is kept.
+    mode = os.environ.get("HFF_FULLER", "lint")
+    if mode not in ("lint", "egglog"):
+        raise ValueError(f"HFF_FULLER must be lint or egglog here, not {mode!r}")
+    # egglog only: ALL training rows, converted once; it subsamples internally.
+    rows = X_train_df.to_dict(orient="records") if mode == "egglog" else None
 
     changed_any = False
     new_genes = []
@@ -279,12 +307,16 @@ def mut_denoise(individual, toolbox, pset, X_train_df, y_train,
             if _stats is not None:
                 _stats["resolved_rnc"] = _stats.get("resolved_rnc", 0) + 1
         try:
-            out = denoise_karva(
-                head_tuples, tail_tuples,
-                variables, functions, rnc_values, rows,
-                tolerance=1e-3, k_variants=64,
-                rng_seed=rng_seed + g_idx,
-            )
+            if mode == "lint":
+                out = _lint_gene(head_tuples, tail_tuples, variables, functions,
+                                 rnc_values, gene.head_length, rng_seed + g_idx)
+            else:
+                out = denoise_karva(
+                    head_tuples, tail_tuples,
+                    variables, functions, rnc_values, rows,
+                    tolerance=1e-3, k_variants=64,
+                    rng_seed=rng_seed + g_idx,
+                )
         except Exception as e:
             if _stats is not None:
                 _stats.setdefault("errors", []).append(str(e))
@@ -299,16 +331,16 @@ def mut_denoise(individual, toolbox, pset, X_train_df, y_train,
             new_genes.append(gene)
             continue
 
+        # build_variant_gene writes a literal back through "?" and the Dc
+        # domain. _rebuild_tokens looked it up among the pset's TERMINALS, where
+        # a gene's own constants never are: measured on a SRBench fit, every one
+        # of 253 simplified genes was refused and the operator changed nothing.
+        from _gene_utils import build_variant_gene, VariantNotExpressible
         try:
-            from _gene_utils import build_gene_like
-            new_head_toks = _rebuild_tokens(out["head"], pset)
-            new_tail_toks = _rebuild_tokens(out["tail"], pset)
-            new_gene = build_gene_like(gene, new_head_toks, new_tail_toks, pset,
-                                        rng_seed=rng_seed + g_idx)
-            if new_gene is None:
-                new_genes.append(gene)
-                continue
-        except Exception:
+            new_gene = build_variant_gene(gene, out["head"], out["tail"], pset)
+        except VariantNotExpressible as e:
+            if _stats is not None:
+                _stats[f"not_expressible_{e.reason}"] = _stats.get(f"not_expressible_{e.reason}", 0) + 1
             new_genes.append(gene)
             continue
         new_genes.append(new_gene)

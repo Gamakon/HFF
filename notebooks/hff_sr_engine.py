@@ -568,6 +568,25 @@ def _add_decode_only_function(pset, func, arity, name=None):
     return fn
 
 
+class _RncGen:
+    """A gene's source of new random constants: an integer in [lo, hi] from the
+    GLOBAL random stream.
+
+    It was `partial(random.randint, a=lo, b=hi)`. random.randint is a bound
+    method of the module's Random instance, every gene keeps its rnc_gen, and
+    deepcopy of a bound method copies the object it is bound to. So each clone
+    of an individual copied the whole Mersenne state three times over (measured:
+    14 s of a 30 s fit), and each cloned gene then drew its constants from a
+    private frozen snapshot of the generator instead of from the seeded stream.
+    """
+
+    def __init__(self, lo: int, hi: int):
+        self.lo, self.hi = lo, hi
+
+    def __call__(self) -> int:
+        return random.randint(self.lo, self.hi)
+
+
 class _SamplingPset:
     """The pset as geppy's SAMPLING sites see it (gene initialisation, uniform
     mutation): everything the real pset has, minus the terminals named in
@@ -632,7 +651,7 @@ def _build_toolbox(bundle: _Bundle):
     sampling_pset = _SamplingPset(pset)
     toolbox = gep.Toolbox()
     toolbox.sampling_pset = sampling_pset
-    toolbox.register("rnc_gen", random.randint, a=cfg.rnc_lo, b=cfg.rnc_hi)
+    toolbox.register("rnc_gen", _RncGen(cfg.rnc_lo, cfg.rnc_hi))
     toolbox.register(
         "gene_gen", gep.GeneDc,
         pset=sampling_pset, head_length=cfg.head_length,
@@ -1400,6 +1419,37 @@ def _apply_denoise(population, toolbox, pset, bundle, cfg):
     return population
 
 
+def _session_scorer(bundle, X_train):
+    """The snap operators' scorer, on the join's resident session: per-gene
+    predictions from ONE device dispatch, linked on the host with the
+    individual's own linker. Answers only for `X_train` (the session's first
+    len(bundle.Y) rows); anything else, or a gene the device cannot decode,
+    returns None and the caller's row loop scores it. Device precision is f32,
+    as it is for the join's fitness."""
+    sess = _join_session(bundle)
+    n = len(bundle.Y)
+    seen: dict = {}
+
+    def predict(individual, X):
+        if X is not X_train:
+            return None
+        devs = [hgh._resolve_rnc(g, bundle.variables) for g in individual]
+        if any(d is None for d in devs):
+            return None
+        keys = [str(d) for d in devs]
+        todo = [(k, d) for k, d in zip(keys, devs) if k not in seen]
+        if todo:
+            for (k, _), p in zip(todo, sess.predict([d for _, d in todo])):
+                seen[k] = None if p is None else np.asarray(p, dtype=np.float64)[:n]
+        arrays = [seen[k] for k in keys]
+        if any(a is None for a in arrays):
+            return None
+        out = individual.linker(*arrays)
+        return out if np.all(np.isfinite(out)) else None
+
+    return predict
+
+
 def _apply_snap_to_winners(offspring, toolbox, pset, bundle, cfg):
     """Snap tournament winners' karva BEFORE crossover/mutation, so
     breeding mixes named-constant tokens instead of float approximations.
@@ -1411,6 +1461,9 @@ def _apply_snap_to_winners(offspring, toolbox, pset, bundle, cfg):
         return offspring
     X_train = bundle.train.drop(columns=["target"]) if "target" in bundle.train.columns else bundle.train
     y_train = bundle.Y
+    if os.environ.get("HFF_GPU") == "1":
+        from _snap_op import set_device_predictor
+        set_device_predictor(_session_scorer(bundle, X_train))
     # Pick which offspring to snap: all by default, top-K if configured.
     if cfg.snap_winners_top_k > 0:
         with_fit = [(i, ind) for i, ind in enumerate(offspring)
@@ -1455,6 +1508,9 @@ def _apply_concretize(offspring, toolbox, pset, bundle, cfg):
         return offspring
     X_train = bundle.train.drop(columns=["target"]) if "target" in bundle.train.columns else bundle.train
     y_train = bundle.Y
+    if os.environ.get("HFF_GPU") == "1":
+        from _snap_op import set_device_predictor
+        set_device_predictor(_session_scorer(bundle, X_train))
     for i in range(len(offspring)):
         if random.random() >= cfg.pb_concretize:
             continue
