@@ -140,79 +140,131 @@ def _race_job(job):
     out = {"dataset": name, "seed": seed, "noise": tn, "status": "ok", "cap": cap, "attempt": attempt}
     try:
         _job_inner(name, seed, tn, out)
-        out.update({k: _state["alg"].LAST_FIT.get(k) for k in ("stopped_by", "resumed_from")})
+        out.update({k: _state["alg"].LAST_FIT.get(k) for k in ("stopped_by", "resumed_from", "search_seconds")})
     except Exception as e:
         out["status"] = f"RUNNER FAILED: {type(e).__name__}: {str(e)[:140]}"
     return out
 
 
 RACE_FIRST_PASS_S = 30.0
+LEDGER = "race_ledger.json"
+TIME_LOG = "race_time_log.tsv"
+TIME_LOG_COLUMNS = ["when", "dataset", "seed", "noise", "attempt", "cap_s", "search_s", "fit_wall_s", "used_s",
+                    "problem_budget_s", "left_s", "generations", "stopped_by", "r2_test", "solution"]
 
 
 def _race(args, names, seeds):
     """Race the fast problems, then spend what is left on the slow ones.
 
     Pass 1: every problem gets RACE_FIRST_PASS_S. A fit that stops because its
-    time ran out is PARKED with its search state saved. Then, until the budget
-    is gone: pick a parked problem at random, give it HALF of its even share of
-    what is left (remaining worker-seconds / problems still parked / 2), resume
-    it; out of time again -> parked again. Whether a problem is parked is
-    decided by the engine's own stop reason ONLY. SRBench's verdict is printed,
-    never consulted: it is the answer key.
+    time ran out is PARKED with its search state saved. Then, until this
+    session's wall budget is gone: pick a parked problem at random, give it HALF
+    of its even share of what is left (remaining worker-seconds / problems still
+    parked / 2), resume it; out of time again -> parked again. Whether a problem
+    is parked is decided by the engine's own stop reason ONLY. SRBench's verdict
+    is printed, never consulted: it is the answer key.
+
+    RESTARTABLE. Every problem has a total search budget (--problem-budget).
+    <results>/race_ledger.json holds, per problem, the search seconds used, the
+    attempts, how the last one stopped and its result; <results>/race_time_log.tsv
+    gets one line per attempt. A later session started with --resume picks the
+    ledger and the park files up and continues the unsolved problems that still
+    have budget, until each one's total is spent.
 
     A problem's result is its LAST attempt (each attempt continues the one
     before), left in the results folder exactly as evaluate_model wrote it."""
     import random
+    import datetime
     rng = random.Random(args.shuffle if args.shuffle is not None else 0)
     t0 = time.time()
     end = t0 + args.race
     remaining = lambda: end - time.time()
-    print(f"RACE: {len(names)} datasets x seeds {seeds} x noise {args.noise} | total budget {args.race:.0f} s wall x "
-          f"{args.workers} workers | pass 1 at {RACE_FIRST_PASS_S:.0f} s", flush=True)
-    print(f"{'dataset':<22}{'seed':>6}{'noise':>7}{'try':>4}{'cap s':>7}{'r2_test':>10}{'size':>6}{'fit s':>7}{'gens':>6}"
-          f"{'stop':>12}  sol  status / model", flush=True)
-    last, parked, attempts = {}, [], {}
-    # A park file left by an earlier run in this folder would be resumed as if
-    # it were this run's. Start clean.
-    for stale in glob.glob(os.path.join(args.results, "parked", "*.pkl")):
-        os.remove(stale)
+    ledger_path = os.path.join(args.results, LEDGER)
+    log_path = os.path.join(args.results, TIME_LOG)
+    key_of = lambda name, seed, tn: f"{name}|{seed}|{tn}"
+    if args.resume:
+        if not os.path.exists(ledger_path):
+            raise SystemExit(f"--resume: there is no {ledger_path} to resume")
+        ledger = json.load(open(ledger_path))
+    else:
+        if os.path.exists(ledger_path):
+            raise SystemExit(f"{ledger_path} exists. Continue it with --resume, or give a new --results folder; "
+                             f"starting over here would lose what it tracks.")
+        ledger = {}
+        # A park file left by an earlier run in this folder would be resumed as
+        # if it were this run's. Start clean.
+        for stale in glob.glob(os.path.join(args.results, "parked", "*.pkl")):
+            os.remove(stale)
+        with open(log_path, "w") as f:
+            f.write("\t".join(TIME_LOG_COLUMNS) + "\n")
 
-    def show(r):
-        r2 = r.get("r2_test")
-        print(f"{r['dataset']:<22}{r['seed']:>6}{r['noise']:>7}{r['attempt']:>4}{r['cap']:>7.0f}"
-              f"{(f'{r2:.4f}' if isinstance(r2, float) else '-'):>10}{str(r.get('model_size', '-')):>6}"
-              f"{r.get('fit_wall', 0):>7.1f}{str(r.get('generations', '-')):>6}{str(r.get('stopped_by', '-')):>12}  "
-              f"{'Y' if r.get('solution') else 'n':>3}  {r['status'] if r['status'] != 'ok' else r.get('model', '')}", flush=True)
+    def save_ledger():
+        tmp = ledger_path + ".tmp"
+        json.dump(ledger, open(tmp, "w"), indent=1)
+        os.replace(tmp, ledger_path)
+
+    def left_of(k):
+        return args.problem_budget - ledger[k]["used_s"]
+
+    def resumable(k):
+        e = ledger[k]
+        return e["stopped_by"] == "time" and left_of(k) >= RACE_FIRST_PASS_S and os.path.exists(
+            os.path.join(args.results, "parked", "{}_{}_{}.pkl".format(*k.split("|"))))
+
+    print(f"RACE{' (RESUMED)' if args.resume else ''}: {len(names)} datasets x seeds {seeds} x noise {args.noise} | this session "
+          f"{args.race:.0f} s wall x {args.workers} workers | pass 1 at {RACE_FIRST_PASS_S:.0f} s | "
+          f"{args.problem_budget:.0f} s of search per problem in total", flush=True)
+    print(f"ledger: {ledger_path}\ntime log: {log_path}", flush=True)
+    print(f"{'dataset':<22}{'seed':>6}{'noise':>7}{'try':>4}{'cap s':>7}{'used s':>8}{'left s':>8}{'r2_test':>10}{'size':>6}"
+          f"{'gens':>6}{'stop':>12}  sol  status / model", flush=True)
+    parked = []
 
     def land(r):
-        key = (r["dataset"], r["seed"], r["noise"])
-        last[key] = r
-        show(r)
-        if r.get("stopped_by") == "time":
-            parked.append(key)
+        k = key_of(r["dataset"], r["seed"], r["noise"])
+        e = ledger.setdefault(k, {"used_s": 0.0, "attempts": 0})
+        search_s = float(r.get("search_seconds") or 0.0)
+        e.update(used_s=e["used_s"] + search_s, attempts=r["attempt"], stopped_by=r.get("stopped_by"),
+                 generations=r.get("generations"), r2_test=r.get("r2_test"), solution=bool(r.get("solution")),
+                 model=r.get("model"), status=r["status"])
+        save_ledger()
+        r2 = r.get("r2_test")
+        with open(log_path, "a") as f:
+            f.write("\t".join(str(v) for v in [
+                datetime.datetime.now().isoformat(timespec="seconds"), r["dataset"], r["seed"], r["noise"], r["attempt"],
+                f"{r['cap']:.0f}", f"{search_s:.1f}", f"{r.get('fit_wall', 0):.1f}", f"{e['used_s']:.1f}",
+                f"{args.problem_budget:.0f}", f"{left_of(k):.1f}", r.get("generations"), r.get("stopped_by"),
+                r2, bool(r.get("solution"))]) + "\n")
+        print(f"{r['dataset']:<22}{r['seed']:>6}{r['noise']:>7}{r['attempt']:>4}{r['cap']:>7.0f}{e['used_s']:>8.0f}{left_of(k):>8.0f}"
+              f"{(f'{r2:.4f}' if isinstance(r2, float) else '-'):>10}{str(r.get('model_size', '-')):>6}"
+              f"{str(r.get('generations', '-')):>6}{str(r.get('stopped_by', '-')):>12}  "
+              f"{'Y' if r.get('solution') else 'n':>3}  {r['status'] if r['status'] != 'ok' else r.get('model', '')}", flush=True)
+        if resumable(k):
+            parked.append(k)
 
     def score(tag):
-        n = len(last)
-        sol = sum(bool(r.get("solution")) for r in last.values())
-        print(f"   {tag}: {sol} solved of {n} = {100.0 * sol / max(n, 1):.1f}% | parked {len(parked)} | "
-              f"{time.time() - t0:.0f} s elapsed, {max(remaining(), 0):.0f} s left", flush=True)
+        n = len(ledger)
+        sol = sum(bool(e.get("solution")) for e in ledger.values())
+        spent = sum(1 for k, e in ledger.items() if e.get("stopped_by") == "time" and not resumable(k))
+        print(f"   {tag}: {sol} solved of {n} = {100.0 * sol / max(n, 1):.1f}% | parked with budget left {len(parked)} | "
+              f"out of budget {spent} | {time.time() - t0:.0f} s elapsed, {max(remaining(), 0):.0f} s left this session", flush=True)
 
     with mp.Pool(args.workers, initializer=_init, initargs=(RACE_FIRST_PASS_S, args.results, end + 86400)) as pool:
-        jobs = [(n, s, tn, RACE_FIRST_PASS_S, 1) for s in seeds for tn in args.noise for n in names]
-        for k in jobs:
-            attempts[k[:3]] = 1
-        for r in pool.imap_unordered(_race_job, jobs):
-            land(r)
-        score("PASS 1 DONE")
+        first = [(n, s, tn, RACE_FIRST_PASS_S, 1) for s in seeds for tn in args.noise for n in names
+                 if key_of(n, s, tn) not in ledger]
+        parked.extend(k for k in ledger if resumable(k))
+        if first:
+            for r in pool.imap_unordered(_race_job, first):
+                land(r)
+            score("PASS 1 DONE")
 
         flying = []
         while (parked or flying) and (flying or remaining() > RACE_FIRST_PASS_S):
             while parked and len(flying) < args.workers and remaining() > RACE_FIRST_PASS_S:
-                key = parked.pop(rng.randrange(len(parked)))
+                k = parked.pop(rng.randrange(len(parked)))
                 share = args.workers * remaining() / (len(parked) + len(flying) + 1)
-                cap = max(RACE_FIRST_PASS_S, min(0.5 * share, remaining()))
-                attempts[key] += 1
-                flying.append(pool.apply_async(_race_job, ((*key, cap, attempts[key]),)))
+                cap = max(RACE_FIRST_PASS_S, min(0.5 * share, remaining(), left_of(k)))
+                name, seed, tn = k.split("|")
+                flying.append(pool.apply_async(_race_job, ((name, int(seed), float(tn), cap, ledger[k]["attempts"] + 1),)))
             still = []
             for f in flying:
                 if f.ready():
@@ -222,11 +274,11 @@ def _race(args, names, seeds):
                     still.append(f)
             flying = still
             time.sleep(1)
-    score("RACE DONE")
-    print(f"\nDONE: {len(last)} problems, {sum(attempts.values())} attempts, {time.time() - t0:.0f} s wall; "
-          f"{len(parked)} still parked when the budget ran out")
-    return {tn: [sum(bool(r.get('solution')) for k, r in last.items() if k[2] == tn),
-                 sum(1 for k in last if k[2] == tn)] for tn in args.noise}
+    score("SESSION DONE")
+    print(f"\nDONE: {len(ledger)} problems, {sum(e['attempts'] for e in ledger.values())} attempts in all sessions, "
+          f"{time.time() - t0:.0f} s wall this session; {len(parked)} parked with budget left — continue them with --resume")
+    return {tn: [sum(bool(e.get("solution")) for k, e in ledger.items() if float(k.split("|")[2]) == tn),
+                 sum(1 for k in ledger if float(k.split("|")[2]) == tn)] for tn in args.noise}
 
 
 def main():
@@ -240,6 +292,9 @@ def main():
     ap.add_argument("--pick", type=int, default=0, help="run a RANDOM sample of this many datasets (0 = all)")
     ap.add_argument("--pick-seed", type=int, default=20260920, help="seed of that draw, so it can be reproduced")
     ap.add_argument("--seeds", type=int, default=N_SEEDS, help="how many of SRBench's seeds, from the first")
+    ap.add_argument("--resume", action="store_true", help="--race: continue the ledger and park files already in --results")
+    ap.add_argument("--problem-budget", type=float, default=3600.0,
+                    help="--race: total SEARCH seconds one problem may use across all attempts and sessions")
     ap.add_argument("--shuffle", type=int, default=None,
                     help="run the datasets in a random order drawn with this seed (default: alphabetical)")
     ap.add_argument("--official-seeds", action="store_true",
@@ -249,6 +304,9 @@ def main():
     ap.add_argument("--first-seed", type=int, default=0, help="index into SRBench's seeds.py of the first seed to run")
     ap.add_argument("--results", default=os.path.join(HERE, "sr_logs", "srbench_production"))
     args = ap.parse_args()
+    # ABSOLUTE: the workers chdir into SRBench's experiment folder, so a relative
+    # path would mean one place to them and another to this process.
+    args.results = os.path.abspath(args.results)
     os.makedirs(args.results, exist_ok=True)
     sys.path.insert(0, SRBENCH)
     from seeds import SEEDS
