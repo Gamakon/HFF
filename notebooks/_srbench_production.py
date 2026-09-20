@@ -128,9 +128,112 @@ def _job_inner(name, seed, tn, out):
     return out
 
 
+def _race_job(job):
+    """One ATTEMPT at one problem under --race: the search cap and the park file
+    are this attempt's own. The engine resumes from the park file if it is
+    there, and leaves one behind only if it stopped because time ran out."""
+    name, seed, tn, cap, attempt = job
+    os.environ["HFF_SRBENCH_MAX_TIME"] = str(cap)
+    parked = os.path.join(_state["results"], "parked")
+    os.makedirs(parked, exist_ok=True)
+    os.environ["HFF_PARK_PATH"] = os.path.join(parked, f"{name}_{seed}_{tn}.pkl")
+    out = {"dataset": name, "seed": seed, "noise": tn, "status": "ok", "cap": cap, "attempt": attempt}
+    try:
+        _job_inner(name, seed, tn, out)
+        out.update({k: _state["alg"].LAST_FIT.get(k) for k in ("stopped_by", "resumed_from")})
+    except Exception as e:
+        out["status"] = f"RUNNER FAILED: {type(e).__name__}: {str(e)[:140]}"
+    return out
+
+
+RACE_FIRST_PASS_S = 30.0
+
+
+def _race(args, names, seeds):
+    """Race the fast problems, then spend what is left on the slow ones.
+
+    Pass 1: every problem gets RACE_FIRST_PASS_S. A fit that stops because its
+    time ran out is PARKED with its search state saved. Then, until the budget
+    is gone: pick a parked problem at random, give it HALF of its even share of
+    what is left (remaining worker-seconds / problems still parked / 2), resume
+    it; out of time again -> parked again. Whether a problem is parked is
+    decided by the engine's own stop reason ONLY. SRBench's verdict is printed,
+    never consulted: it is the answer key.
+
+    A problem's result is its LAST attempt (each attempt continues the one
+    before), left in the results folder exactly as evaluate_model wrote it."""
+    import random
+    rng = random.Random(args.shuffle if args.shuffle is not None else 0)
+    t0 = time.time()
+    end = t0 + args.race
+    remaining = lambda: end - time.time()
+    print(f"RACE: {len(names)} datasets x seeds {seeds} x noise {args.noise} | total budget {args.race:.0f} s wall x "
+          f"{args.workers} workers | pass 1 at {RACE_FIRST_PASS_S:.0f} s", flush=True)
+    print(f"{'dataset':<22}{'seed':>6}{'noise':>7}{'try':>4}{'cap s':>7}{'r2_test':>10}{'size':>6}{'fit s':>7}{'gens':>6}"
+          f"{'stop':>12}  sol  status / model", flush=True)
+    last, parked, attempts = {}, [], {}
+    # A park file left by an earlier run in this folder would be resumed as if
+    # it were this run's. Start clean.
+    for stale in glob.glob(os.path.join(args.results, "parked", "*.pkl")):
+        os.remove(stale)
+
+    def show(r):
+        r2 = r.get("r2_test")
+        print(f"{r['dataset']:<22}{r['seed']:>6}{r['noise']:>7}{r['attempt']:>4}{r['cap']:>7.0f}"
+              f"{(f'{r2:.4f}' if isinstance(r2, float) else '-'):>10}{str(r.get('model_size', '-')):>6}"
+              f"{r.get('fit_wall', 0):>7.1f}{str(r.get('generations', '-')):>6}{str(r.get('stopped_by', '-')):>12}  "
+              f"{'Y' if r.get('solution') else 'n':>3}  {r['status'] if r['status'] != 'ok' else r.get('model', '')}", flush=True)
+
+    def land(r):
+        key = (r["dataset"], r["seed"], r["noise"])
+        last[key] = r
+        show(r)
+        if r.get("stopped_by") == "time":
+            parked.append(key)
+
+    def score(tag):
+        n = len(last)
+        sol = sum(bool(r.get("solution")) for r in last.values())
+        print(f"   {tag}: {sol} solved of {n} = {100.0 * sol / max(n, 1):.1f}% | parked {len(parked)} | "
+              f"{time.time() - t0:.0f} s elapsed, {max(remaining(), 0):.0f} s left", flush=True)
+
+    with mp.Pool(args.workers, initializer=_init, initargs=(RACE_FIRST_PASS_S, args.results, end + 86400)) as pool:
+        jobs = [(n, s, tn, RACE_FIRST_PASS_S, 1) for s in seeds for tn in args.noise for n in names]
+        for k in jobs:
+            attempts[k[:3]] = 1
+        for r in pool.imap_unordered(_race_job, jobs):
+            land(r)
+        score("PASS 1 DONE")
+
+        flying = []
+        while (parked or flying) and (flying or remaining() > RACE_FIRST_PASS_S):
+            while parked and len(flying) < args.workers and remaining() > RACE_FIRST_PASS_S:
+                key = parked.pop(rng.randrange(len(parked)))
+                share = args.workers * remaining() / (len(parked) + len(flying) + 1)
+                cap = max(RACE_FIRST_PASS_S, min(0.5 * share, remaining()))
+                attempts[key] += 1
+                flying.append(pool.apply_async(_race_job, ((*key, cap, attempts[key]),)))
+            still = []
+            for f in flying:
+                if f.ready():
+                    land(f.get())
+                    score("RACE")
+                else:
+                    still.append(f)
+            flying = still
+            time.sleep(1)
+    score("RACE DONE")
+    print(f"\nDONE: {len(last)} problems, {sum(attempts.values())} attempts, {time.time() - t0:.0f} s wall; "
+          f"{len(parked)} still parked when the budget ran out")
+    return {tn: [sum(bool(r.get('solution')) for k, r in last.items() if k[2] == tn),
+                 sum(1 for k in last if k[2] == tn)] for tn in args.noise}
+
+
 def main():
     ap = argparse.ArgumentParser()
-    ap.add_argument("--max-time", type=float, required=True, help="search cap per fit, seconds")
+    ap.add_argument("--max-time", type=float, default=None, help="search cap per fit, seconds (not used with --race)")
+    ap.add_argument("--race", type=float, default=None,
+                    help="RACE mode: a total wall budget in seconds for ALL problems; see _race()")
     ap.add_argument("--budget", type=float, default=1800.0, help="wall budget for fitting, seconds")
     ap.add_argument("--workers", type=int, default=12)
     ap.add_argument("--noise", type=float, nargs="+", default=NOISE, help="target noise levels to run")
@@ -164,6 +267,12 @@ def main():
     pool, kind = (SEEDS, "SRBench OFFICIAL (test) seeds") if args.official_seeds else (DEV_SEEDS, "development seeds (none used by SRBench)")
     seeds = pool[args.first_seed:args.first_seed + args.seeds]
     print(f"seeds: {seeds} — {kind}", flush=True)
+    if args.race is not None:
+        tally = _race(args, names, seeds)
+        _peer_table(tally, f"race, {args.race:.0f} s wall for everything", sum(n for _, n in tally.values()), sum(n for _, n in tally.values()))
+        return
+    if args.max_time is None:
+        raise SystemExit("--max-time is required without --race")
     jobs = [(n, s, tn) for s in seeds for tn in args.noise for n in names]
     deadline = time.time() + args.budget
     print(f"protocol: {len(names)} datasets x {args.seeds} seeds x {len(args.noise)} noise levels = {len(jobs)} fits | "
@@ -198,10 +307,14 @@ def main():
     wall = time.time() - t0
     print(f"\nDONE: {done} of {len(jobs)} fits run in {wall:.0f} s wall; {not_run} not run (budget spent); {failed} failed")
 
+    _peer_table(tally, f"search cap {args.max_time} s per fit", done, len(jobs))
+
+
+def _peer_table(tally, how, done, total):
     import pandas as pd
     peers = pd.read_feather(PEERS)
     print("\nSymbolic solution rate (%), SRBench ground-truth track. Peers: published results, 10 seeds, up to 8 h per fit.")
-    print(f"HFF-SR: this run, search cap {args.max_time} s per fit, {done} of {len(jobs)} fits.")
+    print(f"HFF-SR: this run, {how}, {done} of {total} fits.")
     table = (100 * peers.groupby(["algorithm", "target_noise"])["symbolic_solution"].mean()).unstack()
     ours = {tn: (100.0 * s / n if n else float("nan")) for tn, (s, n) in tally.items()}
     table.loc["HFF-SR (this run)"] = [ours.get(float(c), float("nan")) for c in table.columns]
