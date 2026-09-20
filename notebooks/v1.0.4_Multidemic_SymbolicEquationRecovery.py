@@ -1860,6 +1860,9 @@ _NB_GPU = {"session": None, "fns": None}
 # scored on all rows by the device, so a sample is enough here.
 _NB_ECLASS_ROWS = train[list(finalTerminals)].iloc[:64].to_dict(orient="records")
 _NB_ECLASS_CACHE: dict = {}
+FULLER_MODE = os.environ.get("HFF_FULLER", "lint")
+if FULLER_MODE not in ("lint", "egglog", "off"):
+    raise ValueError(f"HFF_FULLER must be lint, egglog or off, not {FULLER_MODE!r}")
 _NB_GPU_STATS = {"dispatches": 0, "genes": 0, "chromosomes": 0, "candidates": 0,
                  "seconds": 0.0, "expand_seconds": 0.0, "expanded": 0,
                  "variants": 0, "expand_errors": 0, "inexpressible": 0,
@@ -1968,10 +1971,25 @@ def _nb_expand_genes(genes):
                      if (isinstance(t, SymbolTerminal) or t.value is None)
                      and t.name != "?"]
         t0 = time.perf_counter()
-        results = _f._fuller.denoise_karva_candidates_batch(
-            list(todo.values()), variables, _build_functions_dict(pset),
-            _NB_ECLASS_ROWS, k_variants=ECLASS_K, rng_seed=0,
-            target_head_length=None)
+        # HFF_FULLER picks the simplifier behind the e-class variants:
+        #   lint   (default) fuller's table-driven linter: meaning-preserving
+        #          forms only, exact rules only, rules derived from THIS
+        #          problem's primitive set. ~80x faster than egglog.
+        #   egglog the e-graph path, which also returns data-justified prunes.
+        #   off    no variants at all (the A/B baseline).
+        if FULLER_MODE == "lint":
+            results = _f._fuller.lint_karva_candidates_batch(
+                list(todo.values()), variables, _build_functions_dict(pset),
+                k_variants=ECLASS_K, rng_seed=0, target_head_length=None)
+        elif FULLER_MODE == "off":
+            results = [{"candidates": [], "orig_cost": None, "error": None,
+                        "n_inexpressible": 0, "inexpressible_why": {},
+                        "n_oversized": 0} for _ in todo]
+        else:
+            results = _f._fuller.denoise_karva_candidates_batch(
+                list(todo.values()), variables, _build_functions_dict(pset),
+                _NB_ECLASS_ROWS, k_variants=ECLASS_K, rng_seed=0,
+                target_head_length=None)
         _NB_GPU_STATS["expand_seconds"] += time.perf_counter() - t0
         _NB_GPU_STATS["expanded"] += len(todo)
         for okey, res in zip(todo, results):
@@ -2858,6 +2876,7 @@ experiment["population per island"] = (f"intake={POP_INTAKE}, champion={POP_CHAM
 experiment["gpu_join"] = os.environ.get("HFF_GPU") == "1"
 experiment["rule_families"] = os.environ.get("HFF_RULES", "all")
 experiment["eclass_k"] = ECLASS_K if os.environ.get("HFF_GPU") == "1" else 0
+experiment["fuller_mode"] = FULLER_MODE if os.environ.get("HFF_GPU") == "1" else "none"
 experiment["number of elites"] = str(num_elites)
 experiment["number of generations"] = str(n_gen)
 experiment["number of islands"] = str(settings.num_islands)
