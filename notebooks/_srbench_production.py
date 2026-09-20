@@ -148,7 +148,7 @@ def main():
     deadline = time.time() + args.budget
     print(f"protocol: {len(names)} datasets x {args.seeds} seeds x {len(args.noise)} noise levels = {len(jobs)} fits | "
           f"search cap {args.max_time} s | {args.workers} workers | fitting budget {args.budget:.0f} s", flush=True)
-    print(f"{'dataset':<22}{'seed':>6}{'noise':>7}{'r2_test':>10}{'size':>6}{'fit s':>7}{'gens':>6}{'pop':>6}{'islands':>10}{'tourn':>7}{'pump':>5}{'indiv':>9}  sol  status / model", flush=True)
+    print(f"{'dataset':<22}{'seed':>6}{'noise':>7}{'r2_test':>10}{'size':>6}{'fit s':>7}{'gens':>6}{'pop':>6}{'islands':>10}{'tourn':>7}{'pump':>6}{'indiv':>9}  sol  status / model", flush=True)
     t0 = time.time()
     done, tally = 0, {tn: [0, 0] for tn in args.noise}
     not_run = failed = 0
@@ -166,7 +166,7 @@ def main():
             r2 = r.get("r2_test")
             print(f"{r['dataset']:<22}{r['seed']:>6}{r['noise']:>7}"
                   f"{(f'{r2:.4f}' if isinstance(r2, float) else '-'):>10}{str(r.get('model_size', '-')):>6}"
-                  f"{r.get('fit_wall', 0):>7.1f}{str(r.get('generations', '-')):>6}{str(r.get('population', '-')):>6}{str(r.get('islands', '-')):>10}{str(r.get('tournaments', '-')):>7}{str(r.get('pump_every', '-')):>5}"
+                  f"{r.get('fit_wall', 0):>7.1f}{str(r.get('generations', '-')):>6}{str(r.get('population', '-')):>6}{str(r.get('islands', '-')):>10}{str(r.get('tournaments', '-')):>7}{str(r.get('pump_every', '-')):>6}"
                   f"{str(r.get('individuals', '-')):>9}  {'Y' if r.get('solution') else 'n':>3}  "
                   f"{r['status'] if r['status'] != 'ok' else r.get('model', '')}", flush=True)
             if done % 50 == 0:
