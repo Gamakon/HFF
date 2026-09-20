@@ -3018,8 +3018,22 @@ class HFFSREngine:
             except Exception:
                 return 10_000
 
+        # A candidate with no data variable in it is a CONSTANT: `_r2` would
+        # broadcast it to a column and score it like a model. Never a snap.
+        _data_syms = {_sp.Symbol(v).name for v in Xcols}
+        candidates = [(tag, e) for tag, e in candidates
+                      if tag == "orig" or any(s.name in _data_syms for s in e.free_symbols)]
         scored = [(tag, e, _r2(e)) for tag, e in candidates]
         orig_r2 = next(r for tag, e, r in scored if tag == "orig")
+        # If the ORIGINAL cannot be scored (-inf: one overflowing holdout row is
+        # enough) there is nothing to compare a snap against — `x >= -inf` is
+        # true for any garbage, and a constant with R² = -12,575 was adopted
+        # that way. Keep what the holdout selection chose.
+        if not np.isfinite(orig_r2):
+            self.extract_notes_.append("post-regression snap skipped: the selected expression could not be scored on the holdout")
+            if verbose:
+                print("[snap-post] skipped: the selected expression could not be scored on the holdout")
+            return None
         # Rank: (1) highest R² (round to 1e-9 so ties are real ties),
         # (2) on a tie, PREFER a snapped form over orig (cleaner = the more
         #     honest recovered law — the user's call), (3) then fewest nodes

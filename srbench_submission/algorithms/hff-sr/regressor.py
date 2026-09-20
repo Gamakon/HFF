@@ -191,10 +191,17 @@ class HFFSymbolicRegressor(BaseEstimator, RegressorMixin):
 
 # The fit budget can be set from the environment for a first pass; SRBench's
 # own limit is 3600 s.
+# How close a fitted or evolved constant must be to a whole or half number to
+# be REPORTED as that number. 1e-4 is the tolerance SRBench's own scorer rounds
+# at (floats to 3 decimals, anything under 1e-4 to zero) before it compares.
+SNAP_TOL = 1e-4
+
+
 def _tidy_reported(expr):
-    """The reported expression, tidied without changing what it computes:
-      * a float within 8 units in the last place of an integer or half-integer
-        IS that number (0.9999999999999997*x/y -> x/y; -7.000000000000002 -> -7);
+    """The reported expression, tidied:
+      * a float within SNAP_TOL of an integer or half-integer IS that number
+        (1.00000000314068*log(..) -> log(..); -7.000000000000002 -> -7;
+        a stray + 0.00003 -> gone);
       * re(x) is x and im(x) is 0: every column is real, and sympy only wrote
         them because a symbol reached it without that assumption."""
     try:
@@ -204,7 +211,7 @@ def _tidy_reported(expr):
         for f in expr.atoms(sp.Float):
             v = float(f)
             r = round(2.0 * v) / 2.0
-            if r != 0.0 and r != v and abs(v - r) <= 8.0 * np.finfo(float).eps * max(1.0, abs(v)):
+            if r != v and abs(v - r) < SNAP_TOL:
                 subs[f] = sp.Rational(int(round(2.0 * r)), 2)
         return expr.subs(subs) if subs else expr
     except Exception as e:                      # never lose a model to tidying
