@@ -129,6 +129,9 @@ class HFFSymbolicRegressor(BaseEstimator, RegressorMixin):
             # search holding an approximation — II_11_20 quit after 17 s of a
             # 600 s cap. Stop early only on a fit that is 1 to ten decimals.
             early_stop_val_r2=1.0 - 1e-10,
+            # The pump (promote the intake's best 2 to the champion island,
+            # keep its best 20%, refill 80% fresh) every 4 generations, not 20.
+            migration_freq_intra=PUMP_EVERY,
             adaptive_intake=False,
             pop_intake=POP_INTAKE,
             pop_champion=POP_CHAMPION,
@@ -155,6 +158,7 @@ class HFFSymbolicRegressor(BaseEstimator, RegressorMixin):
                         population=getattr(self._engine, "final_population_", None),
                         islands="+".join(str(n) for n in getattr(self._engine, "island_sizes_", [])) or None,
                         tournaments=f"{config.tourn_intake}+{config.tourn_champion}",
+                        pump_every=config.migration_freq_intra,
                         individuals=getattr(self._engine, "individuals_evaluated_", None),
                         search_seconds=getattr(self._engine, "fit_seconds_", None))
         self.is_fitted_ = True
@@ -263,6 +267,7 @@ _CONSTANT_VALUES = _load_constant_values()
 POP_INTAKE = 600
 POP_CHAMPION = 200
 TOURNAMENT_FRACTION = 0.07
+PUMP_EVERY = 4
 
 
 def _tournament_size(island_population: int) -> int:
