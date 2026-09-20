@@ -137,6 +137,8 @@ def main():
     ap.add_argument("--pick", type=int, default=0, help="run a RANDOM sample of this many datasets (0 = all)")
     ap.add_argument("--pick-seed", type=int, default=20260920, help="seed of that draw, so it can be reproduced")
     ap.add_argument("--seeds", type=int, default=N_SEEDS, help="how many of SRBench's seeds, from the first")
+    ap.add_argument("--shuffle", type=int, default=None,
+                    help="run the datasets in a random order drawn with this seed (default: alphabetical)")
     ap.add_argument("--official-seeds", action="store_true",
                     help="use SRBench's own seeds. ONLY for a final, reported evaluation: they are the "
                          "test seeds, and developing against them is tuning on the test set. Without "
@@ -152,6 +154,10 @@ def main():
         import random
         names = sorted(random.Random(args.pick_seed).sample(names, args.pick))
         print(f"random draw of {args.pick} of the official datasets (seed {args.pick_seed}):\n  " + ", ".join(names), flush=True)
+    if args.shuffle is not None:
+        import random
+        random.Random(args.shuffle).shuffle(names)
+        print(f"run order shuffled (seed {args.shuffle})", flush=True)
     overlap = sorted(set(DEV_SEEDS) & set(SEEDS))
     if overlap:
         raise SystemExit(f"DEV_SEEDS {overlap} are SRBench test seeds; development must not use them")
