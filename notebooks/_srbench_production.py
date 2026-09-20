@@ -140,7 +140,7 @@ def _race_job(job):
     out = {"dataset": name, "seed": seed, "noise": tn, "status": "ok", "cap": cap, "attempt": attempt}
     try:
         _job_inner(name, seed, tn, out)
-        out.update({k: _state["alg"].LAST_FIT.get(k) for k in ("stopped_by", "resumed_from", "search_seconds")})
+        out.update({k: _state["alg"].LAST_FIT.get(k) for k in ("stopped_by", "resumed_from", "search_seconds", "r2_val", "r2_edge", "edge_rows")})
     except Exception as e:
         out["status"] = f"RUNNER FAILED: {type(e).__name__}: {str(e)[:140]}"
     return out
@@ -215,16 +215,19 @@ def _race(args, names, seeds):
           f"{args.race:.0f} s wall x {args.workers} workers | pass 1 at {RACE_FIRST_PASS_S:.0f} s | "
           f"{args.problem_budget:.0f} s of search per problem in total", flush=True)
     print(f"ledger: {ledger_path}\ntime log: {log_path}", flush=True)
-    print(f"{'dataset':<22}{'seed':>6}{'noise':>7}{'try':>4}{'cap s':>7}{'used s':>8}{'left s':>8}{'r2_test':>10}{'size':>6}"
+    print(f"{'dataset':<22}{'seed':>6}{'noise':>7}{'try':>4}{'cap s':>7}{'used s':>8}{'left s':>8}{'r2_test':>10}{'r2_val':>10}{'r2_edge':>10}{'size':>6}"
           f"{'gens':>6}{'stop':>12}  sol  status / model", flush=True)
     parked = []
+
+    fmt = lambda v: f"{v:.6f}" if isinstance(v, float) else "-"
 
     def land(r):
         k = key_of(r["dataset"], r["seed"], r["noise"])
         e = ledger.setdefault(k, {"used_s": 0.0, "attempts": 0})
         search_s = float(r.get("search_seconds") or 0.0)
         e.update(used_s=e["used_s"] + search_s, attempts=r["attempt"], stopped_by=r.get("stopped_by"),
-                 generations=r.get("generations"), r2_test=r.get("r2_test"), solution=bool(r.get("solution")),
+                 generations=r.get("generations"), r2_test=r.get("r2_test"),
+                 r2_val=r.get("r2_val"), r2_edge=r.get("r2_edge"), solution=bool(r.get("solution")),
                  model=r.get("model"), status=r["status"])
         save_ledger()
         r2 = r.get("r2_test")
@@ -235,8 +238,8 @@ def _race(args, names, seeds):
                 f"{args.problem_budget:.0f}", f"{left_of(k):.1f}", r.get("generations"), r.get("stopped_by"),
                 r2, bool(r.get("solution"))]) + "\n")
         print(f"{r['dataset']:<22}{r['seed']:>6}{r['noise']:>7}{r['attempt']:>4}{r['cap']:>7.0f}{e['used_s']:>8.0f}{left_of(k):>8.0f}"
-              f"{(f'{r2:.4f}' if isinstance(r2, float) else '-'):>10}{str(r.get('model_size', '-')):>6}"
-              f"{str(r.get('generations', '-')):>6}{str(r.get('stopped_by', '-')):>12}  "
+              f"{(f'{r2:.4f}' if isinstance(r2, float) else '-'):>10}{fmt(r.get('r2_val')):>10}{fmt(r.get('r2_edge')):>10}"
+              f"{str(r.get('model_size', '-')):>6}{str(r.get('generations', '-')):>6}{str(r.get('stopped_by', '-')):>12}  "
               f"{'Y' if r.get('solution') else 'n':>3}  {r['status'] if r['status'] != 'ok' else r.get('model', '')}", flush=True)
         if resumable(k):
             parked.append(k)

@@ -83,10 +83,21 @@ class HFFSymbolicRegressor(BaseEstimator, RegressorMixin):
     def fit(self, X, y):
         X_df = self._coerce_df(X)
         y_arr = np.asarray(y).ravel()
+        # EDGE VALIDATION. The most isolated rows of everything we were handed
+        # (chosen from X alone, BEFORE any subsampling: the true extremes are in
+        # the full set) are held out of fitting and scored as their own HFF
+        # objectives, separate from the mainstream validation. A law holds
+        # there; an interior fit does not.
+        edge = _isolated_rows(X_df.to_numpy(dtype=float))
+        X_ex, y_ex = X_df.iloc[edge].reset_index(drop=True), y_arr[edge]
+        inside = np.setdiff1d(np.arange(len(X_df)), edge)
+        X_df, y_arr = X_df.iloc[inside].reset_index(drop=True), y_arr[inside]
         if self.max_rows and len(X_df) > self.max_rows:
             keep = np.random.RandomState(self.random_state).choice(len(X_df), self.max_rows, replace=False)
             X_df, y_arr = X_df.iloc[keep].reset_index(drop=True), y_arr[keep]
         X_tr, y_tr, X_va, y_va, X_ho, y_ho = self._split(X_df, y_arr)
+        EDGE_INFO.clear()
+        EDGE_INFO.update(edge_rows=len(edge), interior_rows=len(inside))
 
         # Rule library defaults ON for every dataset (Feynman, PMLB, wild).
         # SR's value proposition is explainability, not raw R². If a
@@ -101,7 +112,7 @@ class HFFSymbolicRegressor(BaseEstimator, RegressorMixin):
         # complexity_norm (red herring per WIDS evidence). Random
         # 60/15/25 splits.
         config = HFFSRConfig(
-            mode="wild_regression",
+            mode="feynman",     # the objective vector with train, validation AND extrapolation (edge) errors
             head_length=self.head_length,
             n_genes=self.n_genes,
             n_gen=self.n_gen,
@@ -151,12 +162,14 @@ class HFFSymbolicRegressor(BaseEstimator, RegressorMixin):
         self._engine.fit(
             X_tr, y_tr,
             X_val=X_va, y_val=y_va,
-            X_extrap=None, y_extrap=None,
+            X_extrap=X_ex, y_extrap=y_ex,
             holdout_X=X_ho, holdout_y=y_ho,
             verbose=bool(getattr(self, "_verbose_fit", False)),
         )
         # What the search actually did, for the runner's result line. Module
         # level because SRBench may fit a clone of `est`.
+        _best = (list(getattr(self._engine, "_hof", [])) or [None])[0]
+        _m = getattr(_best, "metrics", None) or {}
         LAST_FIT.clear()
         LAST_FIT.update(generations=getattr(self._engine, "generations_run_", None),
                         population=getattr(self._engine, "final_population_", None),
@@ -165,6 +178,9 @@ class HFFSymbolicRegressor(BaseEstimator, RegressorMixin):
                         pump_every=f"{config.migration_freq_intra}/{config.migration_freq}",
                         stopped_by=getattr(self._engine, "stopped_by_", "before_evolution"),
                         resumed_from=getattr(self._engine, "resumed_from_gen_", 0),
+                        edge_rows=EDGE_INFO.get("edge_rows"),
+                        r2_val=(1.0 - _m["one_minus_r2_va"]) if "one_minus_r2_va" in _m else None,
+                        r2_edge=(1.0 - _m["one_minus_r2_extrap"]) if "one_minus_r2_extrap" in _m else None,
                         individuals=getattr(self._engine, "individuals_evaluated_", None),
                         search_seconds=getattr(self._engine, "fit_seconds_", None))
         self.is_fitted_ = True
@@ -299,6 +315,31 @@ def _load_constant_values() -> dict:
 
 
 _CONSTANT_VALUES = _load_constant_values()
+
+EDGE_FRACTION = 0.20        # the most isolated fifth of the rows ...
+EDGE_MAX_ROWS = 2000        # ... at most this many, the most isolated first
+EDGE_NEIGHBOUR = 10         # isolation = distance to this nearest neighbour
+EDGE_INFO = {}
+
+
+def _isolated_rows(X: np.ndarray) -> np.ndarray:
+    """Indices of the most isolated rows of X, most isolated first.
+
+    Each column is scaled (x - median) / (p95 - p5), so units do not matter and
+    a thin tail stays thin; isolation is the distance to the EDGE_NEIGHBOUR-th
+    nearest neighbour. The target plays no part. In a uniformly sampled box
+    these are the boundary and corner rows; along a trajectory they are also
+    the gaps. Ties go to the lower row index, so the choice is deterministic."""
+    from scipy.spatial import cKDTree
+    n = len(X)
+    spread = np.percentile(X, 95, axis=0) - np.percentile(X, 5, axis=0)
+    spread[spread == 0] = 1.0
+    Z = (X - np.median(X, axis=0)) / spread
+    k = EDGE_NEIGHBOUR if n >= 500 else max(3, n // 50)
+    distance = cKDTree(Z).query(Z, k=min(k, n - 1) + 1)[0][:, -1]
+    order = np.lexsort((np.arange(n), -distance))
+    return order[:min(EDGE_MAX_ROWS, int(round(EDGE_FRACTION * n)))]
+
 
 POP_INTAKE = 600
 POP_CHAMPION = 200

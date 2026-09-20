@@ -2529,6 +2529,12 @@ class HFFSREngine:
         for deme in demes:
             valid = [ind for ind in deme if ind.fitness.valid and ind.metrics
                      and math.isfinite(ind.metrics.get("one_minus_r2_va", float("inf")))]
+            # With an extrapolation (edge) set, a winner holds THERE too: a model
+            # that is perfect on the interior and not on the isolated rows is
+            # the fake this set exists to catch.
+            if cfg.mode != "wild_regression":
+                valid = [ind for ind in valid
+                         if 1.0 - ind.metrics.get("one_minus_r2_extrap", float("inf")) >= thr]
             if not valid:
                 continue
             best = min(valid, key=lambda i: i.metrics["one_minus_r2_va"])
@@ -3004,8 +3010,10 @@ class HFFSREngine:
         self._lambdified_var_order = bundle.variables[:]
         # What the data says about each column's sign, for whoever reports the
         # model: a column positive on every train+validation row.
+        _sign_frames = [bundle.train, bundle.validation] + (
+            [bundle.extrapolation] if self.config.mode != "wild_regression" else [])
         self.positive_columns_ = [c for c in bundle.variables
-                                  if bool((bundle.train[c] > 0).all()) and bool((bundle.validation[c] > 0).all())]
+                                  if all(bool((f[c] > 0).all()) for f in _sign_frames)]
         if scorable:
             self._fuller_final_form(hof[0], bundle)
         if verbose:
@@ -3090,7 +3098,10 @@ class HFFSREngine:
             self.final_form_note_ = why
             return
         cols = list(bundle.variables)
-        X = pd.concat([bundle.train[cols], bundle.validation[cols]], ignore_index=True).astype(float)
+        frames = [bundle.train[cols], bundle.validation[cols]]
+        if self.config.mode != "wild_regression":
+            frames.append(bundle.extrapolation[cols])      # a tidied form holds on the edge rows too
+        X = pd.concat(frames, ignore_index=True).astype(float)
         columns = {c: X[c].tolist() for c in cols}
         ref = np.asarray(_ff.eval_math(math_expr, columns), dtype=np.float64)
         var = float(np.var(ref))
