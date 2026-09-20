@@ -22,7 +22,9 @@ import sympy as sp
 from sklearn.base import BaseEstimator, RegressorMixin
 
 # Ensure notebooks/ is on the import path so we can pull in hff_sr_engine.
-_HERE = os.path.dirname(os.path.abspath(__file__))
+# realpath, not abspath: SRBench imports this file from ITS methods/ folder,
+# usually through a symlink, and the repo must be found from where it lives.
+_HERE = os.path.dirname(os.path.realpath(__file__))
 _REPO_ROOT = os.path.abspath(os.path.join(_HERE, "..", "..", ".."))
 _NOTEBOOKS = os.path.join(_REPO_ROOT, "notebooks")
 if _NOTEBOOKS not in sys.path:
