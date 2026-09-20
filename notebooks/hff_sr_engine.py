@@ -487,6 +487,12 @@ class HFFSRConfig:
     # if pop > HOF size). Lets you do a two-stage squeeze: wide explore →
     # narrow refine, without losing the structural wins. None = fresh random init.
     seed_hof_path: str | None = None
+    # Park / resume. When set: a fit that stops because its TIME ran out writes
+    # its whole search state here (every island, the hall of fame, the
+    # generation count, both random generators), and a fit that finds this file
+    # at start CONTINUES that search instead of starting one. A fit that ends
+    # any other way removes the file.
+    park_path: str | None = None
     # Reproducibility
     random_state: int = 5
     # Time budget — engine checks this at the gen boundary and stops cleanly
@@ -1703,6 +1709,26 @@ class HFFSREngine:
         else:
             demes = [toolbox.population(n=pop_sizes[i]) for i in range(n_islands)]
 
+        # RESUME a parked search: every island as it was left. Fitness is
+        # invalidated — HFF fitness is relative to the batch it was scored in —
+        # so gen 0 below re-scores everyone on the join.
+        self.resumed_from_gen_ = 0
+        _parked = None
+        if cfg.park_path and os.path.exists(cfg.park_path):
+            import pickle as _pickle
+            with open(cfg.park_path, "rb") as _f:
+                _parked = _pickle.load(_f)
+            if [len(d) for d in _parked["demes"]] != pop_sizes:
+                raise ValueError(f"parked state {cfg.park_path} has islands "
+                                 f"{[len(d) for d in _parked['demes']]}, this fit wants {pop_sizes}")
+            demes = _parked["demes"]
+            for _deme in demes:
+                for _ind in _deme:
+                    if _ind.fitness.valid:
+                        del _ind.fitness.values
+            self.resumed_from_gen_ = int(_parked["gen"])
+            print(f"[engine] resumed parked search {cfg.park_path} at generation {self.resumed_from_gen_}", flush=True)
+
         # Wrapper-per-island: pin every individual to its island's wrapper
         # class (covers random init AND seed_hof_path clones). In the default
         # topology, strip any stale pin carried in via a seeded HOF pickle
@@ -1790,6 +1816,13 @@ class HFFSREngine:
                       f"{N_LINKERS} linkers (rounded enabled)")
         target_gen = cfg.n_gen
         gen = 1
+        if _parked is not None:
+            gen = self.resumed_from_gen_ + 1
+            hof.update(_parked["hof"])
+            random.setstate(_parked["py_rng"])
+            np.random.set_state(_parked["np_rng"])
+        self.stopped_by_ = "n_gen"
+        self.generations_run_ = self.resumed_from_gen_
         wrapper_island_pairs = self._wrapper_island_pairs(roles)
         # Adaptive-intake bookkeeping: per-gen times since last recalibration.
         gen_times: list[float] = []
@@ -1804,6 +1837,7 @@ class HFFSREngine:
                 if gen_start - fit_start > cfg.time_budget_s:
                     if verbose:
                         print(f"[engine] time budget {cfg.time_budget_s}s reached at gen {gen}")
+                    self.stopped_by_ = "time"
                     break
 
             for idx, deme in enumerate(demes):
@@ -1863,6 +1897,7 @@ class HFFSREngine:
             # Early-stop check (holdout-gated).
             if self._maybe_early_stop(demes, toolbox, hof, bundle, gen, verbose):
                 _won_holdout = True
+                self.stopped_by_ = "early_stop"
                 break
 
             # Migration cycle (pump topology).
@@ -1897,6 +1932,18 @@ class HFFSREngine:
             self.individuals_evaluated_ = getattr(self, "individuals_evaluated_", 0) + self.final_population_
 
         self.fit_seconds_ = time.perf_counter() - fit_start
+        # PARK: out of time with the search unfinished — leave it resumable.
+        # Finished any other way — there is nothing to resume.
+        if cfg.park_path:
+            if self.stopped_by_ == "time":
+                import pickle as _pickle
+                _tmp = cfg.park_path + ".tmp"
+                with open(_tmp, "wb") as _f:
+                    _pickle.dump({"demes": demes, "hof": list(hof), "gen": self.generations_run_,
+                                  "py_rng": random.getstate(), "np_rng": np.random.get_state()}, _f)
+                os.replace(_tmp, cfg.park_path)
+            elif os.path.exists(cfg.park_path):
+                os.remove(cfg.park_path)
         # Denoise stats — always print if denoise was active (provenance).
         if cfg.pb_denoise > 0:
             print(f"[denoise] {_DENOISE_STATS}", flush=True)

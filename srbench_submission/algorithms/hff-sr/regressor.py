@@ -112,6 +112,9 @@ class HFFSymbolicRegressor(BaseEstimator, RegressorMixin):
             time_budget_s=min(float(self.max_time),
                               float(os.environ.get("HFF_SRBENCH_MAX_TIME", self.max_time))),
             random_state=self.random_state,
+            # Park / resume (the runner's --race mode): set per job through the
+            # environment, because SRBench may fit a clone of `est`.
+            park_path=os.environ.get("HFF_PARK_PATH") or None,
             use_wide_primitives=True,
             # SNAP ON. The engine's snap draws on the full constant table, and
             # that is allowed here because the entry is NAME-BLIND: every
@@ -160,6 +163,8 @@ class HFFSymbolicRegressor(BaseEstimator, RegressorMixin):
                         islands="+".join(str(n) for n in getattr(self._engine, "island_sizes_", [])) or None,
                         tournaments=f"{config.tourn_intake}+{config.tourn_champion}",
                         pump_every=f"{config.migration_freq_intra}/{config.migration_freq}",
+                        stopped_by=getattr(self._engine, "stopped_by_", "before_evolution"),
+                        resumed_from=getattr(self._engine, "resumed_from_gen_", 0),
                         individuals=getattr(self._engine, "individuals_evaluated_", None),
                         search_seconds=getattr(self._engine, "fit_seconds_", None))
         self.is_fitted_ = True
