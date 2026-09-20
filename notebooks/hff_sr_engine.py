@@ -3002,6 +3002,10 @@ class HFFSREngine:
             self.holdout_pick_table_ = []
 
         self._lambdified_var_order = bundle.variables[:]
+        # What the data says about each column's sign, for whoever reports the
+        # model: a column positive on every train+validation row.
+        self.positive_columns_ = [c for c in bundle.variables
+                                  if bool((bundle.train[c] > 0).all()) and bool((bundle.validation[c] > 0).all())]
         if scorable:
             self._fuller_final_form(hof[0], bundle)
         if verbose:

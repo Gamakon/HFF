@@ -258,6 +258,36 @@ def _tidy_reported(expr):
         return expr
 
 
+def _with_positive_columns(expr, positive_columns):
+    """The reported expression, given which columns the data shows positive.
+
+    1. Abs(u) is u wherever u is positive under those facts.
+    2. The expression re-read with those columns DECLARED positive, so sympy's
+       own evaluation sheds what only the sign was holding up:
+       sqrt(x**2/y**2) -> x/y. Feynman I.29.4 was won by the power-law rule as
+       sqrt(x_0**2/x_1**2) and scored unsolved. Kept only if it does not SPLIT a
+       radical: sqrt(a*b/c) -> sqrt(a)*sqrt(b)/sqrt(c) is equal for us, but
+       SRBench reads the string with no assumptions and cannot put it back
+       together (that cost Feynman I.47.23 once).
+    No simplify call anywhere: parsing alone applies these, so it cannot hang."""
+    if not positive_columns:
+        return expr
+    try:
+        expr = sp.sympify(expr)
+        names = {str(s) for s in expr.free_symbols}
+        local = {n: sp.Symbol(n, positive=True) for n in positive_columns if n in names}
+        if not local:
+            return expr
+        declared = lambda e: sp.sympify(str(e), locals=local)
+        expr = expr.replace(sp.Abs, lambda u: u if declared(u).is_positive else sp.Abs(u))
+        radicals = lambda e: sum(1 for p in e.atoms(sp.Pow) if not p.exp.is_Integer)
+        reread = declared(expr)
+        return reread if radicals(reread) <= radicals(expr) else expr
+    except Exception as e:
+        print(f"[hff-sr] positivity re-read failed ({type(e).__name__}: {e}); reporting it as is")
+        return expr
+
+
 def _load_constant_values() -> dict:
     """name -> value for every constant the engine may leave in an expression."""
     # Every constant the engine may leave in an expression, written as a
@@ -310,6 +340,7 @@ def model(est, X=None) -> str:
     # The engine saw col_0..col_n. SRBench's clean_pred_model maps x_0..x_n back
     # to the dataset's feature names (highest index first, so x_10 before x_1).
     import re
+    expr = _with_positive_columns(expr, getattr(est._engine, "positive_columns_", []))
     expr = _tidy_reported(expr)
     text = re.sub(r"\bcol_(\d+)\b", r"x_\1", str(expr))
     # Named constants must reach SRBench as NUMBERS: its parser would read `phi`
