@@ -474,8 +474,12 @@ class HFFSRConfig:
     # named atoms across chromosomes. No new pset terminals are created —
     # composed constants live as karva trees built from the 16 atoms.
     snap_lsm_into_gene: bool = True
-    # Named-constant terminals: "all" | "math" | "none"; "" = all when
-    # snap_lsm_into_gene is on, none otherwise (the previous behaviour).
+    # Named-constant terminals: "all" | "math" | "none" | "snap_only"; "" = all
+    # when snap_lsm_into_gene is on, none otherwise (the previous behaviour).
+    # snap_only: every atom is in the pset, so a snap can graft it and every
+    # name lookup resolves, but gene initialisation and uniform mutation never
+    # SAMPLE one. Evolution searches columns, operators and RNCs; a named
+    # constant enters a gene only because a fitted number landed on it.
     constant_atoms: str = ""
     snap_lsm_rel_tol: float = 1e-3
     # Seed-from-HOF: path to a pickle written by a prior fit. When set, the
@@ -564,6 +568,26 @@ def _add_decode_only_function(pset, func, arity, name=None):
     return fn
 
 
+class _SamplingPset:
+    """The pset as geppy's SAMPLING sites see it (gene initialisation, uniform
+    mutation): everything the real pset has, minus the terminals named in
+    `withheld`. Those stay in the real pset, so compiling, decoding and every
+    lookup by name still find them. Empty `withheld` = the real pset."""
+
+    def __init__(self, pset):
+        self._pset = pset
+        self.withheld = frozenset()
+
+    @property
+    def terminals(self):
+        return [t for t in self._pset.terminals if t.name not in self.withheld]
+
+    def __getattr__(self, name):
+        if name == "_pset":                      # unpickling: not set yet
+            raise AttributeError(name)
+        return getattr(self._pset, name)
+
+
 def _build_toolbox(bundle: _Bundle):
     """Construct the DEAP toolbox + primitive set for a problem."""
     cfg = bundle.config
@@ -605,11 +629,13 @@ def _build_toolbox(bundle: _Bundle):
         _add_decode_only_function(pset, _raw_pow, 2)
     pset.add_rnc_terminal()
 
+    sampling_pset = _SamplingPset(pset)
     toolbox = gep.Toolbox()
+    toolbox.sampling_pset = sampling_pset
     toolbox.register("rnc_gen", random.randint, a=cfg.rnc_lo, b=cfg.rnc_hi)
     toolbox.register(
         "gene_gen", gep.GeneDc,
-        pset=pset, head_length=cfg.head_length,
+        pset=sampling_pset, head_length=cfg.head_length,
         rnc_gen=toolbox.rnc_gen, rnc_array_length=cfg.rnc_array_length,
     )
     if cfg.n_genes > 1:
@@ -629,7 +655,7 @@ def _build_toolbox(bundle: _Bundle):
     toolbox.register("individual", make_individual)
     toolbox.register("compile", gep.compile_, pset=pset)
     toolbox.register("population", tools.initRepeat, list, toolbox.individual)
-    toolbox.register("mut_uniform", gep.mutate_uniform, pset=pset, ind_pb=0.05, pb=1)
+    toolbox.register("mut_uniform", gep.mutate_uniform, pset=sampling_pset, ind_pb=0.05, pb=1)
     toolbox.register("mut_invert", gep.invert, pb=0.1)
     toolbox.register("mut_is_transpose", gep.is_transpose, pb=0.1)
     toolbox.register("mut_ris_transpose", gep.ris_transpose, pb=0.1)
@@ -1555,14 +1581,19 @@ class HFFSREngine:
         #          back built from mu0, g_earth and sqrt3.
         #   none — RNC only, plain geppy.
         _atoms = cfg.constant_atoms or ("all" if cfg.snap_lsm_into_gene else "none")
-        if _atoms not in ("all", "math", "none"):
-            raise ValueError(f"constant_atoms must be all/math/none, got {_atoms!r}")
-        if cfg.snap_lsm_into_gene and _atoms != "all":
+        if _atoms not in ("all", "math", "none", "snap_only"):
+            raise ValueError(f"constant_atoms must be all/math/none/snap_only, got {_atoms!r}")
+        if cfg.snap_lsm_into_gene and _atoms not in ("all", "snap_only"):
             raise ValueError("snap_lsm_into_gene grafts any lattice atom and needs "
-                             "constant_atoms='all'")
+                             "constant_atoms='all' or 'snap_only'")
         if _atoms != "none":
             from _lsm_snap import register_atoms_in_pset
-            register_atoms_in_pset(pset, which=_atoms)
+            _before = {t.name for t in pset.terminals}
+            register_atoms_in_pset(pset, which="all" if _atoms == "snap_only" else _atoms)
+            if _atoms == "snap_only":
+                toolbox.sampling_pset.withheld = frozenset(
+                    t.name for t in pset.terminals if t.name not in _before)
+                pset.sampling_withheld = toolbox.sampling_pset.withheld
         print(f"[engine] constant terminals: {_atoms}", flush=True)
 
         # Build evolution state: demes, HOF, log.
@@ -2904,10 +2935,9 @@ class HFFSREngine:
             return None
 
         def _snap_scalar(x):
-            """Snap x to a clean constant. Hybrid:
-              1. fuller master_lattice() — verified entries (physics
-                 constants + composed forms incl. 1/(4*pi), 2*pi/sqrt(e), ...)
-              2. Fallback to sympy.nsimplify([pi, E]) for the long tail.
+            """Snap x to a clean constant from fuller master_lattice() —
+            verified entries (physics constants + composed forms incl.
+            1/(4*pi), 2*pi/sqrt(e), ...). Nothing else.
 
             Atom sympify locals are pulled from master_constants() so any
             new atom (e.g. g_earth) gets sympified with its NUMERIC value,
@@ -2942,14 +2972,10 @@ class HFFSREngine:
                             continue
             except Exception:
                 pass
-            # Stage 2: nsimplify fallback (rationals + log-style values)
-            try:
-                cand = _sp.nsimplify(x, [_sp.pi, _sp.E], rational=False, tolerance=1e-4)
-                if (cand.has(_sp.pi) or cand.has(_sp.E)) and \
-                   abs(float(cand) - x) / max(abs(x), 1e-300) < 1e-3:
-                    return cand
-            except Exception:
-                pass
+            # No second stage. sympy.nsimplify([pi, E]) used to run here and,
+            # with three free rationals, found a formula for almost any number
+            # (0.501 -> -pi/59 + E/59 + 30/59). A number the table does not
+            # hold stays a number.
             return None
 
         # Recover f(x): expr = a*f + b  → f = (expr - b)/a  (symbolically).

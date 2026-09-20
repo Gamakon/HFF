@@ -117,7 +117,9 @@ class HFFSymbolicRegressor(BaseEstimator, RegressorMixin):
             # that is allowed here because the entry is NAME-BLIND: every
             # column is col_i, so no constant can be suggested by a variable's
             # name — it has to earn its place on the data.
-            constant_atoms="all",
+            constant_atoms="snap_only",
+            rnc_lo=-100,
+            rnc_hi=100,
             snap_lsm_into_gene=True,
             # Adaptive intake — shrink to hit n_gen, then grow with the
             # slack so we fill the SRBench 3600s budget with the biggest

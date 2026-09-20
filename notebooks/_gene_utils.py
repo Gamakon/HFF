@@ -35,8 +35,11 @@ def build_gene_like(orig_gene, new_head: list, new_tail: list, pset,
     max_arity = max((f.arity for f in pset.functions), default=2)
     target_tail = head_length * (max_arity - 1) + 1
     rng = random.Random(rng_seed)
+    # Padding is a random draw, so it honours constant_atoms='snap_only': the
+    # named constants withheld from sampling never arrive as padding either.
+    withheld = getattr(pset, "sampling_withheld", frozenset())
     terminals = [t for t in pset.terminals
-                 if isinstance(t, Terminal) and
+                 if isinstance(t, Terminal) and t.name not in withheld and
                  (isinstance(t, SymbolTerminal) or t.value is not None)]
     # Pad the head back to head_length with terminals. Per GEP, the coding
     # region (ORF) ends where the expression tree closes; any head positions

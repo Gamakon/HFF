@@ -315,7 +315,8 @@ def compress_gene(
         max_arity = getattr(pset, "max_arity", None) or max(
             (p.arity for p in pset.functions), default=2)
         target_tail_len = len(new_head) * (max_arity - 1) + 1
-        terminals = list(pset.terminals)
+        withheld = getattr(pset, "sampling_withheld", frozenset())
+        terminals = [t for t in pset.terminals if t.name not in withheld]
         while len(new_tail) < target_tail_len:
             new_tail.append(rng.choice(terminals))
         new_tail = new_tail[:target_tail_len]
