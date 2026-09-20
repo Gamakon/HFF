@@ -121,13 +121,12 @@ class HFFSymbolicRegressor(BaseEstimator, RegressorMixin):
             rnc_lo=-100,
             rnc_hi=100,
             snap_lsm_into_gene=True,
-            # Adaptive intake — shrink to hit n_gen, then grow with the
-            # slack so we fill the SRBench 3600s budget with the biggest
-            # population that still completes the target gens.
-            adaptive_intake=True,
-            adaptive_recalibrate_every=25,
-            adaptive_pop_intake_min=50,
-            adaptive_pop_intake_max=1000,
+            # FIXED population; time is the only stop. Adaptive intake resizes
+            # the population to finish n_gen inside the budget, and with a
+            # long n_gen it shrank it (150 -> 101 in a measured 30 s fit).
+            adaptive_intake=False,
+            pop_intake=300,
+            pop_champion=100,
         )
         for _k, _v in self.config_overrides.items():
             if not hasattr(config, _k):
