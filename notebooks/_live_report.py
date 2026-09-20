@@ -47,53 +47,75 @@ def srbench(tag, problem, arm, model, r2, ds):
     return "Y" if ok else "n"
 
 
-def main(d, n_expected):
+def score_one(job):
+    """Worker: SRBench's verdict on each of a problem's three model strings."""
+    tag, side = job
     signal.signal(signal.SIGALRM, _alarm)
+    r = record(side)
+    ds = dataset_for(r["problem"])
+    try:
+        r2 = float(r.get("holdout_r2"))
+    except (TypeError, ValueError):
+        r2 = float("nan")
+    verdicts = {}
+    for arm, mkey, _ in ARMS:
+        model = r.get(mkey)
+        verdicts[arm] = None if model is None else (srbench(tag, r["problem"], arm, str(model), r2, ds) if ds else "?")
+    return r, verdicts
+
+
+def main(d, n_expected, workers=6):
+    import multiprocessing as mp
     os.makedirs(OUT, exist_ok=True)
     tag = os.path.basename(d.rstrip("/"))
     seen, tally = set(), {a: {"ours": 0, "srbench": 0} for a, _, _ in ARMS}
     n, quiet_since, secs = 0, time.time(), 0.0
     print(f"{'problem':<12}{'gens':>5}{'secs':>7}  " + "  ".join(f"{a:>10} ours/srb" for a, _, _ in ARMS)
           + "   evolve% eval%   model_no_sympy", flush=True)
-    while n < n_expected and time.time() - quiet_since < 900:
-        fresh = [s for s in sorted(glob.glob(os.path.join(d, "*.json"))) if s not in seen]
-        for side in fresh:
-            try:
-                r = record(side)
-            except (json.JSONDecodeError, OSError):
-                continue                      # still being written
-            if r is None or "model_sympy" not in r:
-                continue
-            seen.add(side)
-            quiet_since = time.time()
-            n += 1
-            ds = dataset_for(r["problem"])
-            try:
-                r2 = float(r.get("holdout_r2"))
-            except (TypeError, ValueError):
-                r2 = float("nan")
-            cells = []
-            for arm, mkey, okey in ARMS:
-                model = r.get(mkey)
-                ours = r.get(okey)
-                if model is None:
-                    cells.append(f"{'-':>10}    -/-  ")
+    with mp.Pool(workers) as pool:
+        pending = []
+        while n < n_expected and time.time() - quiet_since < 900:
+            for side in sorted(glob.glob(os.path.join(d, "*.json"))):
+                if side in seen:
                     continue
-                srb = srbench(tag, r["problem"], arm, str(model), r2, ds) if ds else "?"
-                tally[arm]["ours"] += bool(ours)
-                tally[arm]["srbench"] += srb == "Y"
-                cells.append(f"{'':>10}    {'Y' if ours else 'n'}/{srb}  ")
-            perf = r.get("perf_seconds") or {}
-            total = sum(v for k, v in perf.items() if not k.startswith("of "))
-            pct = lambda key: 100.0 * sum(v for k, v in perf.items() if k.startswith(key)) / total if total else 0.0
-            secs += float(r.get("elapsed_s", 0.0))
-            print(f"{r['problem']:<12}{r.get('perf_generations', 0):>5}{float(r.get('elapsed_s', 0)):>7.0f}  "
-                  + "  ".join(cells) + f"   {pct('evolve'):>6.0f}% {pct('evaluate'):>4.0f}%   "
-                  + str(r.get("model_no_sympy"))[:70], flush=True)
-            print(f"   tally after {n}: " + " | ".join(
-                f"{a}: ours {t['ours']}, srbench {t['srbench']}" for a, t in tally.items())
-                + f" | {secs:.0f} run-seconds", flush=True)
-        time.sleep(3)
+                try:
+                    r = record(side)
+                except (json.JSONDecodeError, OSError):
+                    continue                  # still being written
+                if r is None or "model_sympy" not in r:
+                    continue
+                seen.add(side)
+                pending.append(pool.apply_async(score_one, ((tag, side),)))
+            still = []
+            for job in pending:
+                if not job.ready():
+                    still.append(job)
+                    continue
+                r, verdicts = job.get()
+                quiet_since = time.time()
+                n += 1
+                cells = []
+                for arm, _, okey in ARMS:
+                    srb = verdicts[arm]
+                    if srb is None:
+                        cells.append(f"{'-':>10}    -/-  ")
+                        continue
+                    ours = r.get(okey)
+                    tally[arm]["ours"] += bool(ours)
+                    tally[arm]["srbench"] += srb == "Y"
+                    cells.append(f"{'':>10}    {'Y' if ours else 'n'}/{srb}  ")
+                perf = r.get("perf_seconds") or {}
+                total = sum(v for k, v in perf.items() if not k.startswith("of "))
+                pct = lambda key: 100.0 * sum(v for k, v in perf.items() if k.startswith(key)) / total if total else 0.0
+                secs += float(r.get("elapsed_s", 0.0))
+                print(f"{r['problem']:<12}{r.get('perf_generations', 0):>5}{float(r.get('elapsed_s', 0)):>7.0f}  "
+                      + "  ".join(cells) + f"   {pct('evolve'):>6.0f}% {pct('evaluate'):>4.0f}%   "
+                      + str(r.get("model_no_sympy"))[:70], flush=True)
+                print(f"   tally after {n}: " + " | ".join(
+                    f"{a}: ours {t['ours']}, srbench {t['srbench']}" for a, t in tally.items())
+                    + f" | {secs:.0f} run-seconds", flush=True)
+            pending = still
+            time.sleep(2)
     print(f"\nFINAL {tag}: {n} results", flush=True)
     for a, t in tally.items():
         print(f"  {a:<12} our oracle {t['ours']:>4}   SRBench symbolic_solution {t['srbench']:>4}", flush=True)

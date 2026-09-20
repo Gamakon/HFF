@@ -30,6 +30,12 @@ _NOTEBOOKS = os.path.join(_REPO_ROOT, "notebooks")
 if _NOTEBOOKS not in sys.path:
     sys.path.insert(0, _NOTEBOOKS)
 
+# SRBench's Feynman columns carry the physicists' own names (m, g, z, q1,
+# epsilon ...). Nothing in a fair entry may read them: the wrapper renames every
+# column before the engine sees it (below), and the engine's name-derived
+# pattern tags are switched off as well.
+os.environ["HFF_NAME_BLIND"] = "1"
+
 from hff_sr_engine import HFFSREngine, HFFSRConfig  # noqa: E402
 
 
@@ -90,9 +96,21 @@ class HFFSymbolicRegressor(BaseEstimator, RegressorMixin):
             head_length=self.head_length,
             n_genes=self.n_genes,
             n_gen=self.n_gen,
-            time_budget_s=self.max_time,
+            # SRBench's evaluate_model OVERWRITES est.max_time (to 36,000 s for
+            # any dataset over 1,000 rows), so a budgeted run cannot rely on it.
+            # HFF_SRBENCH_MAX_TIME is ours: the search stops at whichever is
+            # smaller. Stopping sooner than they allow is always permitted.
+            time_budget_s=min(float(self.max_time),
+                              float(os.environ.get("HFF_SRBENCH_MAX_TIME", self.max_time))),
             random_state=self.random_state,
             use_wide_primitives=True,
+            # Mathematical constants only (pi, e ...). No physical constant may
+            # be offered: on Feynman that is a prior about the answer.
+            constant_atoms="math",
+            # Grafting the fitted scale into the gene draws on the FULL constant
+            # table, physical constants included; the engine refuses it without
+            # them. Off for a fair entry.
+            snap_lsm_into_gene=False,
             # Adaptive intake — shrink to hit n_gen, then grow with the
             # slack so we fill the SRBench 3600s budget with the biggest
             # population that still completes the target gens.
@@ -123,9 +141,9 @@ class HFFSymbolicRegressor(BaseEstimator, RegressorMixin):
     # ------------------------------------------------------------------
 
     def _coerce_df(self, X) -> pd.DataFrame:
-        if isinstance(X, pd.DataFrame):
-            return X.reset_index(drop=True)
-        X_arr = np.asarray(X)
+        # ALWAYS positional names, whatever the caller's DataFrame calls its
+        # columns: the engine must not be able to tell `epsilon` from `col_3`.
+        X_arr = X.to_numpy() if isinstance(X, pd.DataFrame) else np.asarray(X)
         if X_arr.ndim == 1:
             X_arr = X_arr.reshape(-1, 1)
         # 'col_N' (embedded underscore) breaks any ^[a-zA-Z]+\d+$ regex
@@ -163,7 +181,20 @@ class HFFSymbolicRegressor(BaseEstimator, RegressorMixin):
 # SRBench-required module-level exports.
 # ----------------------------------------------------------------------
 
-est = HFFSymbolicRegressor()
+# The fit budget can be set from the environment for a first pass; SRBench's
+# own limit is 3600 s.
+def _load_constant_values() -> dict:
+    """name -> value for every constant the engine may leave in an expression."""
+    # MATH atoms only — the only ones a fair entry is offered. (The master
+    # table also holds c, h, G ...: substituting those names could collide
+    # with nothing here, the engine sees col_i, but they must never be needed.)
+    from _lsm_snap import MATH_ATOMS, master_constants
+    return {str(n): float(v) for n, v in master_constants() if n in MATH_ATOMS}
+
+
+_CONSTANT_VALUES = _load_constant_values()
+
+est = HFFSymbolicRegressor(max_time=float(os.environ.get("HFF_SRBENCH_MAX_TIME", "3600")))
 
 
 def model(est, X=None) -> str:
@@ -175,7 +206,15 @@ def model(est, X=None) -> str:
     expr = getattr(est._engine, "discovered_expr_", None)
     if expr is None:
         return "0"
-    return str(expr)
+    # The engine saw col_0..col_n. SRBench's clean_pred_model maps x_0..x_n back
+    # to the dataset's feature names (highest index first, so x_10 before x_1).
+    import re
+    text = re.sub(r"\bcol_(\d+)\b", r"x_\1", str(expr))
+    # Named constants must reach SRBench as NUMBERS: its parser would read `phi`
+    # or `sqrt2` as an unknown variable and score a correct model wrong.
+    for name, value in _CONSTANT_VALUES.items():
+        text = re.sub(rf"\b{re.escape(name)}\b", repr(float(value)), text)
+    return text
 
 
 def complexity(est) -> int:
