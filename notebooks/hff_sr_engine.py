@@ -102,6 +102,40 @@ _HFF_COL_MIN = None
 _HFF_COL_MAX = None
 
 
+# Per-metric ceiling: the error of the CONSTANT model (predict the mean) on that
+# set — var(y) for MSE, 1 for 1-R², mean|y - mean| for MAE. A model worse than
+# that is simply useless, and how much worse carries no information. Without the
+# ceiling a generation-0 individual that explodes on the edge rows froze the
+# edge columns' range at 1e27, so an edge 1-R² of 125 normalised to 1e-25 and
+# the edge objectives put no pressure on anything (strogatz_vdp1: validation R²
+# 0.994, edge R² -125, put forward).
+_HFF_COL_CAP = None
+
+
+def _set_hff_caps(bundle) -> None:
+    global _HFF_COL_CAP
+    sets = {"tr": bundle.Y, "va": bundle.Y_val, "extrap": bundle.Y_extrap}
+    _HFF_COL_CAP = {}
+    for tag, y in sets.items():
+        y = np.asarray(y, dtype=np.float64)
+        _HFF_COL_CAP[f"mse_{tag}"] = float(np.var(y))
+        _HFF_COL_CAP[f"one_minus_r2_{tag}"] = 1.0
+        _HFF_COL_CAP[f"mae_{tag}"] = float(np.mean(np.abs(y - np.mean(y))))
+
+
+def _cap_hff_columns(F: np.ndarray, names) -> np.ndarray:
+    """F with each error column clipped at its constant-model ceiling. Columns
+    with no ceiling (parsimony, max_err) pass through."""
+    if _HFF_COL_CAP is None:
+        return F
+    F = F.copy()
+    for j, name in enumerate(names[:F.shape[1]]):
+        cap = _HFF_COL_CAP.get(name)
+        if cap is not None and cap > 0:
+            F[:, j] = np.minimum(F[:, j], cap)
+    return F
+
+
 def _reset_hff_ranges():
     """Reset the frozen-range globals — called at the start of every fit()."""
     global _HFF_COL_MIN, _HFF_COL_MAX
@@ -1276,7 +1310,7 @@ def _assign_fitness_batch(population, raw_results, cfg: HFFSRConfig, pset=None):
             F_rows.append(c["vec"])
             cand_owner.append(i)
             cand_payload.append(c)
-    F = np.array(F_rows, dtype=np.float64)
+    F = _cap_hff_columns(np.array(F_rows, dtype=np.float64), failure_names)
 
     # Frozen gen-0 HFF ranges (paper §Method). Gen 0 captures (col_min,
     # col_max); col_min is then pinned to 0.0 on every error-style axis
@@ -1771,6 +1805,7 @@ class HFFSREngine:
         # fit doesn't inherit stale frozen ranges from a prior run (e.g.
         # different m_objectives count when parsimony toggles).
         _reset_hff_ranges()
+        _set_hff_caps(bundle)
         _reset_leaderboard()
         _reset_prune_state()
         _reset_denoise_stats()
