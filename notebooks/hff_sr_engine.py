@@ -901,6 +901,59 @@ def _gpu_clear_cache() -> None:
     _GPU_CACHE.clear()
 
 
+_F64_COLUMNS: dict = {}
+F64_STATS = {"fuller": 0, "row_loop": 0}
+
+
+def _gene_math(gene, pset, variables):
+    """One gene as a fuller `Math` expression, constants resolved through the
+    Dc domain; None if its expression does not close or a "?" has no value."""
+    import fuller._fuller as _ff
+    from _denoise_op import _build_functions_dict, _token_tuple
+    dc = list(getattr(gene, "dc", []) or [])
+    rnc = list(getattr(gene, "rnc_array", []) or [])
+    toks = list(gene.head) + list(gene.tail)
+    need, n_orf = 1, 0
+    while need > 0 and n_orf < len(toks):
+        need += getattr(toks[n_orf], "arity", 0) - 1
+        n_orf += 1
+    if need > 0:
+        return None
+    out, n = [], 0
+    for tok in toks[:n_orf]:
+        k, v = _token_tuple(tok)
+        if k == "var" and v == "?":
+            if n >= len(dc) or dc[n] >= len(rnc):
+                return None
+            out.append(("num", float(rnc[dc[n]])))
+            n += 1
+        else:
+            out.append((k, v))
+    hl = len(gene.head)
+    return _ff.karva_to_math(out[:hl], out[hl:], list(variables) + sorted(getattr(pset, "sampling_withheld", ())),
+                             _build_functions_dict(pset), [])
+
+
+def _gene_predict_f64(gene, df, terminals, pset):
+    """The gene's values on every row of `df`, in f64, by fuller's evaluator
+    (Rust, the engine's own operator semantics) instead of a Python call per
+    row. None when the gene has no Math form: the caller's row loop takes it."""
+    import fuller._fuller as _ff
+    math_expr = _gene_math(gene, pset, terminals)
+    if math_expr is None:
+        return None
+    key = (id(df), tuple(terminals))
+    columns = _F64_COLUMNS.get(key)
+    if columns is None:
+        columns = {t: df[t].astype(float).tolist() for t in terminals}
+        values = {t.name: t.value for t in pset.terminals if getattr(t, "value", None) is not None}
+        for name in getattr(pset, "sampling_withheld", ()):
+            if name in values:
+                columns[name] = [float(values[name])] * len(df)
+        _F64_COLUMNS[key] = columns
+    return np.asarray(_ff.eval_math(math_expr, columns), dtype=np.float64)
+
+
 def _predict_per_gene(individual, df, terminals, pset) -> list[np.ndarray] | None:
     """Compile each gene once, evaluate row-wise on df, return list of arrays.
 
@@ -922,11 +975,21 @@ def _predict_per_gene(individual, df, terminals, pset) -> list[np.ndarray] | Non
             continue
         if os.environ.get("HFF_GPU") == "1":
             GPU_BATCH_STATS["cache_misses"] += 1
-        try:
-            fn = _compile_gene(gene, pset)
-            raw = np.array(list(map(fn, *arrays)), dtype=np.float64)
-        except Exception:
-            return None
+        raw = None
+        if os.environ.get("HFF_F64_FULLER", "1") == "1":
+            try:
+                raw = _gene_predict_f64(gene, df, terminals, pset)
+            except Exception:
+                raw = None
+        if raw is not None:
+            F64_STATS["fuller"] += 1
+        else:
+            F64_STATS["row_loop"] += 1
+            try:
+                fn = _compile_gene(gene, pset)
+                raw = np.array(list(map(fn, *arrays)), dtype=np.float64)
+            except Exception:
+                return None
         if not np.all(np.isfinite(raw)):
             return None
         out.append(raw)
@@ -1806,6 +1869,7 @@ class HFFSREngine:
         # different m_objectives count when parsimony toggles).
         _reset_hff_ranges()
         _set_hff_caps(bundle)
+        _F64_COLUMNS.clear()            # keyed by id(frame): never carry one into another fit
         _reset_leaderboard()
         _reset_prune_state()
         _reset_denoise_stats()
@@ -1874,6 +1938,14 @@ class HFFSREngine:
             np.random.set_state(_parked["np_rng"])
         self.stopped_by_ = "n_gen"
         self.generations_run_ = self.resumed_from_gen_
+        # HFF_TENSOR_POP=1: the variation phase on integer tensors.
+        _tensor_pop = os.environ.get("HFF_TENSOR_POP") == "1"
+        if _tensor_pop:
+            from _tensor_pop import SymbolTable
+            from _denoise_op import _all_decodable_functions
+            _tensor_table = SymbolTable.from_pset(pset, _all_decodable_functions(pset))
+            _tensor_rng = np.random.default_rng([int(cfg.random_state), int(self.resumed_from_gen_)])
+        self.tensor_ops_rows_ = 0
         wrapper_island_pairs = self._wrapper_island_pairs(roles)
         # Adaptive-intake bookkeeping: per-gen times since last recalibration.
         gen_times: list[float] = []
@@ -1893,6 +1965,27 @@ class HFFSREngine:
 
             for idx, deme in enumerate(demes):
                 ts = self._island_tournsize(idx, roles)
+                if _tensor_pop:
+                    # Selection, cloning and the 12 GEP operators as array
+                    # operations (_tensor_pop.py): measured 13 ms a generation
+                    # for 600 individuals against ~650 ms as geppy objects. The
+                    # Python-only operators (snap, concretize, denoise, physics)
+                    # run on the offspring of the fittest parents only.
+                    offspring, elites = self._tensor_generation(
+                        deme, ts, _tensor_table, _tensor_rng, toolbox, pset, bundle, cfg, gen)
+                    deme[:] = elites + offspring
+                    invalid_ind = [ind for ind in deme if not ind.fitness.valid]
+                    if invalid_ind:
+                        raw_results = evaluate_one.batch(invalid_ind)
+                        _assign_fitness_batch(invalid_ind, raw_results, cfg, pset=pset)
+                    hof.update(deme)
+                    _f64_polish_hof(hof, toolbox, bundle)
+                    valid_fits = [ind.fitness.values[0] for ind in deme if ind.fitness.valid]
+                    log.record(gen=gen, deme=idx, evals=len(invalid_ind),
+                               **{"min fitness": float(min(valid_fits)) if valid_fits else float("inf")},
+                               **_per_metric_mins(deme, mode=cfg.mode, use_validation=cfg.use_validation_in_hff,
+                                                  parsimony=cfg.parsimony_in_hff))
+                    continue
                 deme[:] = tools.selTournament(deme, len(deme), tournsize=ts)
                 elites = tools.selBest(deme, k=cfg.num_elites)
                 offspring = tools.selTournament(deme, len(deme) - cfg.num_elites, tournsize=ts)
@@ -3089,6 +3182,52 @@ class HFFSREngine:
                       f"hff={entry['hff_holdout']:.6f}  "
                       f"vec={entry['holdout_vec']}  "
                       f"{entry['expr'][:60]}")
+
+    # How many offspring per island per generation get the Python-only
+    # operators under HFF_TENSOR_POP=1: the offspring of the fittest parents.
+    TENSOR_OPS_TOP_K = 24
+
+    def _tensor_generation(self, deme, tournsize, table, rng, toolbox, pset, bundle, cfg, gen):
+        """One island's selection + variation on tensors. Returns (offspring,
+        elites) as geppy individuals: elites are the deme's own objects, as in
+        the object path; every offspring is new and unevaluated."""
+        from _tensor_pop import TensorPop, vary
+        pop = TensorPop.from_geppy(deme, table)
+        winners = pop.tournament(len(pop), tournsize, rng)                 # deme[:] = selTournament(deme)
+        chosen = pop.take(winners)
+        elite_rows = chosen.best(cfg.num_elites)
+        elites = [deme[int(winners[r])] for r in elite_rows]
+        offspring = chosen.take(chosen.tournament(len(pop) - cfg.num_elites, tournsize, rng))
+        parent_fitness = np.where(np.isfinite(offspring.fitness), offspring.fitness, np.inf)
+        top = np.argsort(parent_fitness, kind="stable")[:self.TENSOR_OPS_TOP_K]
+        # toolbox.rnc_gen, not a gene's own: genes rebuilt by the fuller
+        # operators (GeneDc.from_genome) carry none.
+        individual_class, rnc_gen = type(deme[0]), toolbox.rnc_gen
+        to_object = lambda p, r: p.to_geppy(int(r), individual_class, deme[0].linker, rnc_gen)
+
+        # Before variation, as in the object path: snap, then concretize.
+        if cfg.snap_winners or cfg.pb_concretize > 0:
+            chosen_few = [to_object(offspring, r) for r in top]
+            if cfg.snap_winners:
+                chosen_few = _apply_snap_to_winners(chosen_few, toolbox, pset, bundle, cfg)
+            chosen_few = _apply_concretize(chosen_few, toolbox, pset, bundle, cfg)
+            grafted = TensorPop.from_geppy(chosen_few, table)
+            offspring.genome[top], offspring.rnc[top] = grafted.genome, grafted.rnc
+
+        vary(offspring, rng, cfg.rnc_lo, cfg.rnc_hi)
+        objects = [to_object(offspring, r) for r in range(len(offspring))]
+
+        # After variation: denoise and physics, on the same few.
+        if cfg.pb_denoise > 0 or cfg.pb_physics > 0:
+            few = [objects[int(r)] for r in top]
+            if cfg.pb_denoise > 0:
+                few = _apply_denoise(few, toolbox, pset, bundle, cfg)
+            if cfg.pb_physics > 0:
+                few = _apply_physics(few, toolbox, pset, bundle, cfg, gen)
+            for r, ind in zip(top, few):
+                objects[int(r)] = ind
+        self.tensor_ops_rows_ += len(top)
+        return objects, elites
 
     def _chromosome_math(self, ind, bundle):
         """The reported model as one fuller `Math` expression,

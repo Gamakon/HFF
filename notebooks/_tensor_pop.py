@@ -38,7 +38,8 @@ class SymbolTable:
     """id <-> geppy token for one fit. Ids: every decodable function, then every
     terminal. `sample_functions` / `sample_terminals` are what initialisation
     and uniform mutation may DRAW (the pset's own functions; its terminals less
-    the ones withheld from sampling) — a gene may still CARRY any id."""
+    the ones withheld from sampling) — a gene may still CARRY any id. Ids are
+    keyed by token NAME."""
     tokens: list
     arity: np.ndarray
     is_function: np.ndarray
@@ -50,7 +51,7 @@ class SymbolTable:
     def from_pset(cls, pset, decodable_functions=None):
         functions = list(decodable_functions if decodable_functions is not None else pset.functions)
         tokens = functions + list(pset.terminals)
-        id_of = {id(t): i for i, t in enumerate(tokens)}
+        id_of = {t.name: i for i, t in enumerate(tokens)}
         withheld = getattr(pset, "sampling_withheld", frozenset())
         drawable = {id(f) for f in pset.functions}
         return cls(
@@ -63,6 +64,20 @@ class SymbolTable:
                                        if not isinstance(t, Function) and t.name not in withheld], dtype=np.int32),
             id_of=id_of,
         )
+
+    def intern(self, token) -> int:
+        """The id of `token`, by NAME (a token that went through pickle is a
+        different object with the same name). A token met for the first time —
+        snap adds constant terminals to the pset while a fit runs — joins the
+        table; it is never drawn by sampling."""
+        i = self.id_of.get(token.name)
+        if i is None:
+            i = len(self.tokens)
+            self.tokens.append(token)
+            self.id_of[token.name] = i
+            self.arity = np.append(self.arity, np.int32(getattr(token, "arity", 0)))
+            self.is_function = np.append(self.is_function, isinstance(token, Function))
+        return i
 
 
 class TensorPop:
@@ -113,8 +128,8 @@ class TensorPop:
     def from_geppy(cls, individuals, table):
         first = individuals[0][0]
         H, T = first.head_length, first.tail_length
-        id_of = table.id_of
-        genome = np.array([[[id_of[id(tok)] for tok in list(g.head) + list(g.tail)] + [int(k) for k in g.dc]
+        intern = table.intern
+        genome = np.array([[[intern(tok) for tok in list(g.head) + list(g.tail)] + [int(k) for k in g.dc]
                             for g in ind] for ind in individuals], dtype=np.int32)
         rnc = np.array([[[float(v) for v in g.rnc_array] for g in ind] for ind in individuals], dtype=np.float64)
         pop = cls(table, genome, rnc, H, T)
@@ -374,3 +389,23 @@ class TensorPop:
             for column in blob.T.astype(np.uint64):
                 key = (key ^ column) * np.uint64(1099511628211)
         return key
+
+
+# The engine's operator schedule (hff_sr_engine._build_toolbox), in the order
+# geppy applies it: every mutation, then every crossover.
+def vary(pop: TensorPop, rng, rnc_lo: int, rnc_hi: int) -> None:
+    pop.mutate_uniform(1.0, 0.05, rng)
+    pop.invert(0.1, rng)
+    pop.is_transpose(0.1, rng)
+    pop.ris_transpose(0.1, rng)
+    pop.gene_transpose(0.1, rng)
+    pop.mutate_uniform_dc(1.0, 0.05, rng)
+    pop.invert_dc(0.1, rng)
+    pop.transpose_dc(0.1, rng)
+    pop.mutate_rnc_array(1.0, 0.5, rnc_lo, rnc_hi, rng)
+    pop.crossover_one_point(0.3, rng)
+    pop.crossover_two_point(0.2, rng)
+    pop.crossover_gene(0.1, rng)
+    # geppy deletes the fitness of every individual an operator was APPLIED to,
+    # changed or not; mutate_uniform and mutate_uniform_dc run at pb = 1.
+    pop.fitness[:] = np.nan
