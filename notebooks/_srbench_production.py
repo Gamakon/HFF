@@ -37,6 +37,10 @@ SRBENCH = os.path.join(HERE, "_ledgers", "srbench_repo", "experiment")
 PMLB = os.path.join(HERE, "_ledgers", "pmlb_repo", "datasets")
 PEERS = os.path.join(HERE, "_ledgers", "srbench_peers", "ground-truth_results.feather")
 NOISE = [0.0, 0.001, 0.01, 0.1]
+# OUR seeds, for development. SRBench scores on experiment/seeds.py; every
+# setting tuned while watching one of those is tuned on the test set. main()
+# refuses to start if any of these is in their list.
+DEV_SEEDS = [7001, 7002, 7003, 7004, 7005, 7006, 7007, 7008, 7009, 7010]
 N_SEEDS = 10
 ASSESS_TIMEOUT_S = 20
 
@@ -133,6 +137,10 @@ def main():
     ap.add_argument("--pick", type=int, default=0, help="run a RANDOM sample of this many datasets (0 = all)")
     ap.add_argument("--pick-seed", type=int, default=20260920, help="seed of that draw, so it can be reproduced")
     ap.add_argument("--seeds", type=int, default=N_SEEDS, help="how many of SRBench's seeds, from the first")
+    ap.add_argument("--official-seeds", action="store_true",
+                    help="use SRBench's own seeds. ONLY for a final, reported evaluation: they are the "
+                         "test seeds, and developing against them is tuning on the test set. Without "
+                         "this flag the run uses DEV_SEEDS, none of which SRBench uses.")
     ap.add_argument("--first-seed", type=int, default=0, help="index into SRBench's seeds.py of the first seed to run")
     ap.add_argument("--results", default=os.path.join(HERE, "sr_logs", "srbench_production"))
     args = ap.parse_args()
@@ -144,7 +152,13 @@ def main():
         import random
         names = sorted(random.Random(args.pick_seed).sample(names, args.pick))
         print(f"random draw of {args.pick} of the official datasets (seed {args.pick_seed}):\n  " + ", ".join(names), flush=True)
-    jobs = [(n, s, tn) for s in SEEDS[args.first_seed:args.first_seed + args.seeds] for tn in args.noise for n in names]
+    overlap = sorted(set(DEV_SEEDS) & set(SEEDS))
+    if overlap:
+        raise SystemExit(f"DEV_SEEDS {overlap} are SRBench test seeds; development must not use them")
+    pool, kind = (SEEDS, "SRBench OFFICIAL (test) seeds") if args.official_seeds else (DEV_SEEDS, "development seeds (none used by SRBench)")
+    seeds = pool[args.first_seed:args.first_seed + args.seeds]
+    print(f"seeds: {seeds} — {kind}", flush=True)
+    jobs = [(n, s, tn) for s in seeds for tn in args.noise for n in names]
     deadline = time.time() + args.budget
     print(f"protocol: {len(names)} datasets x {args.seeds} seeds x {len(args.noise)} noise levels = {len(jobs)} fits | "
           f"search cap {args.max_time} s | {args.workers} workers | fitting budget {args.budget:.0f} s", flush=True)
