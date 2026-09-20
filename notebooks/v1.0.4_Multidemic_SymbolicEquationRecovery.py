@@ -3739,6 +3739,13 @@ CUSTOM_SYMBOLIC_FUNCTION_MAP = hgh.custom_symbolic_function_map()
 CUSTOM_SYMBOLIC_FUNCTION_MAP["protected_sqrt"] = lambda x: sp.sqrt(sp.Abs(x))
 CUSTOM_SYMBOLIC_FUNCTION_MAP["protected_exp"]  = sp.exp
 CUSTOM_SYMBOLIC_FUNCTION_MAP["protected_log"]  = lambda x: sp.log(sp.Abs(x))
+# The protected divides return their fallback when |divisor| < 1e-6, not only
+# at an exactly zero divisor. The symbolic form must say the same, decided on
+# the rows the model was selected on, or the reported model is a different
+# function from the selected one (hgh.symbolic_protected_div).
+CUSTOM_SYMBOLIC_FUNCTION_MAP.update(hgh.protected_div_symbolic_entries(
+    pd.concat([train[finalTerminals], validation[finalTerminals], extrapolation[finalTerminals]],
+              ignore_index=True).astype(float), list(finalTerminals)))
 
 # Per-gene simplify + linker assembly — skips the top-level sp.simplify()
 # inside gep.simplify(), which is the slow path on multi-gene chromosomes.

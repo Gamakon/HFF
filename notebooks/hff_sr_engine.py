@@ -2657,32 +2657,7 @@ class HFFSREngine:
             [bundle.extrapolation] if self.config.mode != "wild_regression" else [])
         _div_rows = pd.concat([f[bundle.variables] for f in _div_frames], ignore_index=True).astype(float)
 
-        def _sym_protected_div_zero(a, b, _rows=_div_rows, _vars=list(bundle.variables)):
-            a, b = sp.sympify(a), sp.sympify(b)
-            piecewise = sp.Piecewise((sp.Integer(0), sp.Abs(b) < 1e-6), (a / b, True))
-            if not b.free_symbols:
-                try:
-                    return sp.Integer(0) if abs(float(b)) < 1e-6 else a / b
-                except (TypeError, ValueError):
-                    return piecewise
-            if not all(str(sym) in _vars for sym in b.free_symbols):
-                return piecewise                       # a named constant or "?": not decidable here
-            try:
-                with np.errstate(all="ignore"):
-                    mag = np.abs(np.broadcast_to(np.asarray(
-                        sp.lambdify([sp.Symbol(v) for v in _vars], b, "numpy")(*[_rows[v].values for v in _vars]),
-                        dtype=float), (len(_rows),)))
-            except Exception:
-                return piecewise
-            if not np.all(np.isfinite(mag)):
-                return piecewise
-            if np.all(mag >= 1e-6):
-                return a / b
-            if np.all(mag < 1e-6):
-                return sp.Integer(0)
-            return piecewise
-
-        sym_map["protected_div_zero"] = _sym_protected_div_zero
+        sym_map.update(hgh.protected_div_symbolic_entries(_div_rows, list(bundle.variables)))
         # Sympy mappings for the extended primitive set.
         sym_map["tanh"] = sp.tanh
         sym_map["_pset_square"] = lambda x: x ** 2

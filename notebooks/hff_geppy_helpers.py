@@ -160,6 +160,64 @@ def addval(*n):
     return total
 
 
+PROTECTED_DIV_THRESHOLD = 1e-6
+
+
+def symbolic_protected_div(rows, variables, when_tiny):
+    """The SYMBOLIC form of a protected divide that agrees with the numeric one.
+
+    The numeric operators (protected_div_zero/one/orig, the device kernel,
+    fuller) return their fallback whenever |divisor| < 1e-6. A symbolic form
+    that only knows an EXACTLY zero divisor divides by a tiny one literally:
+    Feynman I.18.14's law, selected with R2 = 1, was reported with a 2.1e14
+    term and predicted R2 = -2.64.
+
+    `rows` is the data the model is selected on (a DataFrame), `variables` its
+    columns, `when_tiny(a)` the operator's fallback. The threshold is decided
+    on those rows: divisor never tiny -> a/b; always tiny -> the fallback;
+    sometimes, or not decidable -> the exact Piecewise definition."""
+    import sympy as sp
+    columns = [rows[v].to_numpy(dtype=float) for v in variables]
+    symbols = [sp.Symbol(v) for v in variables]
+
+    def divide(a, b):
+        a, b = sp.sympify(a), sp.sympify(b)
+        exact = sp.Piecewise((when_tiny(a), sp.Abs(b) < PROTECTED_DIV_THRESHOLD), (a / b, True))
+        if not b.free_symbols:
+            try:
+                return when_tiny(a) if abs(float(b)) < PROTECTED_DIV_THRESHOLD else a / b
+            except (TypeError, ValueError):
+                return exact
+        if not all(str(sym) in variables for sym in b.free_symbols):
+            return exact                     # a named constant or "?": not decidable on the rows
+        try:
+            with np.errstate(all="ignore"):
+                size = np.abs(np.broadcast_to(
+                    np.asarray(sp.lambdify(symbols, b, "numpy")(*columns), dtype=float), (len(rows),)))
+        except Exception:
+            return exact
+        if not np.all(np.isfinite(size)):
+            return exact
+        if np.all(size >= PROTECTED_DIV_THRESHOLD):
+            return a / b
+        if np.all(size < PROTECTED_DIV_THRESHOLD):
+            return when_tiny(a)
+        return exact
+
+    return divide
+
+
+def protected_div_symbolic_entries(rows, variables) -> dict:
+    """Entries for a symbolic function map: all three protected divides,
+    threshold-faithful on `rows`. Lay them over custom_symbolic_function_map()."""
+    import sympy as sp
+    return {
+        "protected_div_zero": symbolic_protected_div(rows, variables, lambda a: sp.Integer(0)),
+        "protected_div_one": symbolic_protected_div(rows, variables, lambda a: sp.Integer(1)),
+        "protected_div_orig": symbolic_protected_div(rows, variables, lambda a: a),
+    }
+
+
 def custom_symbolic_function_map():
     """Mapping used by gep.simplify so user-defined ops survive sympy round-tripping."""
     import sympy as sp
