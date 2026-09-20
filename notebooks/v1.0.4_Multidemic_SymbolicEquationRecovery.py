@@ -1848,9 +1848,44 @@ ECLASS_K = int(os.environ.get("HFF_ECLASS_K", "8"))
 # genes, and crossing identical genes makes nothing new. On II.4.23, same
 # seed, generation 30: 101 new expressed trees per generation without
 # grafting, 17 with it, and the run sat at R² 0.90 for 350 generations.
-GRAFT_MODE = os.environ.get("HFF_GRAFT_MODE", "improve")
-if GRAFT_MODE not in ("improve", "simplify", "off"):
-    raise ValueError(f"HFF_GRAFT_MODE must be improve/simplify/off, got {GRAFT_MODE!r}")
+#   hff (default): HFF decides. With parsimony on the sphere (below) a form
+#             that computes the same thing in fewer nodes IS a better
+#             individual, so the graft is simply "take the form HFF ranked
+#             best" — no tie rule, no ratchet.
+GRAFT_MODE = os.environ.get("HFF_GRAFT_MODE", "hff")
+if GRAFT_MODE not in ("hff", "improve", "simplify", "off"):
+    raise ValueError(f"HFF_GRAFT_MODE must be hff/improve/simplify/off, got {GRAFT_MODE!r}")
+
+# PARSIMONY AS AN HFF AXIS. HFF ranks individuals on performance AND parsimony:
+# the size of the expressed chromosome is a column of the objective matrix like
+# any error term, so it moves the angle. HFF_PARSIMONY=0 restores the
+# error-only sphere (for comparison runs).
+#
+# Every column is normalised HERE, by hand, and HFF is called with
+# normalize=False — its built-in min-max would re-stretch the size column over
+# whatever the pool happens to hold and undo the scaling chosen for it.
+#   error columns: min-max over the pool, exactly as HFF's core does it
+#                  (a constant column keeps range 1).
+#   size column:   expressed nodes / the most a chromosome can express, so it
+#                  is in [0, 1] on a FIXED scale — the same gene has the same
+#                  parsimony coordinate in every generation and on every island.
+PARSIMONY_AXIS = os.environ.get("HFF_PARSIMONY", "1") == "1"
+
+
+def _nb_minmax_columns(F):
+    """Column-wise min-max, matching hff's core (src/lib.rs apply_minmax)."""
+    F = np.asarray(F, dtype=np.float64)
+    with np.errstate(invalid="ignore"):
+        lo = np.nanmin(F, axis=0)
+        hi = np.nanmax(F, axis=0)
+        rng = hi - lo
+        rng = np.where(np.abs(rng) < np.finfo(np.float64).eps, 1.0, rng)
+        return (F - lo) / rng
+
+
+def _nb_max_expressed_nodes(ind):
+    """The most nodes this chromosome could express: every gene's full length."""
+    return float(sum(len(g.head) + len(g.tail) for g in ind))
 FULLER_SNAP_IN_JOIN = os.environ.get("HFF_SNAP_IN_JOIN", "1") == "1"
 ECLASS_TIE_TOL = float(os.environ.get("HFF_ECLASS_TIE_TOL", "1e-6"))
 _NB_ECLASS_CACHE_MAX = 200_000
@@ -2380,9 +2415,23 @@ def assign_fitness_batch(population, raw_results):
             cand_payload.append(c)
     F = np.array(F_rows, dtype=np.float64)
 
-    fitness = hff.calculate_fitness_hf1_enhanced(
-        F, normalize=True, north_pole_method=settings.north_pole_method
-    )
+    if PARSIMONY_AXIS:
+        size = np.empty(len(cand_owner), dtype=np.float64)
+        for k, owner in enumerate(cand_owner):
+            ind = population[owner]
+            nodes = float(sum(len(g.kexpression) for g in ind))
+            saving = cand_payload[k].get("saving")
+            if saving is not None:
+                nodes -= max(0, saving[0])      # a variant expresses fewer nodes
+            size[k] = nodes / _nb_max_expressed_nodes(ind)
+        F = np.hstack([_nb_minmax_columns(F), size.reshape(-1, 1)])
+        fitness = hff.calculate_fitness_hf1_enhanced(
+            F, normalize=False, north_pole_method=settings.north_pole_method
+        )
+    else:
+        fitness = hff.calculate_fitness_hf1_enhanced(
+            F, normalize=True, north_pole_method=settings.north_pole_method
+        )
 
     # Per individual: pick the candidate row with minimum fitness.
     # Variant candidates are excluded HERE: a fitness must describe the genes
@@ -2421,6 +2470,8 @@ def assign_fitness_batch(population, raw_results):
             f = float(fitness[k])
             if owner not in base_best or f < base_best[owner]:
                 base_best[owner] = f
+    # "hff": best_join already IS the form HFF ranked best among the
+    # individual's own candidates; it is grafted when it is a variant.
     graft_for = dict(best_join)
     if GRAFT_MODE == "off":
         graft_for = {}
@@ -2877,6 +2928,8 @@ experiment["gpu_join"] = os.environ.get("HFF_GPU") == "1"
 experiment["rule_families"] = os.environ.get("HFF_RULES", "all")
 experiment["eclass_k"] = ECLASS_K if os.environ.get("HFF_GPU") == "1" else 0
 experiment["fuller_mode"] = FULLER_MODE if os.environ.get("HFF_GPU") == "1" else "none"
+experiment["graft_mode"] = GRAFT_MODE
+experiment["parsimony_axis"] = PARSIMONY_AXIS
 experiment["number of elites"] = str(num_elites)
 experiment["number of generations"] = str(n_gen)
 experiment["number of islands"] = str(settings.num_islands)
