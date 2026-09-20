@@ -188,15 +188,19 @@ def run_one(problem_id: str, no_val: bool = False, audit_dir: str | None = None)
     stdout = proc.stdout
     # Find the LAST JSON object in stdout (multiple `print(json.dumps(...))`
     # could appear; we want the final one).
-    matches = list(re.finditer(r"\{[\s\S]*?\}", stdout))
+    # Decode a real JSON value at every "{", last first. (A non-greedy regex
+    # stops at the first "}", so a record holding a nested dict was silently
+    # reduced to nothing.)
     parsed = None
-    for m in reversed(matches):
+    decoder = json.JSONDecoder()
+    for start in reversed([m.start() for m in re.finditer(r"\{", stdout)]):
         try:
-            parsed = json.loads(m.group(0))
-            if "problem" in parsed and "recovery_exact" in parsed:
-                break
+            candidate, _ = decoder.raw_decode(stdout, start)
         except json.JSONDecodeError:
             continue
+        if isinstance(candidate, dict) and "problem" in candidate and "recovery_exact" in candidate:
+            parsed = candidate
+            break
 
     if parsed is None:
         result = {

@@ -30,6 +30,7 @@ def num(s):
 
 
 runs = defaultdict(list)          # arm -> [record]
+levels_offered, levels_grafted = {}, {}
 for d in sorted(glob.glob(os.path.join(root, f"{prefix}_*_s*"))):
     if not os.path.isdir(d):
         continue
@@ -41,6 +42,26 @@ for d in sorted(glob.glob(os.path.join(root, f"{prefix}_*_s*"))):
         r = json.load(open(side))
         log = side[:-5] + ".run.log"
         text = open(log).read() if os.path.exists(log) else ""
+        if "problem" not in r:
+            # A sidecar written before the sweep could read nested records:
+            # the full record is still in the run log.
+            dec = json.JSONDecoder()
+            for start in reversed([m.start() for m in re.finditer(r"\{", text)]):
+                try:
+                    cand, _ = dec.raw_decode(text, start)
+                except json.JSONDecodeError:
+                    continue
+                if isinstance(cand, dict) and "problem" in cand and "recovery_exact" in cand:
+                    r = {**cand, "elapsed_s": r.get("elapsed_s", cand.get("elapsed_s", 0.0))}
+                    break
+            else:
+                sys.exit(f"no experiment record in {log}")
+        levels_offered.setdefault(arm, {})
+        levels_grafted.setdefault(arm, {})
+        for k, v in (r.get("offered_by_level") or {}).items():
+            levels_offered[arm][k] = levels_offered[arm].get(k, 0) + v
+        for k, v in (r.get("grafts_by_level") or {}).items():
+            levels_grafted[arm][k] = levels_grafted[arm].get(k, 0) + v
         stop = STOP.search(text)
         join = JOIN.search(text)
         runs[arm].append({
@@ -81,3 +102,7 @@ for p in problems:
         cells.append(f"{sum(x['exact'] for x in recs)}/{len(recs)} {g:>5} {s:>5.0f}s")
     print(f"{p:<12}" + "".join(f"{c:>22}" for c in cells))
 print("\ncell = exact/seeds, median early-stop generation, median seconds")
+for arm in arms:
+    if levels_offered.get(arm):
+        print(f"\n{arm}: candidates offered by level {dict(sorted(levels_offered[arm].items()))}")
+        print(f"{' ' * len(arm)}  grafted by level           {dict(sorted(levels_grafted[arm].items()))}")

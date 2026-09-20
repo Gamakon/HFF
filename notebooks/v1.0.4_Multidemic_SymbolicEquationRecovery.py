@@ -1898,6 +1898,17 @@ _NB_ECLASS_CACHE: dict = {}
 FULLER_MODE = os.environ.get("HFF_FULLER", "lint")
 if FULLER_MODE not in ("lint", "egglog", "off"):
     raise ValueError(f"HFF_FULLER must be lint, egglog or off, not {FULLER_MODE!r}")
+# How far the linter may go. A variant is a MUTATION: it is scored on the data
+# like any other candidate, so fidelity to its parent — a guess — is not the
+# test; performance and parsimony are, and HFF applies it. Exactness is kept as
+# a label on each candidate (bit / rounding / finite / prune), not as a gate.
+#   finite (default): every rule, plus the data-justified prunes.
+#   rounding, bit:    only rules at least that faithful, and no prunes.
+LINT_EXACTNESS = os.environ.get("HFF_LINT_EXACTNESS", "finite")
+if LINT_EXACTNESS not in ("bit", "rounding", "finite"):
+    raise ValueError(f"HFF_LINT_EXACTNESS must be bit, rounding or finite, not {LINT_EXACTNESS!r}")
+_NB_GRAFTS_BY_LEVEL: dict = {}
+_NB_OFFERED_BY_LEVEL: dict = {}
 _NB_GPU_STATS = {"dispatches": 0, "genes": 0, "chromosomes": 0, "candidates": 0,
                  "seconds": 0.0, "expand_seconds": 0.0, "expanded": 0,
                  "variants": 0, "expand_errors": 0, "inexpressible": 0,
@@ -2015,7 +2026,9 @@ def _nb_expand_genes(genes):
         if FULLER_MODE == "lint":
             results = _f._fuller.lint_karva_candidates_batch(
                 list(todo.values()), variables, _build_functions_dict(pset),
-                k_variants=ECLASS_K, rng_seed=0, target_head_length=None)
+                k_variants=ECLASS_K, rng_seed=0, target_head_length=None,
+                exactness=LINT_EXACTNESS,
+                rows=_NB_ECLASS_ROWS if LINT_EXACTNESS == "finite" else [])
         elif FULLER_MODE == "off":
             results = [{"candidates": [], "orig_cost": None, "error": None,
                         "n_inexpressible": 0, "inexpressible_why": {},
@@ -2036,7 +2049,11 @@ def _nb_expand_genes(genes):
             for _w, _c in res["inexpressible_why"].items():
                 _NB_INEXPR_WHY[_w] = _NB_INEXPR_WHY.get(_w, 0) + _c
             _NB_GPU_STATS["oversized"] += res["n_oversized"]
-            props = [(c["head"], c["tail"], int(c["cost"]), (), False)
+            for c in res["candidates"]:
+                _lv = c.get("level", "egglog")
+                _NB_OFFERED_BY_LEVEL[_lv] = _NB_OFFERED_BY_LEVEL.get(_lv, 0) + 1
+            props = [(c["head"], c["tail"], int(c["cost"]), (), False,
+                      c.get("level", "egglog"))
                      for c in sorted(res["candidates"], key=lambda c: c["cost"])
                      if not c["is_original"]][:ECLASS_K]
             if props and res["orig_cost"] is None:
@@ -2085,7 +2102,8 @@ def _nb_expand_genes(genes):
     for gkey, (gene, okey, gdev) in expandable.items():
         orig_cost, props = _NB_ECLASS_CACHE[okey]
         entries, seen = [], {str(gdev)}
-        for head, tail, cost, consts, is_snap in props:
+        for head, tail, cost, consts, is_snap, *_rest in props:
+            _level = _rest[0] if _rest else ("snap" if is_snap else "egglog")
             if consts:
                 _augment_pset_with_constants(pset, list(consts))
             try:
@@ -2094,6 +2112,7 @@ def _nb_expand_genes(genes):
                 _NB_GPU_STATS["unbuildable"] += 1
                 _NB_UNBUILDABLE[e.reason] = _NB_UNBUILDABLE.get(e.reason, 0) + 1
                 continue
+            new_gene.fuller_level = _level      # how this form was obtained
             dev = hgh._resolve_rnc(new_gene, finalTerminals)
             if dev is None:
                 raise RuntimeError(
@@ -2496,6 +2515,8 @@ def assign_fitness_batch(population, raw_results):
             continue
         j, new_gene = p["variant"]
         _NB_GPU_STATS["grafts"] += 1
+        _glv = getattr(new_gene, "fuller_level", "?")
+        _NB_GRAFTS_BY_LEVEL[_glv] = _NB_GRAFTS_BY_LEVEL.get(_glv, 0) + 1
         _NB_GPU_STATS["snap_grafts"] += int(p["saving"][1])
         _NB_GPU_STATS["nodes_saved"] += max(0, p["saving"][0])
         population[owner][j] = copy.deepcopy(new_gene)
@@ -2929,6 +2950,7 @@ experiment["rule_families"] = os.environ.get("HFF_RULES", "all")
 experiment["eclass_k"] = ECLASS_K if os.environ.get("HFF_GPU") == "1" else 0
 experiment["fuller_mode"] = FULLER_MODE if os.environ.get("HFF_GPU") == "1" else "none"
 experiment["graft_mode"] = GRAFT_MODE
+experiment["lint_exactness"] = LINT_EXACTNESS if FULLER_MODE == "lint" else "n/a"
 experiment["parsimony_axis"] = PARSIMONY_AXIS
 experiment["number of elites"] = str(num_elites)
 experiment["number of generations"] = str(n_gen)
@@ -4123,6 +4145,11 @@ experiment["hof_numerical_recoveries"] = n_numerical
 
 # %%
 import json
+# Filled HERE, after the run: which kinds of candidate the simplifier offered,
+# and which kinds HFF actually grafted. (Set with the configuration, as first
+# written, they were read before evolution had produced anything.)
+experiment["offered_by_level"] = dict(sorted(_NB_OFFERED_BY_LEVEL.items()))
+experiment["grafts_by_level"] = dict(sorted(_NB_GRAFTS_BY_LEVEL.items()))
 print(json.dumps(experiment, sort_keys=False, indent=4, default=str))
 
 # %%
