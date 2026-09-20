@@ -1572,6 +1572,8 @@ class HFFSREngine:
         self.extract_notes_ = []
         self.a_ = 1.0
         self.b_ = 0.0
+        self.final_form_ = None
+        self.final_form_note_ = ""
         self.wrapper_id_ = 0
         self.wrapper_name_ = "identity"
         self.linker_id_ = 0
@@ -2914,6 +2916,7 @@ class HFFSREngine:
             self.hff_holdout_ = winner["hff_holdout"]
             self.a_ = winner["a"]
             self.b_ = winner["b"]
+            self.reported_a_, self.reported_b_ = float(winner["a"]), float(winner["b"])
             # POST-REGRESSION SNAP (egglog lattice): the GA found the SHAPE
             # (e.g. r²) but the constant lives in the LSM scalar `a` (≈3.14159).
             # Snap recognises `a` as a lattice constant (π) — pset never contains
@@ -2952,7 +2955,10 @@ class HFFSREngine:
             self.holdout_pick_table_ = []
 
         self._lambdified_var_order = bundle.variables[:]
+        if scorable:
+            self._fuller_final_form(hof[0], bundle)
         if verbose:
+            print(f"[engine] final form: {self.final_form_ or self.final_form_note_}")
             print(f"[engine] discovered ({self.discovered_source_}, "
                   f"hff_holdout={self.hff_holdout_}): {self.discovered_expr_}")
             for entry in (self.holdout_pick_table_ or [])[:5]:
@@ -2961,6 +2967,105 @@ class HFFSREngine:
                       f"hff={entry['hff_holdout']:.6f}  "
                       f"vec={entry['holdout_vec']}  "
                       f"{entry['expr'][:60]}")
+
+    def _chromosome_math(self, ind, bundle):
+        """The reported model as one fuller `Math` expression,
+        a * WRAPPER(LINKER(genes)) + b. Returns (math, None) or (None, reason)."""
+        import fuller._fuller as _ff
+        from _denoise_op import _build_functions_dict, _token_tuple
+        pset = self._pset
+        genes = []
+        for gene in ind:
+            dc = list(getattr(gene, "dc", []) or [])
+            rnc = list(getattr(gene, "rnc_array", []) or [])
+            toks = list(gene.head) + list(gene.tail)
+            need, n_orf = 1, 0
+            while need > 0 and n_orf < len(toks):
+                need += getattr(toks[n_orf], "arity", 0) - 1
+                n_orf += 1
+            if need > 0:
+                return None, "a gene's expression does not close"
+            out, n = [], 0
+            for tok in toks[:n_orf]:
+                k, v = _token_tuple(tok)
+                if k == "var" and v == "?":
+                    if n >= len(dc) or dc[n] >= len(rnc):
+                        return None, "a gene's RNC placeholder has no value"
+                    out.append(("num", float(rnc[dc[n]])))
+                    n += 1
+                else:
+                    out.append((k, v))
+            hl = len(gene.head)
+            genes.append(_ff.karva_to_math(out[:hl], out[hl:], list(bundle.variables)
+                                           + sorted(getattr(pset, "sampling_withheld", ())),
+                                           _build_functions_dict(pset), []))
+        linker = self.linker_name_
+        if linker.startswith("round_"):
+            return None, "a rounding linker has no Math constructor"
+        body = genes[0]
+        for g in genes[1:]:
+            body = f"(Mul {body} {g})" if linker == "mulval" else f"(Add {body} {g})"
+        if linker == "avgval" and len(genes) > 1:
+            body = f"(Div {body} (Num {float(len(genes))!r}))"
+        body = {"identity": body,
+                "log_abs": f"(Log (Abs {body}))",
+                "sqrt_abs": f"(Sqrt (Abs {body}))"}.get(self.wrapper_name_)
+        if body is None:
+            return None, f"wrapper {self.wrapper_name_!r} has no Math constructor"
+        return f"(Add (Mul (Num {self.reported_a_!r}) {body}) (Num {self.reported_b_!r}))", None
+
+    # A tidied form is kept only when it predicts what the model predicts:
+    # mean squared difference over train+validation, relative to the model's
+    # variance, no larger than this.
+    FINAL_FORM_AGREE = 1e-10
+
+    def _fuller_final_form(self, ind, bundle) -> None:
+        """fuller tidies the reported model, the data as judge.
+
+        The linter is given the training rows (so it offers PRUNE candidates: a
+        subterm whose removal does not move the predictions) and the facts the
+        data supports (a column that is positive on every row makes |x| = x).
+        Every candidate is executed on train+validation; the smallest one that
+        agrees with the model to FINAL_FORM_AGREE is the final form. Sets
+        self.final_form_ (dict) or leaves it None with self.final_form_note_.
+        """
+        import fuller._fuller as _ff
+        self.final_form_, self.final_form_note_ = None, ""
+        if not str(self.discovered_source_).startswith("chromosome"):
+            self.final_form_note_ = f"the reported model is not the plain chromosome (source {self.discovered_source_})"
+            return
+        math_expr, why = self._chromosome_math(ind, bundle)
+        if math_expr is None:
+            self.final_form_note_ = why
+            return
+        cols = list(bundle.variables)
+        X = pd.concat([bundle.train[cols], bundle.validation[cols]], ignore_index=True).astype(float)
+        columns = {c: X[c].tolist() for c in cols}
+        ref = np.asarray(_ff.eval_math(math_expr, columns), dtype=np.float64)
+        var = float(np.var(ref))
+        if not np.all(np.isfinite(ref)) or var <= 0:
+            self.final_form_note_ = "the chromosome's Math form is not finite, or is constant, on the data"
+            return
+        mine = np.asarray(self.predict(X), dtype=np.float64)
+        if float(np.mean((mine - ref) ** 2)) / var > 1e-6:
+            self.final_form_note_ = "the chromosome's Math form does not reproduce predict(); not used"
+            return
+        positive = [c for c in cols if bool((X[c] > 0).all())]
+        nonzero = [c for c in cols if bool((X[c] != 0).all())]
+        rows = X.iloc[:256].to_dict(orient="records")
+        forms = _ff.lint_forms(math_expr, cols, "finite", 8, rows, positive, nonzero)
+        kept = []
+        for f in forms:
+            pred = np.asarray(_ff.eval_math(f["math"], columns), dtype=np.float64)
+            if np.all(np.isfinite(pred)) and float(np.mean((pred - ref) ** 2)) / var <= self.FINAL_FORM_AGREE:
+                kept.append(f)
+        if not kept:
+            self.final_form_note_ = "no tidied form agrees with the model on the data"
+            return
+        best = min(kept, key=lambda f: (f["nodes"], f["infix"]))
+        self.final_form_ = {"infix": best["infix"], "math": best["math"], "nodes": best["nodes"],
+                            "level": best["level"], "input_nodes": forms[0]["nodes"],
+                            "positive": positive, "offered": len(forms), "agreeing": len(kept)}
 
     def _maybe_feynman_rewrite(self, expr, bundle, var_ranges):
         try:
@@ -3142,6 +3247,10 @@ class HFFSREngine:
         if best_tag != "orig" and best_r2 >= orig_r2 - 1e-9:
             if verbose:
                 print(f"[snap-post] adopted {best_tag}: {best_e}  (R² {orig_r2:.6f} -> {best_r2:.6f})")
+            # The scale and offset the adopted form uses, for the fuller final
+            # form, which rebuilds the model from the chromosome.
+            self.reported_a_ = float(ac) if best_tag in ("snap_a", "snap_a_dropb") else float(a)
+            self.reported_b_ = 0.0 if best_tag in ("snap_a_dropb", "dropb") else float(b)
             # Post-snap fold: the adopted form is assembled on the sympy side
             # after the last in-loop denoise, so a cancelling constant subtree
             # (e.g. pi*log|sqrt2| + a linker offset) is never handed back to

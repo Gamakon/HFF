@@ -283,6 +283,12 @@ def model(est, X=None) -> str:
     expr = getattr(est._engine, "discovered_expr_", None)
     if expr is None:
         return "0"
+    # fuller's final form of the same model (pruned on the data, |x| = x where
+    # the column is positive), when the engine produced one: it predicts what
+    # discovered_expr_ predicts, to the engine's FINAL_FORM_AGREE.
+    final = getattr(est._engine, "final_form_", None)
+    if final is not None:
+        expr = sp.sympify(final["infix"])
     # The engine saw col_0..col_n. SRBench's clean_pred_model maps x_0..x_n back
     # to the dataset's feature names (highest index first, so x_10 before x_1).
     import re
