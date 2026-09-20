@@ -1739,6 +1739,7 @@ class HFFSREngine:
 
         _won_holdout = False
 
+        self.individuals_evaluated_ = 0
         while gen <= target_gen:
             gen_start = time.perf_counter()
             if cfg.time_budget_s is not None:
@@ -1833,6 +1834,8 @@ class HFFSREngine:
 
             gen += 1
             self.generations_run_ = gen - 1
+            self.final_population_ = sum(len(d) for d in demes)
+            self.individuals_evaluated_ = getattr(self, "individuals_evaluated_", 0) + self.final_population_
 
         self.fit_seconds_ = time.perf_counter() - fit_start
         # Denoise stats — always print if denoise was active (provenance).

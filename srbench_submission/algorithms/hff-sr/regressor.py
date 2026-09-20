@@ -51,7 +51,7 @@ class HFFSymbolicRegressor(BaseEstimator, RegressorMixin):
     def __init__(self,
                  head_length: int = 48,
                  n_genes: int = 3,
-                 n_gen: int = 400,
+                 n_gen: int = 1500,
                  max_time: float = 3600.0,
                  # Wild-regression split: 60 train / 15 val / 25 holdout
                  # (random). No extrap — wild data has no truth-driven
@@ -127,7 +127,7 @@ class HFFSymbolicRegressor(BaseEstimator, RegressorMixin):
             adaptive_intake=True,
             adaptive_recalibrate_every=25,
             adaptive_pop_intake_min=50,
-            adaptive_pop_intake_max=500,
+            adaptive_pop_intake_max=1000,
         )
         for _k, _v in self.config_overrides.items():
             if not hasattr(config, _k):
@@ -141,6 +141,13 @@ class HFFSymbolicRegressor(BaseEstimator, RegressorMixin):
             holdout_X=X_ho, holdout_y=y_ho,
             verbose=bool(getattr(self, "_verbose_fit", False)),
         )
+        # What the search actually did, for the runner's result line. Module
+        # level because SRBench may fit a clone of `est`.
+        LAST_FIT.clear()
+        LAST_FIT.update(generations=getattr(self._engine, "generations_run_", None),
+                        population=getattr(self._engine, "final_population_", None),
+                        individuals=getattr(self._engine, "individuals_evaluated_", None),
+                        search_seconds=getattr(self._engine, "fit_seconds_", None))
         self.is_fitted_ = True
         return self
 
@@ -209,6 +216,14 @@ def _tidy_reported(expr):
     try:
         expr = sp.sympify(expr)
         expr = expr.replace(sp.re, lambda a: a).replace(sp.im, lambda a: sp.Integer(0))
+        # ZERO is a target only for a bare ADDITIVE term (a stray + 0.00003).
+        # A coefficient or an exponent never goes to 0: the fitted scale `a` is
+        # legitimately tiny when the gene product is huge, and zeroing it
+        # deleted the whole model (-1.9e-9*f(x) + 0.278 was reported as 0.278
+        # while predict() scored R2 0.77).
+        expr = expr.replace(
+            lambda e: e.is_Add,
+            lambda e: e.func(*[t for t in e.args if not (t.is_Float and abs(float(t)) < SNAP_TOL)]))
         subs = {}
         for f in expr.atoms(sp.Float):
             v = float(f)
@@ -216,7 +231,7 @@ def _tidy_reported(expr):
             # EVERY Float this close goes, including one that already equals r
             # as an f64: sympy Floats carry their own precision, and
             # 0.99999999999999998 is 1.0 to Python yet still prints as itself.
-            if abs(v - r) < SNAP_TOL:
+            if r != 0 and abs(v - r) < SNAP_TOL:
                 subs[f] = sp.Rational(int(round(2.0 * r)), 2)
         return expr.subs(subs) if subs else expr
     except Exception as e:                      # never lose a model to tidying
@@ -235,6 +250,8 @@ def _load_constant_values() -> dict:
 
 
 _CONSTANT_VALUES = _load_constant_values()
+
+LAST_FIT = {}
 
 est = HFFSymbolicRegressor(max_time=float(os.environ.get("HFF_SRBENCH_MAX_TIME", "3600")))
 
