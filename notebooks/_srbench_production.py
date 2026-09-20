@@ -117,7 +117,7 @@ def _job_inner(name, seed, tn, out):
         signal.alarm(0)
     a = json.load(open(jf + ".updated")) if os.path.exists(jf + ".updated") else json.load(open(jf))
     out.update(r2_test=a.get("r2_test"), model_size=a.get("model_size"),
-               model=str(a.get("symbolic_model"))[:60],
+               model=str(a.get("symbolic_model")),
                solution=bool(any(bool(a.get(k)) for k in ("symbolic_error_is_zero", "symbolic_error_is_constant",
                                                           "symbolic_fraction_is_constant"))
                              and str(a.get("simplified_symbolic_model")) not in ("None", "0", "nan")))
