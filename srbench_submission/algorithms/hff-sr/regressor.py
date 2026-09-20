@@ -213,7 +213,10 @@ def _tidy_reported(expr):
         for f in expr.atoms(sp.Float):
             v = float(f)
             r = round(2.0 * v) / 2.0
-            if r != v and abs(v - r) < SNAP_TOL:
+            # EVERY Float this close goes, including one that already equals r
+            # as an f64: sympy Floats carry their own precision, and
+            # 0.99999999999999998 is 1.0 to Python yet still prints as itself.
+            if abs(v - r) < SNAP_TOL:
                 subs[f] = sp.Rational(int(round(2.0 * r)), 2)
         return expr.subs(subs) if subs else expr
     except Exception as e:                      # never lose a model to tidying
