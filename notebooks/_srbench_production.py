@@ -297,6 +297,8 @@ def main():
     ap.add_argument("--pick", type=int, default=0, help="run a RANDOM sample of this many datasets (0 = all)")
     ap.add_argument("--pick-seed", type=int, default=20260920, help="seed of that draw, so it can be reproduced")
     ap.add_argument("--seeds", type=int, default=N_SEEDS, help="how many of SRBench's seeds, from the first")
+    ap.add_argument("--only-unsolved", default=None, metavar="LEDGER",
+                    help="run only the datasets a previous race's race_ledger.json records as NOT solved")
     ap.add_argument("--resume", action="store_true", help="--race: continue the ledger and park files already in --results")
     ap.add_argument("--problem-budget", type=float, default=3600.0,
                     help="--race: total SEARCH seconds one problem may use across all attempts and sessions")
@@ -320,6 +322,11 @@ def main():
         import random
         names = sorted(random.Random(args.pick_seed).sample(names, args.pick))
         print(f"random draw of {args.pick} of the official datasets (seed {args.pick_seed}):\n  " + ", ".join(names), flush=True)
+    if args.only_unsolved:
+        earlier = json.load(open(args.only_unsolved))
+        unsolved = {k.split("|")[0] for k, e in earlier.items() if not e.get("solution")}
+        names = [n for n in names if n in unsolved]
+        print(f"only the {len(names)} datasets unsolved in {args.only_unsolved}", flush=True)
     if args.shuffle is not None:
         import random
         random.Random(args.shuffle).shuffle(names)
