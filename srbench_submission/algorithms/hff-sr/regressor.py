@@ -132,6 +132,7 @@ class HFFSymbolicRegressor(BaseEstimator, RegressorMixin):
             # The pump (promote the intake's best 2 to the champion island,
             # keep its best 20%, refill 80% fresh) every 4 generations, not 20.
             migration_freq_intra=PUMP_EVERY,
+            migration_freq=CROSS_EVERY,         # just off the pump's beat
             adaptive_intake=False,
             pop_intake=POP_INTAKE,
             pop_champion=POP_CHAMPION,
@@ -158,7 +159,7 @@ class HFFSymbolicRegressor(BaseEstimator, RegressorMixin):
                         population=getattr(self._engine, "final_population_", None),
                         islands="+".join(str(n) for n in getattr(self._engine, "island_sizes_", [])) or None,
                         tournaments=f"{config.tourn_intake}+{config.tourn_champion}",
-                        pump_every=config.migration_freq_intra,
+                        pump_every=f"{config.migration_freq_intra}/{config.migration_freq}",
                         individuals=getattr(self._engine, "individuals_evaluated_", None),
                         search_seconds=getattr(self._engine, "fit_seconds_", None))
         self.is_fitted_ = True
@@ -268,6 +269,7 @@ POP_INTAKE = 600
 POP_CHAMPION = 200
 TOURNAMENT_FRACTION = 0.07
 PUMP_EVERY = 4
+CROSS_EVERY = 5
 
 
 def _tournament_size(island_population: int) -> int:
