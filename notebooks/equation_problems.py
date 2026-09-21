@@ -227,7 +227,8 @@ def generate_data(
                 manifest = json.load(f)
             if manifest.get("cache_key") == key:
                 splits = {}
-                for split in ("train", "val", "holdout", "extrapolation"):
+                # "extrapolation" is no longer generated or loaded (see generate below).
+                for split in ("train", "val", "holdout"):
                     splits[split] = pd.read_csv(os.path.join(cache_path, f"{split}.csv"))
                 if verbose:
                     print(f"  ✓ cache hit  ({cache_path}, key={key})")
@@ -245,7 +246,10 @@ def generate_data(
         "train":         _sample(problem, problem.train_ranges,  problem.n_train,   rng),
         "val":           _sample(problem, problem.train_ranges,  problem.n_val,     rng),
         "holdout":       _sample(problem, problem.train_ranges,  problem.n_holdout, rng),
-        "extrapolation": _sample(problem, problem.extrap_ranges, problem.n_extrap,  rng),
+        # COMMENTED OUT 2026-09-21 (Andrew): rows made OUTSIDE the training range by
+        # evaluating the KNOWN formula are cheating — a real problem gives data, not
+        # its answer. No extrapolation split is generated any more.
+        # "extrapolation": _sample(problem, problem.extrap_ranges, problem.n_extrap,  rng),
     }
     for name, df in splits.items():
         df.to_csv(os.path.join(cache_path, f"{name}.csv"), index=False)
