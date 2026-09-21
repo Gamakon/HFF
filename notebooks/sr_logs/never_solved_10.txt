@@ -1,0 +1,12 @@
+# Ten problems never solved in any race (Python or Rust, any development seed), 2026-09-21.
+# Six near misses (best test R2 = 1.0000), two middling, two far off.
+feynman_II_11_27
+feynman_II_24_17
+feynman_II_11_3
+feynman_III_4_32
+feynman_I_48_2
+feynman_I_15_10
+feynman_I_26_2
+feynman_I_6_2
+feynman_I_29_16
+feynman_III_9_52

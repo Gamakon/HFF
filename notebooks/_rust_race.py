@@ -39,6 +39,7 @@ def main():
     ap.add_argument("--generations", type=int, default=0, help="stop each fit by generations (0 = by --seconds); give --seconds as a generous ceiling")
     ap.add_argument("--engine", default=ENGINE, help="the evolve_fit binary to snapshot into the results folder")
     ap.add_argument("--limit", type=int, default=0, help="only the first N datasets of the shuffled order (a check run)")
+    ap.add_argument("--problems", default=None, help="a file of dataset names, one per line: race only these")
     ap.add_argument("--results", default=os.path.join(HERE, "sr_logs", "rust_race"))
     args = ap.parse_args()
     # ABSOLUTE: SRBench's assess runs from its own folder, and a relative path
@@ -96,6 +97,12 @@ def main():
         return ok, note if "FAILED" in note else ""
     names = sorted(os.path.basename(d) for d in glob.glob(f"{PMLB}/feynman_*") + glob.glob(f"{PMLB}/strogatz_*"))
     import random; random.Random(seed).shuffle(names)
+    if args.problems:
+        wanted = [l.strip() for l in open(args.problems) if l.strip() and not l.startswith("#")]
+        missing = [w for w in wanted if w not in names]
+        if missing:
+            raise SystemExit(f"--problems names not in the ground-truth set: {missing}")
+        names = [n for n in names if n in wanted]
     if args.limit:
         names = names[:args.limit]
     print(f"RUST ENGINE RACE: {len(names)} datasets | development seed {seed} | {args.seconds:.0f} s each | population {args.population} | cleanse {args.cleanse} | harvests {args.harvests} | rnc {args.rnc or "engine default"} | restarts {args.restarts} | edge {args.edge} | redundancy {args.redundancy} | generations {args.generations or "by time"} | one fit at a time", flush=True)
