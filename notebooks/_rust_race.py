@@ -189,14 +189,17 @@ def main():
         Xtr.assign(target=ytr).to_csv(train_path, sep="\t", index=False)
         test_path = os.path.join(args.results, f"{name}.test.tsv")
         Xte.assign(target=yte).to_csv(test_path, sep="\t", index=False)
+        # THE HALL OF FAME's file: the best model the fit has ever held, appended at
+        # every report — what is winning can be read while the fit is still running.
+        hof_path = os.path.join(args.results, f"{name}.hof.tsv") if args.progress else ""
         if args.progress:
-            print(f"{name}: fitting ...", flush=True)
+            print(f"{name}: fitting ... hall of fame: {hof_path}", flush=True)
         t = time.time()
         run = subprocess.run([engine, train_path, str(seed), str(args.seconds), str(args.max_rows), str(args.population), "all", str(args.cleanse), test_path],
                              # With --progress the engine's stderr goes STRAIGHT to the log, line by
                              # line as the fit runs; otherwise it is kept for the ENGINE FAILED message.
                              stdout=subprocess.PIPE, stderr=(None if args.progress else subprocess.PIPE), text=True,
-                             env=dict(knobs, EVOLVE_EDGE=edge_path))
+                             env=dict(knobs, EVOLVE_EDGE=edge_path, EVOLVE_HOF_FILE=hof_path))
         if edge_path:
             os.remove(edge_path)
         wall = time.time() - t
