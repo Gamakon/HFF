@@ -40,7 +40,8 @@ NOISE = [0.0, 0.001, 0.01, 0.1]
 # OUR seeds, for development. SRBench scores on experiment/seeds.py; every
 # setting tuned while watching one of those is tuned on the test set. main()
 # refuses to start if any of these is in their list.
-DEV_SEEDS = [7001, 7002, 7003, 7004, 7005, 7006, 7007, 7008, 7009, 7010]
+DEV_SEEDS = [7001, 7002, 7003, 7004, 7005, 7006, 7007, 7008, 7009, 7010,
+             7011, 7012, 7013, 7014, 7015, 7016, 7017, 7018, 7019, 7020]
 N_SEEDS = 10
 ASSESS_TIMEOUT_S = 20
 
