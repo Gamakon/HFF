@@ -203,7 +203,12 @@ def main():
         # 2. Its test R2, from the FAITHFUL form — the one that may be executed.
         try:
             signal.alarm(20)
-            f = sp.lambdify([sp.Symbol(c) for c in cols], tidy(faithful), "numpy")
+            # A protection nested in a protection — 1/ProtectedDiv(..) — parses with a
+            # branch sympy has already evaluated to 1/0 = zoo. The OUTER protection
+            # guards that branch, so it is never taken; numpy cannot print zoo, so it
+            # is written as nan. Were it ever taken, the prediction is nan, the R2 is
+            # nan and the row says so — and the REPORT FAULT guard checks the rest.
+            f = sp.lambdify([sp.Symbol(c) for c in cols], tidy(faithful).xreplace({sp.zoo: sp.nan}), "numpy")
             with np.errstate(all="ignore"):
                 pred = np.broadcast_to(np.asarray(f(*Xte.to_numpy(float).T), float), (len(yte),))
             r2 = float(r2_score(yte, pred)) if np.all(np.isfinite(pred)) else float("nan")
