@@ -117,6 +117,16 @@ def main():
     print(f"RUST ENGINE RACE: {len(names)} datasets | development seed {seed} | {args.seconds:.0f} s each | population {args.population}{f" intake + {args.champion} champion" if args.champion else " (3:1 intake:champion)"} | cleanse {args.cleanse} | harvests {args.harvests} | rnc {args.rnc or "engine default"} | restarts {args.restarts} | edge {args.edge} | SMOGD {args.smogd} (noise x{args.smogd_noise}) | SMOTE {args.smote} | HFF log scale on blocks 2+3 {args.hff_log} | redundancy {args.redundancy} | generations {args.generations or "by time"} | one fit at a time", flush=True)
     print(f"{'dataset':<24}{'r2_test':>10}{'gens':>6}{'fit s':>7}{'stop':>12}  sol  model", flush=True)
     solved = solved_fuller = done = faults = 0; t0 = time.time()
+    # SIDE BY SIDE: what fuller wrote and what sympy made of it, with SRBench's
+    # verdict on each — one row per fit, rewritten whole on every (re)start.
+    side_path = os.path.join(args.results, "side_by_side.tsv")
+    with open(side_path, "w") as f:
+        f.write("dataset\texact_sympy_tidied\texact_fuller_direct\tr2_test\tgenerations\tstopped_by\tfuller_string\tsympy_tidied_string\n")
+    def side_by_side(name, sol, sol_fuller, r2, gens, stop, fuller_string, sympy_string):
+        with open(side_path, "a") as f:
+            f.write("\t".join([name, "Y" if sol else "n", "Y" if sol_fuller else "n", f"{r2:.6f}", str(gens), stop,
+                               str(fuller_string).replace("\t", " "), str(sympy_string).replace("\t", " ")]) + "\n")
+    print(f"side by side: {side_path}", flush=True)
     for name in names:
         ds = f"{PMLB}/{name}/{name}.tsv.gz"
         df = pd.read_csv(ds, sep="\t")
@@ -133,6 +143,7 @@ def main():
             print(f"{name:<24}{kept['r2_test']:>10.4f}{kept['generations']:>6}{kept['fit_wall']:>7.1f}{kept['stopped_by']:>12}  "
                   f"{'Y' if sol else 'n':>3}  {note or kept['symbolic_model']}", flush=True)
             if "sol_fuller" in kept:
+                side_by_side(name, sol, kept["sol_fuller"], kept["r2_test"], kept["generations"], kept["stopped_by"], kept.get("fuller_model", ""), kept["symbolic_model"])
                 print(f"      exact? sympy-tidied {'Y' if sol else 'n'} | fuller direct {'Y' if kept['sol_fuller'] else 'n'}  {kept.get('note_fuller') or kept.get('fuller_model', '')}", flush=True)
             if kept.get("detail"):
                 print(kept["detail"], flush=True)
@@ -211,6 +222,7 @@ def main():
                    "fuller_model": raw, "sol_fuller": sol_fuller, "note_fuller": note_fuller,
                    "generations": int(gens), "stopped_by": stop, "fit_wall": wall}, open(jf, "w"))
         sol, note = assess(jf, ds)
+        side_by_side(name, sol, sol_fuller, r2, gens, stop, raw, model)
         if note:
             model = note
         model = fault + model
