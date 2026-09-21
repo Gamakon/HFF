@@ -36,3 +36,11 @@ def test_the_values_a_reader_needs_survive():
         assert wanted in line, (wanted, line)
     assert "-3.2e+57" in R.format_row(*HOSTILE[1])
     assert " nan" in R.format_row(*HOSTILE[2]) and R.format_row(*HOSTILE[2]).endswith("...")
+
+
+def test_inverse_trig_is_reported_under_its_numpy_name_and_nothing_else_changes():
+    assert R.numpy_names("asin(x_0*sin(x_1))") == "arcsin(x_0*sin(x_1))"
+    assert R.numpy_names("2*acos(x_0) + atan(x_1)/asin(x_2)") == "2*arccos(x_0) + arctan(x_1)/arcsin(x_2)"
+    # already numpy-spelt, or merely containing the letters: untouched
+    assert R.numpy_names("arcsin(x_0)") == "arcsin(x_0)"
+    assert R.numpy_names("basin(x_0) + x_asin + tanh(x_1) + sin(x_0)") == "basin(x_0) + x_asin + tanh(x_1) + sin(x_0)"

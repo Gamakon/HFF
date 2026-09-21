@@ -32,6 +32,21 @@ MODEL_WIDTH = 56
 TABLE_HEADER = "".join(f"{name:{align}{width}}" for name, width, align in TABLE_COLUMNS) + "  model"
 
 
+def numpy_names(model: str) -> str:
+    """The model as SRBench is handed it: inverse trig under its NUMPY names.
+
+    SRBench writes its true laws with numpy's names — `arcsin(n*sin(theta2))` — and
+    sympy has no `arcsin`: it reads it as an unknown function, so the law written
+    sympy's way, `asin(..)`, never cancels against it (feynman_I_26_2 was found
+    exactly and scored 'n'). SRBench's parser strips `np.` from model strings, so
+    `np.arcsin` is a spelling it expects. Only the NAME changes; inside this harness
+    and fuller the function stays `asin` (sympy must be able to execute it)."""
+    import re
+    for sympy_name, numpy_name in (("asin", "arcsin"), ("acos", "arccos"), ("atan", "arctan")):
+        model = re.sub(rf"(?<![A-Za-z_]){sympy_name}\(", numpy_name + "(", model)
+    return model
+
+
 def _cell(value, width, align):
     """`value` as text of EXACTLY `width` characters (one of them a leading space
     for a right-aligned cell, so neighbours never touch)."""
@@ -325,6 +340,7 @@ def main():
         direct_dir = os.path.join(args.results, "fuller_direct")
         os.makedirs(direct_dir, exist_ok=True)
         direct_jf = os.path.join(direct_dir, os.path.basename(jf))
+        model, raw = numpy_names(model), numpy_names(raw)      # the spelling SRBench's laws use; the functions are unchanged
         json.dump({"algorithm": "hff_rust_fuller_direct", "dataset": name, "symbolic_model": raw, "r2_test": r2}, open(direct_jf, "w"))
         sol_fuller, note_fuller = assess(direct_jf, ds)
         json.dump({"algorithm": "hff_rust", "dataset": name, "symbolic_model": model, "r2_test": r2, "hff": hff, "detail": detail, "scores": scores, "note": (fault + tidy_note).strip(" |"),
