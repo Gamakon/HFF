@@ -227,7 +227,7 @@ def main():
     # THE STANDARD HEADER, unchanged since the first Rust race: one line of the
     # race's size and effort, then the column names directly above the results.
     # Everything newer goes on its own SETTINGS line ABOVE them, never between.
-    total = args.population + args.champion if args.champion else args.population
+    total = (args.population + args.champion if args.champion else args.population) * max(args.pairs, 1)
     print(f"RUST ENGINE RACE: {len(names)} datasets | development seed {seed} | {args.seconds:.0f} s each | population {total} | cleanse {args.cleanse} | rnc {args.rnc or 'engine default'} | restarts {args.restarts} | one fit at a time", flush=True)
     head = f"{args.grow_head_start} growing +1 every {args.grow_head} gens to {args.head or 34}" if args.grow_head else str(args.head or 34)
     islands = f"{args.population} intake + {args.champion} champion" if args.champion else "3:1 intake:champion"
