@@ -35,6 +35,7 @@ def main():
     ap.add_argument("--edge", action="store_true",
                     help="edge validation: hold the most isolated 20%% of the training rows (at most 2,000) out of "
                          "fitting and score them as separate HFF objectives (the SRBench entry's _isolated_rows)")
+    ap.add_argument("--smogd", action="store_true", help="SMOGD rows, generated inside the fit, as HFF's third block (tournaments only; the stop bar stays on validation)")
     ap.add_argument("--redundancy", action="store_true", help="leave-one-gene-out redundancy as an HFF objective")
     ap.add_argument("--generations", type=int, default=0, help="stop each fit by generations (0 = by --seconds); give --seconds as a generous ceiling")
     ap.add_argument("--engine", default=ENGINE, help="the evolve_fit binary to snapshot into the results folder")
@@ -67,7 +68,7 @@ def main():
         from assess_symbolic_model import assess_symbolic_model_from_file
     os.chdir(cwd)
     signal.signal(signal.SIGALRM, _alarm)
-    knobs = dict(os.environ, EVOLVE_RESTARTS=str(args.restarts), EVOLVE_REDUNDANCY="1" if args.redundancy else "0")
+    knobs = dict(os.environ, EVOLVE_RESTARTS=str(args.restarts), EVOLVE_REDUNDANCY="1" if args.redundancy else "0", EVOLVE_SMOGD="1" if args.smogd else "0")
     if args.generations:
         knobs["EVOLVE_MAX_GENERATIONS"] = str(args.generations)
     if args.rnc:
@@ -105,7 +106,7 @@ def main():
         names = [n for n in names if n in wanted]
     if args.limit:
         names = names[:args.limit]
-    print(f"RUST ENGINE RACE: {len(names)} datasets | development seed {seed} | {args.seconds:.0f} s each | population {args.population} | cleanse {args.cleanse} | harvests {args.harvests} | rnc {args.rnc or "engine default"} | restarts {args.restarts} | edge {args.edge} | redundancy {args.redundancy} | generations {args.generations or "by time"} | one fit at a time", flush=True)
+    print(f"RUST ENGINE RACE: {len(names)} datasets | development seed {seed} | {args.seconds:.0f} s each | population {args.population} | cleanse {args.cleanse} | harvests {args.harvests} | rnc {args.rnc or "engine default"} | restarts {args.restarts} | edge {args.edge} | SMOGD {args.smogd} | redundancy {args.redundancy} | generations {args.generations or "by time"} | one fit at a time", flush=True)
     print(f"{'dataset':<24}{'r2_test':>10}{'gens':>6}{'fit s':>7}{'stop':>12}  sol  model", flush=True)
     solved = done = faults = 0; t0 = time.time()
     for name in names:
@@ -145,7 +146,7 @@ def main():
         wall = time.time() - t
         os.remove(train_path)
         os.remove(test_path)
-        info = {l.split("\t")[0]: l.split("\t")[1:] for l in run.stdout.splitlines() if l.startswith(("GENERATIONS", "MODEL_INFIX", "CHROMOSOME_TEST_R2"))}
+        info = {l.split("\t")[0]: l.split("\t")[1:] for l in run.stdout.splitlines() if l.startswith(("GENERATIONS", "MODEL_INFIX", "CHROMOSOME_TEST_R2", "SMOGD"))}
         done += 1
         if run.returncode != 0 or "MODEL_INFIX" not in info:
             print(f"{name:<24}{'-':>10}{'-':>6}{wall:>7.1f}{'ENGINE FAILED':>12}   n  {run.stderr.strip()[-160:]}", flush=True)
@@ -181,6 +182,8 @@ def main():
         if note:
             model = note
         model = fault + model
+        if "SMOGD" in info:
+            model = f"[SMOGD {info['SMOGD'][0]} rows] " + model
         faults += bool(fault)
         solved += sol
         print(f"{name:<24}{r2:>10.4f}{gens:>6}{wall:>7.1f}{stop:>12}  {'Y' if sol else 'n':>3}  {model}", flush=True)
