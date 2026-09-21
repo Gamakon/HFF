@@ -41,6 +41,7 @@ def main():
     ap.add_argument("--hff-log", action="store_true", help="blocks two and three (validation; SMOGD/SMOTE) enter HFF on the log scale, so small errors still separate")
     ap.add_argument("--hff-no-val", action="store_true", help="leave validation out of HFF: tournaments rank on train + block three (validation still decides the stop bar)")
     ap.add_argument("--tower", action="store_true", help="the tower objective: t_depth (transcendental nesting depth) joins HFF; 0 up to depth 2, then a quarter per level")
+    ap.add_argument("--hff-log-train", action="store_true", help="the TRAIN block enters HFF on the log scale too: 1 + log10(x)/12, so 6e-6 and 1e-14 are no longer the same zero")
     ap.add_argument("--smote", action="store_true", help="SMOTE rows (on the segment between a real row and a near neighbour), generated inside the fit, join HFF's third block")
     ap.add_argument("--redundancy", action="store_true", help="leave-one-gene-out redundancy as an HFF objective")
     ap.add_argument("--generations", type=int, default=0, help="stop each fit by generations (0 = by --seconds); give --seconds as a generous ceiling")
@@ -79,6 +80,7 @@ def main():
     knobs["EVOLVE_HFF_LOG"] = "1" if args.hff_log else "0"
     knobs["EVOLVE_HFF_NO_VAL"] = "1" if args.hff_no_val else "0"
     knobs["EVOLVE_TOWER"] = "1" if args.tower else "0"
+    knobs["EVOLVE_HFF_LOG_TRAIN"] = "1" if args.hff_log_train else "0"
     if args.champion:
         knobs["EVOLVE_POP_CHAMPION"] = str(args.champion)
     if args.generations:
@@ -126,7 +128,7 @@ def main():
     print(f"SETTINGS: islands {f'{args.population} intake + {args.champion} champion' if args.champion else '3:1 intake:champion'} | generations {args.generations or 'by time'} | "
           f"HFF = train{'' if args.hff_no_val else ' + validation'}{' + block3' if (args.smogd or args.smote) else ''}{' + t_depth' if args.tower else ''}{' + redundancy' if args.redundancy else ''} | "
           f"block3 = {'SMOGD x' + str(args.smogd_noise) if args.smogd else ''}{' + ' if args.smogd and args.smote else ''}{'SMOTE' if args.smote else ''}{'' if (args.smogd or args.smote) else 'off'} | "
-          f"HFF log scale {args.hff_log} | side by side: {os.path.join(args.results, 'side_by_side.tsv')}", flush=True)
+          f"HFF log scale: train {args.hff_log_train}, blocks 2+3 {args.hff_log} | side by side: {os.path.join(args.results, 'side_by_side.tsv')}", flush=True)
     print(f"{'dataset':<24}{'r2_test':>10}{'gens':>6}{'fit s':>7}{'stop':>12}  sol  model", flush=True)
     solved = solved_fuller = done = faults = 0; t0 = time.time()
     # SIDE BY SIDE: what fuller wrote and what sympy made of it, with SRBench's
@@ -231,10 +233,10 @@ def main():
         # the result line itself stays as it always was.
         detail = ""
         if "HFF" in info and "MSE" in info:
-            as_r2 = lambda v: "-" if v == "-" else f"{1.0 - float(v):.4f}"
             third = " + ".join(f"{k} {info[k][0]}" for k in ("SMOGD", "SMOTE") if k in info)
-            detail = (f" | train R2 {as_r2(hff[1])} MSE {hff[4]} | val R2 {as_r2(hff[2])}"
-                      + (f" | block3 R2 {as_r2(hff[3])} MSE {hff[6]} ({third} rows)" if third else "")
+            detail = (f" | 1-R2 train {hff[1]} val {hff[2]}"
+                      + (f" block3 {hff[3]} ({third} rows)" if third else "")
+                      + f" | MSE train {hff[4]}"
                       + (f" | t_depth {info['TOWER'][0]}" if "TOWER" in info else "")
                       + f" | hff {hff[0]}")
         # SUBMITTED TWICE to SRBench's scorer: fuller's own string, exactly as the
