@@ -13,6 +13,7 @@ Required SRBench exports:
 
 from __future__ import annotations
 
+import math
 import os
 import sys
 
@@ -263,6 +264,11 @@ def _tidy_reported(expr):
         subs = {}
         for f in expr.atoms(sp.Float):
             v = float(f)
+            # A huge or non-finite literal (the 1.8e308 bound inside a protected
+            # root's Piecewise) is not near a half-integer in any useful sense,
+            # and rounding its double overflows: leave it alone.
+            if not math.isfinite(v) or abs(v) > 1e15:
+                continue
             r = round(2.0 * v) / 2.0
             # EVERY Float this close goes, including one that already equals r
             # as an f64: sympy Floats carry their own precision, and

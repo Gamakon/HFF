@@ -167,3 +167,16 @@ class TestTidiedGeneKeepsTheProtectedOperators:
         got = from_math('(ProtectedSqrt (Pow2 (Exp (Var "x"))))', {("ProtectedSqrt", 1): root})
         with np.errstate(all="ignore"):
             assert float(sp.lambdify([x], got, "numpy")(np.float64(400.0))) == 0.0
+
+
+class TestTidyToleratesHugeLiterals:
+    """The Piecewise of a protected root carries 1.7976931348623157e308; the tidy
+    must not choke on it (it raised OverflowError and reported the model untidied)."""
+
+    def test_a_huge_literal_is_left_alone_and_the_rest_is_still_tidied(self):
+        sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "srbench_submission", "algorithms", "hff-sr"))
+        import regressor as R
+        e = sp.sympify("0.99999999*x*Piecewise((sqrt(Abs(y)), Abs(y) < 1.7976931348623157e308), (0, True)) + 0.00003")
+        tidy = R._tidy_reported(e)
+        values = sorted(float(f) for f in tidy.atoms(sp.Float))
+        assert values == [1.7976931348623157e308], values          # the bound kept; 0.99999999 -> 1; +0.00003 gone
