@@ -156,9 +156,7 @@ def main():
                   f"{'Y' if sol else 'n':>3}  {note or kept['symbolic_model']}", flush=True)
             if "sol_fuller" in kept:
                 side_by_side(name, sol, kept["sol_fuller"], kept["r2_test"], kept["generations"], kept["stopped_by"], kept.get("fuller_model", ""), kept["symbolic_model"])
-                print(f"      exact? sympy-tidied {'Y' if sol else 'n'} | fuller direct {'Y' if kept['sol_fuller'] else 'n'}  {kept.get('note_fuller') or kept.get('fuller_model', '')}", flush=True)
-            if kept.get("detail"):
-                print(kept["detail"], flush=True)
+                print(f"      exact: sympy {'Y' if sol else 'n'}, fuller {'Y' if kept['sol_fuller'] else 'n'}{kept.get('detail', '')}", flush=True)
             if done % 10 == 0:
                 print(f"   TALLY {solved} solved of {done} = {100*solved/done:.1f}% | {time.time()-t0:.0f} s elapsed", flush=True)
             continue
@@ -220,9 +218,10 @@ def main():
         if "HFF" in info and "MSE" in info:
             as_r2 = lambda v: "-" if v == "-" else f"{1.0 - float(v):.4f}"
             third = " + ".join(f"{k} {info[k][0]}" for k in ("SMOGD", "SMOTE") if k in info)
-            detail = (f"      train R2 {as_r2(hff[1])} MSE {hff[4]} | block3 R2 {as_r2(hff[3])} MSE {hff[6]} | val R2 {as_r2(hff[2])} | hff {hff[0]}"
+            detail = (f" | train R2 {as_r2(hff[1])} MSE {hff[4]} | val R2 {as_r2(hff[2])}"
+                      + (f" | block3 R2 {as_r2(hff[3])} MSE {hff[6]} ({third} rows)" if third else "")
                       + (f" | t_depth {info['TOWER'][0]}" if "TOWER" in info else "")
-                      + (f" | block3 = {third} rows" if third else ""))
+                      + f" | hff {hff[0]}")
         # SUBMITTED TWICE to SRBench's scorer: fuller's own string, exactly as the
         # Rust engine wrote it, and the sympy-tidied one. sympy re-canonicalises
         # whatever it parses, so only the pair says what fuller achieves alone.
@@ -243,9 +242,7 @@ def main():
         solved += sol
         solved_fuller += sol_fuller
         print(f"{name:<24}{r2:>10.4f}{gens:>6}{wall:>7.1f}{stop:>12}  {'Y' if sol else 'n':>3}  {model}", flush=True)
-        print(f"      exact? sympy-tidied {'Y' if sol else 'n'} | fuller direct {'Y' if sol_fuller else 'n'}  {note_fuller or raw}", flush=True)
-        if detail:
-            print(detail, flush=True)
+        print(f"      exact: sympy {'Y' if sol else 'n'}, fuller {'Y' if sol_fuller else 'n'}{(' (' + note_fuller + ')') if note_fuller else ''}{detail}", flush=True)
         if done % 10 == 0:
             print(f"   TALLY {solved} solved of {done} = {100*solved/done:.1f}% | {time.time()-t0:.0f} s elapsed", flush=True)
     print(f"\nDONE: {solved} solved of {done} = {100*solved/max(done,1):.1f}% in {time.time()-t0:.0f} s  (Rust engine, seed {seed}, {args.seconds:.0f} s each) | fuller direct: {solved_fuller} solved | REPORT FAULTs {faults}", flush=True)
