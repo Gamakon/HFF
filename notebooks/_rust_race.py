@@ -115,7 +115,7 @@ def main():
     if args.limit:
         names = names[:args.limit]
     print(f"RUST ENGINE RACE: {len(names)} datasets | development seed {seed} | {args.seconds:.0f} s each | population {args.population}{f" intake + {args.champion} champion" if args.champion else " (3:1 intake:champion)"} | cleanse {args.cleanse} | harvests {args.harvests} | rnc {args.rnc or "engine default"} | restarts {args.restarts} | edge {args.edge} | SMOGD {args.smogd} (noise x{args.smogd_noise}) | SMOTE {args.smote} | HFF log scale on blocks 2+3 {args.hff_log} | redundancy {args.redundancy} | generations {args.generations or "by time"} | one fit at a time", flush=True)
-    print(f"{'dataset':<24}{'r2_test':>10}{'gens':>6}{'fit s':>7}{'stop':>12}  sol{'hff':>10}{'1-R2 train':>12}{'1-R2 val':>11}{'1-R2 smogd':>12}{'MSE train':>11}{'MSE val':>11}{'MSE smogd':>11}  model", flush=True)
+    print(f"{'dataset':<24}{'r2_test':>10}{'gens':>6}{'fit s':>7}{'stop':>12}  sol  model", flush=True)
     solved = done = faults = 0; t0 = time.time()
     for name in names:
         ds = f"{PMLB}/{name}/{name}.tsv.gz"
@@ -130,7 +130,9 @@ def main():
             sol, note = assess(jf, ds)
             solved += sol
             print(f"{name:<24}{kept['r2_test']:>10.4f}{kept['generations']:>6}{kept['fit_wall']:>7.1f}{kept['stopped_by']:>12}  "
-                  f"{'Y' if sol else 'n':>3}{''.join(f'{v:>{w}}' for v, w in zip((kept.get('hff', []) + ['-'] * 7)[:7], (10, 12, 11, 12, 11, 11, 11)))}  {note or kept['symbolic_model']}", flush=True)
+                  f"{'Y' if sol else 'n':>3}  {note or kept['symbolic_model']}", flush=True)
+            if kept.get("detail"):
+                print(kept["detail"], flush=True)
             if done % 10 == 0:
                 print(f"   TALLY {solved} solved of {done} = {100*solved/done:.1f}% | {time.time()-t0:.0f} s elapsed", flush=True)
             continue
@@ -186,18 +188,25 @@ def main():
                 fault = f"REPORT FAULT: chromosome test R2 {chromosome_r2:.8f}, reported string {r2:.8f} | "
         # What evolution selected on: HFF fitness (smaller is better) and 1-R2 per block.
         hff = info.get("HFF", ["-", "-", "-", "-"]) + info.get("MSE", ["-", "-", "-"])
-        json.dump({"algorithm": "hff_rust", "dataset": name, "symbolic_model": model, "r2_test": r2, "hff": hff,
+        # What evolution selected on goes on its OWN indented line under the result:
+        # the result line itself stays as it always was.
+        detail = ""
+        if "HFF" in info and "MSE" in info:
+            as_r2 = lambda v: "-" if v == "-" else f"{1.0 - float(v):.4f}"
+            third = " + ".join(f"{k} {info[k][0]}" for k in ("SMOGD", "SMOTE") if k in info)
+            detail = (f"      train R2 {as_r2(hff[1])} MSE {hff[4]} | block3 R2 {as_r2(hff[3])} MSE {hff[6]} | val R2 {as_r2(hff[2])} | hff {hff[0]}"
+                      + (f" | block3 = {third} rows" if third else ""))
+        json.dump({"algorithm": "hff_rust", "dataset": name, "symbolic_model": model, "r2_test": r2, "hff": hff, "detail": detail,
                    "generations": int(gens), "stopped_by": stop, "fit_wall": wall}, open(jf, "w"))
         sol, note = assess(jf, ds)
         if note:
             model = note
         model = fault + model
-        third = " + ".join(f"{k} {info[k][0]}" for k in ("SMOGD", "SMOTE") if k in info)
-        if third:
-            model = f"[{third} rows] " + model
         faults += bool(fault)
         solved += sol
-        print(f"{name:<24}{r2:>10.4f}{gens:>6}{wall:>7.1f}{stop:>12}  {'Y' if sol else 'n':>3}{hff[0]:>10}{hff[1]:>12}{hff[2]:>11}{hff[3]:>12}{hff[4]:>11}{hff[5]:>11}{hff[6]:>11}  {model}", flush=True)
+        print(f"{name:<24}{r2:>10.4f}{gens:>6}{wall:>7.1f}{stop:>12}  {'Y' if sol else 'n':>3}  {model}", flush=True)
+        if detail:
+            print(detail, flush=True)
         if done % 10 == 0:
             print(f"   TALLY {solved} solved of {done} = {100*solved/done:.1f}% | {time.time()-t0:.0f} s elapsed", flush=True)
     print(f"\nDONE: {solved} solved of {done} = {100*solved/max(done,1):.1f}% in {time.time()-t0:.0f} s  (Rust engine, seed {seed}, {args.seconds:.0f} s each) | REPORT FAULTs {faults}", flush=True)
