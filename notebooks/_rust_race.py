@@ -38,6 +38,7 @@ def main():
     ap.add_argument("--smogd", action="store_true", help="SMOGD rows, generated inside the fit, as HFF's third block (tournaments only; the stop bar stays on validation)")
     ap.add_argument("--champion", type=int, default=0, help="the champion island's size; --population is then the INTAKE island's size (0 = the 3:1 split of --population)")
     ap.add_argument("--smogd-noise", type=float, default=1.0, help="multiplier on the neighbours' variance SMOGD draws from (1 = the original; 2 or 3 widens the draws)")
+    ap.add_argument("--hff-log", action="store_true", help="blocks two and three (validation; SMOGD/SMOTE) enter HFF on the log scale, so small errors still separate")
     ap.add_argument("--smote", action="store_true", help="SMOTE rows (on the segment between a real row and a near neighbour), generated inside the fit, join HFF's third block")
     ap.add_argument("--redundancy", action="store_true", help="leave-one-gene-out redundancy as an HFF objective")
     ap.add_argument("--generations", type=int, default=0, help="stop each fit by generations (0 = by --seconds); give --seconds as a generous ceiling")
@@ -73,6 +74,7 @@ def main():
     signal.signal(signal.SIGALRM, _alarm)
     knobs = dict(os.environ, EVOLVE_RESTARTS=str(args.restarts), EVOLVE_REDUNDANCY="1" if args.redundancy else "0", EVOLVE_SMOGD="1" if args.smogd else "0", EVOLVE_SMOTE="1" if args.smote else "0")
     knobs["EVOLVE_SMOGD_NOISE"] = str(args.smogd_noise)
+    knobs["EVOLVE_HFF_LOG"] = "1" if args.hff_log else "0"
     if args.champion:
         knobs["EVOLVE_POP_CHAMPION"] = str(args.champion)
     if args.generations:
@@ -112,7 +114,7 @@ def main():
         names = [n for n in names if n in wanted]
     if args.limit:
         names = names[:args.limit]
-    print(f"RUST ENGINE RACE: {len(names)} datasets | development seed {seed} | {args.seconds:.0f} s each | population {args.population}{f" intake + {args.champion} champion" if args.champion else " (3:1 intake:champion)"} | cleanse {args.cleanse} | harvests {args.harvests} | rnc {args.rnc or "engine default"} | restarts {args.restarts} | edge {args.edge} | SMOGD {args.smogd} (noise x{args.smogd_noise}) | SMOTE {args.smote} | redundancy {args.redundancy} | generations {args.generations or "by time"} | one fit at a time", flush=True)
+    print(f"RUST ENGINE RACE: {len(names)} datasets | development seed {seed} | {args.seconds:.0f} s each | population {args.population}{f" intake + {args.champion} champion" if args.champion else " (3:1 intake:champion)"} | cleanse {args.cleanse} | harvests {args.harvests} | rnc {args.rnc or "engine default"} | restarts {args.restarts} | edge {args.edge} | SMOGD {args.smogd} (noise x{args.smogd_noise}) | SMOTE {args.smote} | HFF log scale on blocks 2+3 {args.hff_log} | redundancy {args.redundancy} | generations {args.generations or "by time"} | one fit at a time", flush=True)
     print(f"{'dataset':<24}{'r2_test':>10}{'gens':>6}{'fit s':>7}{'stop':>12}  sol{'hff':>10}{'1-R2 train':>12}{'1-R2 val':>11}{'1-R2 smogd':>12}{'MSE train':>11}{'MSE val':>11}{'MSE smogd':>11}  model", flush=True)
     solved = done = faults = 0; t0 = time.time()
     for name in names:
