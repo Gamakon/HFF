@@ -22,6 +22,47 @@ sys.path.insert(0, HERE)
 class _Timeout(Exception): pass
 def _alarm(*_): raise _Timeout()
 
+# THE RACE LOG'S TABLE. One line per fit; EVERY cell is forced to its column's
+# width, whatever the value (a test R2 of -3e57, a nan, a 40-character name), so a
+# column never moves. The model is cut to fit; the whole of it is in
+# side_by_side.tsv. tests/test_rust_race_table.py holds this to account.
+TABLE_COLUMNS = [("dataset", 22, "<"), ("sol", 4, ">"), ("ful", 4, ">"), ("r2_test", 10, ">"), ("gens", 6, ">"), ("secs", 7, ">"),
+                 ("stop", 12, ">"), ("td", 4, ">"), ("1-R2 train", 12, ">"), ("1-R2 val", 12, ">"), ("log10 p", 9, ">")]
+MODEL_WIDTH = 56
+TABLE_HEADER = "".join(f"{name:{align}{width}}" for name, width, align in TABLE_COLUMNS) + "  model"
+
+
+def _cell(value, width, align):
+    """`value` as text of EXACTLY `width` characters (one of them a leading space
+    for a right-aligned cell, so neighbours never touch)."""
+    room = width - 1
+    text = str(value)
+    if len(text) > room:
+        try:
+            number = float(text)
+            text = "nan" if number != number else f"{number:.{max(room - 7, 0)}e}"
+        except ValueError:
+            pass
+    if len(text) > room:
+        text = text[:room - 1] + "~"
+    return f"{text:<{width}}" if align == "<" else f"{text:>{width}}"
+
+
+def format_row(name, sol, sol_fuller, r2, gens, secs, stop, scores, model, note=""):
+    omr2_train, omr2_val, t_depth, log10_p = scores
+    r2_text = "nan" if r2 != r2 else (f"{r2:.4f}" if abs(r2) < 100 else f"{r2:.1e}")
+    try:
+        secs_text = f"{float(secs):.1f}"
+    except (TypeError, ValueError):
+        secs_text = str(secs)
+    values = [name.replace("feynman_", "f_").replace("strogatz_", "s_"), "Y" if sol else "n", "Y" if sol_fuller else "n", r2_text, gens, secs_text,
+              stop, t_depth, omr2_train, omr2_val, log10_p]
+    shown = " ".join(((note.strip(" |") + " ") if note else "").split() + str(model).split())
+    if len(shown) > MODEL_WIDTH:
+        shown = shown[:MODEL_WIDTH - 3] + "..."
+    return "".join(_cell(v, width, align) for v, (_, width, align) in zip(values, TABLE_COLUMNS)) + "  " + shown
+
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--seconds", type=float, default=30.0)
@@ -142,11 +183,31 @@ def main():
     # Everything newer goes on its own SETTINGS line ABOVE them, never between.
     total = args.population + args.champion if args.champion else args.population
     print(f"RUST ENGINE RACE: {len(names)} datasets | development seed {seed} | {args.seconds:.0f} s each | population {total} | cleanse {args.cleanse} | rnc {args.rnc or 'engine default'} | restarts {args.restarts} | one fit at a time", flush=True)
-    print(f"SETTINGS: head {f'{args.grow_head_start} growing by 1 every {args.grow_head} generations to {args.head or 34}' if args.grow_head else (args.head or 34)} | pump every {args.pump or 4} | tournaments on the {'BALANCED pole (hall of fame on TrueNorth)' if args.balanced_tournaments else 'TrueNorth pole'} | islands {f'{args.population} intake + {args.champion} champion' if args.champion else '3:1 intake:champion'} | generations {args.generations or 'by time'} | "
-          f"HFF = train{'' if args.hff_no_val else ' + validation'}{' + block3' if (args.smogd or args.smote) else ''}{' + t_depth' if args.tower else ''}{' + redundancy' if args.redundancy else ''} | "
-          f"block3 = {'SMOGD x' + str(args.smogd_noise) if args.smogd else ''}{' + ' if args.smogd and args.smote else ''}{'SMOTE' if args.smote else ''}{'' if (args.smogd or args.smote) else 'off'} | "
-          f"HFF scale: train {'log' if args.hff_log_train else 'linear'}, validation {'log' if (args.hff_log or args.hff_log_val) else 'linear'}, block3 {'log' if (args.hff_log or args.hff_log_block3) else 'linear'} | side by side: {os.path.join(args.results, 'side_by_side.tsv')}", flush=True)
-    print(f"{'dataset':<24}{'r2_test':>10}{'gens':>6}{'fit s':>7}{'stop':>12}  sol  model", flush=True)
+    head = f"{args.grow_head_start} growing +1 every {args.grow_head} gens to {args.head or 34}" if args.grow_head else str(args.head or 34)
+    islands = f"{args.population} intake + {args.champion} champion" if args.champion else "3:1 intake:champion"
+    block3 = " + ".join(x for x in (f"SMOGD x{args.smogd_noise}" if args.smogd else "", "SMOTE" if args.smote else "") if x) or "off"
+    hff = "train" + ("" if args.hff_no_val else " + validation") + (" + block3" if (args.smogd or args.smote) else "") + (" + t_depth" if args.tower else "") + (" + redundancy" if args.redundancy else "")
+    print(f"# head {head} | islands {islands} | pump every {args.pump or 4} | generations {args.generations or 'by time'}", flush=True)
+    print(f"# tournaments on the {'BALANCED pole (hall of fame on TrueNorth)' if args.balanced_tournaments else 'TrueNorth pole'} | HFF = {hff} | block3 = {block3}", flush=True)
+    print(f"# full models: {os.path.join(args.results, 'side_by_side.tsv')}", flush=True)
+    print(f"# notes:       {os.path.join(args.results, 'notes.log')}", flush=True)
+
+    # THE TABLE. One line per fit, every column a fixed width, the header repeated
+    # every 20 rows. Nothing else is written between the rows but the tally. The
+    # model is cut to fit; the whole of it is in side_by_side.tsv, and anything that
+    # went wrong with a fit is written in full to notes.log.
+    rows_written = [0]
+    def table_row(name, sol, sol_fuller, r2, gens, secs, stop, scores, model, note=""):
+        if rows_written[0] % 20 == 0:
+            print(TABLE_HEADER, flush=True)
+        rows_written[0] += 1
+        print(format_row(name, sol, sol_fuller, r2, gens, secs, stop, scores, model, note), flush=True)
+        if note:
+            with open(os.path.join(args.results, "notes.log"), "a") as f:
+                f.write(f"{name}\t{note.strip(' |')}\n")
+    def tally():
+        print(f"# {solved} solved of {done} = {100*solved/done:.1f}% | fuller direct {solved_fuller} | {time.time()-t0:.0f} s", flush=True)
+
     solved = solved_fuller = done = faults = 0; t0 = time.time()
     # SIDE BY SIDE: what fuller wrote and what sympy made of it, with SRBench's
     # verdict on each — one row per fit, rewritten whole on every (re)start.
@@ -171,13 +232,12 @@ def main():
             sol, note = assess(jf, ds)
             solved += sol
             solved_fuller += bool(kept.get("sol_fuller"))
-            print(f"{name:<24}{kept['r2_test']:>10.4f}{kept['generations']:>6}{kept['fit_wall']:>7.1f}{kept['stopped_by']:>12}  "
-                  f"{'Y' if sol else 'n':>3}  {note or kept['symbolic_model']}", flush=True)
             if "sol_fuller" in kept:
                 side_by_side(name, sol, kept["sol_fuller"], kept["r2_test"], kept["generations"], kept["stopped_by"], kept.get("fuller_model", ""), kept["symbolic_model"])
-                print(f"      exact: sympy {'Y' if sol else 'n'}, fuller {'Y' if kept['sol_fuller'] else 'n'}{kept.get('detail', '')}", flush=True)
+            table_row(name, sol, kept.get("sol_fuller", False), kept["r2_test"], kept["generations"], kept["fit_wall"], kept["stopped_by"],
+                      kept.get("scores", ["-", "-", "-", "-"]), kept["symbolic_model"], note or kept.get("note", ""))
             if done % 10 == 0:
-                print(f"   TALLY {solved} solved of {done} = {100*solved/done:.1f}% | {time.time()-t0:.0f} s elapsed", flush=True)
+                tally()
             continue
         train_path = os.path.join(args.results, f"{name}.train.tsv")
         handed = Xtr                      # every training row SRBench handed us: the sign facts come from all of them
@@ -210,7 +270,7 @@ def main():
         info = {l.split("\t")[0]: l.split("\t")[1:] for l in run.stdout.splitlines() if l.startswith(("GENERATIONS", "MODEL_INFIX", "CHROMOSOME_TEST_R2", "SMOGD", "SMOTE", "HFF", "MSE", "TOWER", "MODEL_PLAIN", "PVALUE"))}
         done += 1
         if run.returncode != 0 or "MODEL_INFIX" not in info:
-            print(f"{name:<24}{'-':>10}{'-':>6}{wall:>7.1f}{'ENGINE FAILED':>12}   n  {(run.stderr or 'its own message is in the lines above').strip()[-160:]}", flush=True)
+            table_row(name, False, False, float("nan"), 0, wall, "ENGINE FAIL", ["-", "-", "-", "-"], "", "ENGINE FAILED: " + (run.stderr or "its own message is in the log above").strip()[-400:])
             continue
         gens, stop = info["GENERATIONS"][0], info["GENERATIONS"][1]
         faithful = info["MODEL_INFIX"][0]                 # executes exactly as the chromosome does (Piecewise where a protection fires)
@@ -254,17 +314,11 @@ def main():
                 fault = f"REPORT FAULT: chromosome test R2 {chromosome_r2:.8f}, reported string {r2:.8f} | "
         # What evolution selected on: HFF fitness (smaller is better) and 1-R2 per block.
         hff = info.get("HFF", ["-", "-", "-", "-"]) + info.get("MSE", ["-", "-", "-"])
-        # What evolution selected on goes on its OWN indented line under the result:
-        # the result line itself stays as it always was.
-        detail = ""
-        if "HFF" in info and "MSE" in info:
-            third = " + ".join(f"{k} {info[k][0]}" for k in ("SMOGD", "SMOTE") if k in info)
-            detail = (f" | 1-R2 train {hff[1]} val {hff[2]}"
-                      + (f" block3 {hff[3]} ({third} rows)" if third else "")
-                      + f" | MSE train {hff[4]}"
-                      + (f" | t_depth {info['TOWER'][0]}" if "TOWER" in info else "")
-                      + f" | hff {hff[0]}"
-                      + (f" | p {info['PVALUE'][0]} | log10 p {info['PVALUE'][1]} (m = {info['PVALUE'][2]})" if "PVALUE" in info else ""))
+        # The table's score columns: 1-R2 on train and validation, t_depth, log10 p.
+        scores = [hff[1], hff[2], info.get("TOWER", ["-"])[0], info.get("PVALUE", ["-", "-"])[1]]
+        third = " + ".join(f"{k} {info[k][0]}" for k in ("SMOGD", "SMOTE") if k in info)
+        detail = (f"hff {hff[0]} | MSE train {hff[4]}" + (f" | block3 1-R2 {hff[3]} ({third} rows)" if third else "")
+                  + (f" | p {info['PVALUE'][0]} (m = {info['PVALUE'][2]})" if "PVALUE" in info else ""))
         # SUBMITTED TWICE to SRBench's scorer: fuller's own string, exactly as the
         # Rust engine wrote it, and the sympy-tidied one. sympy re-canonicalises
         # whatever it parses, so only the pair says what fuller achieves alone.
@@ -273,21 +327,21 @@ def main():
         direct_jf = os.path.join(direct_dir, os.path.basename(jf))
         json.dump({"algorithm": "hff_rust_fuller_direct", "dataset": name, "symbolic_model": raw, "r2_test": r2}, open(direct_jf, "w"))
         sol_fuller, note_fuller = assess(direct_jf, ds)
-        json.dump({"algorithm": "hff_rust", "dataset": name, "symbolic_model": model, "r2_test": r2, "hff": hff, "detail": detail + tidy_note,
+        json.dump({"algorithm": "hff_rust", "dataset": name, "symbolic_model": model, "r2_test": r2, "hff": hff, "detail": detail, "scores": scores, "note": (fault + tidy_note).strip(" |"),
                    "fuller_model": raw, "sol_fuller": sol_fuller, "note_fuller": note_fuller,
                    "generations": int(gens), "stopped_by": stop, "fit_wall": wall}, open(jf, "w"))
         sol, note = assess(jf, ds)
         side_by_side(name, sol, sol_fuller, r2, gens, stop, raw, model)
-        if note:
-            model = note
-        model = fault + model
+        # Anything that went wrong with this fit: shown (cut to fit) in the model
+        # column and written in full to notes.log.
+        row_note = " | ".join(x.strip(" |") for x in (fault, tidy_note, note, (f"fuller direct: {note_fuller}" if note_fuller else "")) if x and x.strip(" |"))
+        model_shown = model
         faults += bool(fault)
         solved += sol
         solved_fuller += sol_fuller
-        print(f"{name:<24}{r2:>10.4f}{gens:>6}{wall:>7.1f}{stop:>12}  {'Y' if sol else 'n':>3}  {model}", flush=True)
-        print(f"      exact: sympy {'Y' if sol else 'n'}, fuller {'Y' if sol_fuller else 'n'}{(' (' + note_fuller + ')') if note_fuller else ''}{detail}{tidy_note}", flush=True)
+        table_row(name, sol, sol_fuller, r2, gens, wall, stop, scores, model_shown, row_note)
         if done % 10 == 0:
-            print(f"   TALLY {solved} solved of {done} = {100*solved/done:.1f}% | {time.time()-t0:.0f} s elapsed", flush=True)
+            tally()
     print(f"\nDONE: {solved} solved of {done} = {100*solved/max(done,1):.1f}% in {time.time()-t0:.0f} s  (Rust engine, seed {seed}, {args.seconds:.0f} s each) | fuller direct: {solved_fuller} solved | REPORT FAULTs {faults}", flush=True)
 
 if __name__ == "__main__":
