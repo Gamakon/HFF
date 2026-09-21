@@ -31,6 +31,10 @@ def main():
     ap.add_argument("--limit", type=int, default=0, help="only the first N datasets of the shuffled order (a check run)")
     ap.add_argument("--results", default=os.path.join(HERE, "sr_logs", "rust_race"))
     args = ap.parse_args()
+    # ABSOLUTE: SRBench's assess runs from its own folder, and a relative path
+    # meant nothing there — every score came back "not solved" with the error
+    # swallowed (the first 40 problems of the first run).
+    args.results = os.path.abspath(args.results)
     import numpy as np, pandas as pd, sympy as sp
     from sklearn.model_selection import train_test_split
     from sklearn.metrics import r2_score
@@ -46,6 +50,29 @@ def main():
         from assess_symbolic_model import assess_symbolic_model_from_file
     os.chdir(cwd)
     signal.signal(signal.SIGALRM, _alarm)
+
+    def assess(jf, ds):
+        """SRBench's verdict on one result file: (solved, note). A failure of
+        the scorer is REPORTED in the note, never read as "not solved"."""
+        note = ""
+        try:
+            signal.alarm(20)
+            with contextlib.redirect_stdout(io.StringIO()), contextlib.redirect_stderr(io.StringIO()):
+                os.chdir(SRBENCH)
+                assess_symbolic_model_from_file(jf, ds)
+        except _Timeout:
+            note = "SRBENCH ASSESS TIMED OUT (scored: not a solution)"
+        except Exception as e:
+            note = f"SRBENCH ASSESS FAILED: {type(e).__name__}: {str(e)[:120]}"
+        finally:
+            signal.alarm(0)
+            os.chdir(cwd)
+        if not os.path.exists(jf + ".updated"):
+            return False, note or "SRBENCH ASSESS WROTE NO RESULT"
+        a = json.load(open(jf + ".updated"))
+        ok = bool(any(bool(a.get(k)) for k in ("symbolic_error_is_zero", "symbolic_error_is_constant", "symbolic_fraction_is_constant"))
+                  and str(a.get("simplified_symbolic_model")) not in ("None", "0", "nan"))
+        return ok, note if "FAILED" in note else ""
     names = sorted(os.path.basename(d) for d in glob.glob(f"{PMLB}/feynman_*") + glob.glob(f"{PMLB}/strogatz_*"))
     import random; random.Random(seed).shuffle(names)
     if args.limit:
@@ -58,6 +85,18 @@ def main():
         df = pd.read_csv(ds, sep="\t")
         X, y = df.drop(columns="target"), df["target"]
         Xtr, Xte, ytr, yte = train_test_split(X, y, train_size=0.75, test_size=0.25, random_state=seed)
+        jf = os.path.join(args.results, f"{name}_rust_{seed}.json")
+        if os.path.exists(jf):
+            # Already fitted in this results folder: score it, do not fit again.
+            kept = json.load(open(jf))
+            done += 1
+            sol, note = assess(jf, ds)
+            solved += sol
+            print(f"{name:<24}{kept['r2_test']:>10.4f}{kept['generations']:>6}{kept['fit_wall']:>7.1f}{kept['stopped_by']:>12}  "
+                  f"{'Y' if sol else 'n':>3}  {note or kept['symbolic_model']}", flush=True)
+            if done % 10 == 0:
+                print(f"   TALLY {solved} solved of {done} = {100*solved/done:.1f}% | {time.time()-t0:.0f} s elapsed", flush=True)
+            continue
         train_path = os.path.join(args.results, f"{name}.train.tsv")
         Xtr.assign(target=ytr).to_csv(train_path, sep="\t", index=False)
         t = time.time()
@@ -87,24 +126,11 @@ def main():
             model, r2 = raw, float("nan")
         finally:
             signal.alarm(0)
-        jf = os.path.join(args.results, f"{name}_rust_{seed}.json")
         json.dump({"algorithm": "hff_rust", "dataset": name, "symbolic_model": model, "r2_test": r2,
                    "generations": int(gens), "stopped_by": stop, "fit_wall": wall}, open(jf, "w"))
-        sol = False
-        try:
-            signal.alarm(20)
-            with contextlib.redirect_stdout(io.StringIO()), contextlib.redirect_stderr(io.StringIO()):
-                os.chdir(SRBENCH); assess_symbolic_model_from_file(jf, ds)
-        except _Timeout:
-            pass
-        except Exception:
-            pass
-        finally:
-            signal.alarm(0); os.chdir(cwd)
-        if os.path.exists(jf + ".updated"):
-            a = json.load(open(jf + ".updated"))
-            sol = bool(any(bool(a.get(k)) for k in ("symbolic_error_is_zero", "symbolic_error_is_constant", "symbolic_fraction_is_constant"))
-                       and str(a.get("simplified_symbolic_model")) not in ("None", "0", "nan"))
+        sol, note = assess(jf, ds)
+        if note:
+            model = note
         solved += sol
         print(f"{name:<24}{r2:>10.4f}{gens:>6}{wall:>7.1f}{stop:>12}  {'Y' if sol else 'n':>3}  {model}", flush=True)
         if done % 10 == 0:
