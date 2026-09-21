@@ -116,7 +116,7 @@ def main():
         names = names[:args.limit]
     print(f"RUST ENGINE RACE: {len(names)} datasets | development seed {seed} | {args.seconds:.0f} s each | population {args.population}{f" intake + {args.champion} champion" if args.champion else " (3:1 intake:champion)"} | cleanse {args.cleanse} | harvests {args.harvests} | rnc {args.rnc or "engine default"} | restarts {args.restarts} | edge {args.edge} | SMOGD {args.smogd} (noise x{args.smogd_noise}) | SMOTE {args.smote} | HFF log scale on blocks 2+3 {args.hff_log} | redundancy {args.redundancy} | generations {args.generations or "by time"} | one fit at a time", flush=True)
     print(f"{'dataset':<24}{'r2_test':>10}{'gens':>6}{'fit s':>7}{'stop':>12}  sol  model", flush=True)
-    solved = done = faults = 0; t0 = time.time()
+    solved = solved_fuller = done = faults = 0; t0 = time.time()
     for name in names:
         ds = f"{PMLB}/{name}/{name}.tsv.gz"
         df = pd.read_csv(ds, sep="\t")
@@ -129,8 +129,11 @@ def main():
             done += 1
             sol, note = assess(jf, ds)
             solved += sol
+            solved_fuller += bool(kept.get("sol_fuller"))
             print(f"{name:<24}{kept['r2_test']:>10.4f}{kept['generations']:>6}{kept['fit_wall']:>7.1f}{kept['stopped_by']:>12}  "
                   f"{'Y' if sol else 'n':>3}  {note or kept['symbolic_model']}", flush=True)
+            if "sol_fuller" in kept:
+                print(f"      exact? sympy-tidied {'Y' if sol else 'n'} | fuller direct {'Y' if kept['sol_fuller'] else 'n'}  {kept.get('note_fuller') or kept.get('fuller_model', '')}", flush=True)
             if kept.get("detail"):
                 print(kept["detail"], flush=True)
             if done % 10 == 0:
@@ -196,7 +199,16 @@ def main():
             third = " + ".join(f"{k} {info[k][0]}" for k in ("SMOGD", "SMOTE") if k in info)
             detail = (f"      train R2 {as_r2(hff[1])} MSE {hff[4]} | block3 R2 {as_r2(hff[3])} MSE {hff[6]} | val R2 {as_r2(hff[2])} | hff {hff[0]}"
                       + (f" | block3 = {third} rows" if third else ""))
+        # SUBMITTED TWICE to SRBench's scorer: fuller's own string, exactly as the
+        # Rust engine wrote it, and the sympy-tidied one. sympy re-canonicalises
+        # whatever it parses, so only the pair says what fuller achieves alone.
+        direct_dir = os.path.join(args.results, "fuller_direct")
+        os.makedirs(direct_dir, exist_ok=True)
+        direct_jf = os.path.join(direct_dir, os.path.basename(jf))
+        json.dump({"algorithm": "hff_rust_fuller_direct", "dataset": name, "symbolic_model": raw, "r2_test": r2}, open(direct_jf, "w"))
+        sol_fuller, note_fuller = assess(direct_jf, ds)
         json.dump({"algorithm": "hff_rust", "dataset": name, "symbolic_model": model, "r2_test": r2, "hff": hff, "detail": detail,
+                   "fuller_model": raw, "sol_fuller": sol_fuller, "note_fuller": note_fuller,
                    "generations": int(gens), "stopped_by": stop, "fit_wall": wall}, open(jf, "w"))
         sol, note = assess(jf, ds)
         if note:
@@ -204,12 +216,14 @@ def main():
         model = fault + model
         faults += bool(fault)
         solved += sol
+        solved_fuller += sol_fuller
         print(f"{name:<24}{r2:>10.4f}{gens:>6}{wall:>7.1f}{stop:>12}  {'Y' if sol else 'n':>3}  {model}", flush=True)
+        print(f"      exact? sympy-tidied {'Y' if sol else 'n'} | fuller direct {'Y' if sol_fuller else 'n'}  {note_fuller or raw}", flush=True)
         if detail:
             print(detail, flush=True)
         if done % 10 == 0:
             print(f"   TALLY {solved} solved of {done} = {100*solved/done:.1f}% | {time.time()-t0:.0f} s elapsed", flush=True)
-    print(f"\nDONE: {solved} solved of {done} = {100*solved/max(done,1):.1f}% in {time.time()-t0:.0f} s  (Rust engine, seed {seed}, {args.seconds:.0f} s each) | REPORT FAULTs {faults}", flush=True)
+    print(f"\nDONE: {solved} solved of {done} = {100*solved/max(done,1):.1f}% in {time.time()-t0:.0f} s  (Rust engine, seed {seed}, {args.seconds:.0f} s each) | fuller direct: {solved_fuller} solved | REPORT FAULTs {faults}", flush=True)
 
 if __name__ == "__main__":
     main()
