@@ -326,7 +326,7 @@ def main():
         wall = time.time() - t
         os.remove(train_path)
         os.remove(test_path)
-        info = {l.split("\t")[0]: l.split("\t")[1:] for l in run.stdout.splitlines() if l.startswith(("GENERATIONS", "MODEL_INFIX", "CHROMOSOME_TEST_R2", "SMOGD", "SMOTE", "HFF", "MSE", "TOWER", "MODEL_PLAIN", "PVALUE"))}
+        info = {l.split("\t")[0]: l.split("\t")[1:] for l in run.stdout.splitlines() if l.startswith(("GENERATIONS", "MODEL_INFIX", "CHROMOSOME_TEST_R2", "SMOGD", "SMOTE", "HFF", "MSE", "TOWER", "MODEL_PLAIN", "PVALUE", "GENES"))}
         done += 1
         if run.returncode != 0 or "MODEL_INFIX" not in info:
             table_row(name, False, False, float("nan"), 0, wall, "ENGINE FAIL", ["-", "-", "-", "-"], "", "ENGINE FAILED: " + (run.stderr or "its own message is in the log above").strip()[-400:])
@@ -387,7 +387,9 @@ def main():
         model, raw = numpy_names(model), numpy_names(raw)      # the spelling SRBench's laws use; the functions are unchanged
         json.dump({"algorithm": "hff_rust_fuller_direct", "dataset": name, "symbolic_model": raw, "r2_test": r2}, open(direct_jf, "w"))
         sol_fuller, note_fuller = assess(direct_jf, ds)
-        json.dump({"algorithm": "hff_rust", "dataset": name, "symbolic_model": model, "r2_test": r2, "hff": hff, "detail": detail, "scores": scores, "note": (fault + tidy_note).strip(" |"),
+        json.dump({"algorithm": "hff_rust", "dataset": name, "symbolic_model": model, "r2_test": r2, "hff": hff, "detail": detail, "scores": scores,
+                   # unique genes evaluated, genes over the evaluator's 64-node limit (dropped), individuals
+                   "genes_evaluated": int(info["GENES"][0]) if "GENES" in info else None, "genes_oversized": int(info["GENES"][1]) if "GENES" in info else None, "note": (fault + tidy_note).strip(" |"),
                    "fuller_model": raw, "sol_fuller": sol_fuller, "note_fuller": note_fuller,
                    "generations": int(gens), "stopped_by": stop, "fit_wall": wall}, open(jf, "w"))
         sol, note = assess(jf, ds)
