@@ -40,6 +40,7 @@ def main():
     ap.add_argument("--smogd-noise", type=float, default=1.0, help="multiplier on the neighbours' variance SMOGD draws from (1 = the original; 2 or 3 widens the draws)")
     ap.add_argument("--hff-log", action="store_true", help="blocks two and three (validation; SMOGD/SMOTE) enter HFF on the log scale, so small errors still separate")
     ap.add_argument("--hff-no-val", action="store_true", help="leave validation out of HFF: tournaments rank on train + block three (validation still decides the stop bar)")
+    ap.add_argument("--tower", action="store_true", help="the tower objective: t_depth (transcendental nesting depth) joins HFF; 0 up to depth 2, then a quarter per level")
     ap.add_argument("--smote", action="store_true", help="SMOTE rows (on the segment between a real row and a near neighbour), generated inside the fit, join HFF's third block")
     ap.add_argument("--redundancy", action="store_true", help="leave-one-gene-out redundancy as an HFF objective")
     ap.add_argument("--generations", type=int, default=0, help="stop each fit by generations (0 = by --seconds); give --seconds as a generous ceiling")
@@ -77,6 +78,7 @@ def main():
     knobs["EVOLVE_SMOGD_NOISE"] = str(args.smogd_noise)
     knobs["EVOLVE_HFF_LOG"] = "1" if args.hff_log else "0"
     knobs["EVOLVE_HFF_NO_VAL"] = "1" if args.hff_no_val else "0"
+    knobs["EVOLVE_TOWER"] = "1" if args.tower else "0"
     if args.champion:
         knobs["EVOLVE_POP_CHAMPION"] = str(args.champion)
     if args.generations:
@@ -116,7 +118,7 @@ def main():
         names = [n for n in names if n in wanted]
     if args.limit:
         names = names[:args.limit]
-    print(f"RUST ENGINE RACE: {len(names)} datasets | development seed {seed} | {args.seconds:.0f} s each | population {args.population}{f" intake + {args.champion} champion" if args.champion else " (3:1 intake:champion)"} | cleanse {args.cleanse} | harvests {args.harvests} | rnc {args.rnc or "engine default"} | restarts {args.restarts} | edge {args.edge} | SMOGD {args.smogd} (noise x{args.smogd_noise}) | SMOTE {args.smote} | HFF log scale on blocks 2+3 {args.hff_log} | HFF without validation {args.hff_no_val} | redundancy {args.redundancy} | generations {args.generations or "by time"} | one fit at a time", flush=True)
+    print(f"RUST ENGINE RACE: {len(names)} datasets | development seed {seed} | {args.seconds:.0f} s each | population {args.population}{f" intake + {args.champion} champion" if args.champion else " (3:1 intake:champion)"} | cleanse {args.cleanse} | harvests {args.harvests} | rnc {args.rnc or "engine default"} | restarts {args.restarts} | edge {args.edge} | SMOGD {args.smogd} (noise x{args.smogd_noise}) | SMOTE {args.smote} | HFF log scale on blocks 2+3 {args.hff_log} | HFF without validation {args.hff_no_val} | tower objective (t_depth) {args.tower} | redundancy {args.redundancy} | generations {args.generations or "by time"} | one fit at a time", flush=True)
     print(f"{'dataset':<24}{'r2_test':>10}{'gens':>6}{'fit s':>7}{'stop':>12}  sol  model", flush=True)
     solved = solved_fuller = done = faults = 0; t0 = time.time()
     # SIDE BY SIDE: what fuller wrote and what sympy made of it, with SRBench's
@@ -172,7 +174,7 @@ def main():
         wall = time.time() - t
         os.remove(train_path)
         os.remove(test_path)
-        info = {l.split("\t")[0]: l.split("\t")[1:] for l in run.stdout.splitlines() if l.startswith(("GENERATIONS", "MODEL_INFIX", "CHROMOSOME_TEST_R2", "SMOGD", "SMOTE", "HFF", "MSE"))}
+        info = {l.split("\t")[0]: l.split("\t")[1:] for l in run.stdout.splitlines() if l.startswith(("GENERATIONS", "MODEL_INFIX", "CHROMOSOME_TEST_R2", "SMOGD", "SMOTE", "HFF", "MSE", "TOWER"))}
         done += 1
         if run.returncode != 0 or "MODEL_INFIX" not in info:
             print(f"{name:<24}{'-':>10}{'-':>6}{wall:>7.1f}{'ENGINE FAILED':>12}   n  {run.stderr.strip()[-160:]}", flush=True)
@@ -211,6 +213,7 @@ def main():
             as_r2 = lambda v: "-" if v == "-" else f"{1.0 - float(v):.4f}"
             third = " + ".join(f"{k} {info[k][0]}" for k in ("SMOGD", "SMOTE") if k in info)
             detail = (f"      train R2 {as_r2(hff[1])} MSE {hff[4]} | block3 R2 {as_r2(hff[3])} MSE {hff[6]} | val R2 {as_r2(hff[2])} | hff {hff[0]}"
+                      + (f" | t_depth {info['TOWER'][0]}" if "TOWER" in info else "")
                       + (f" | block3 = {third} rows" if third else ""))
         # SUBMITTED TWICE to SRBench's scorer: fuller's own string, exactly as the
         # Rust engine wrote it, and the sympy-tidied one. sympy re-canonicalises
