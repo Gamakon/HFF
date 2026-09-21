@@ -107,7 +107,7 @@ def main():
     if args.limit:
         names = names[:args.limit]
     print(f"RUST ENGINE RACE: {len(names)} datasets | development seed {seed} | {args.seconds:.0f} s each | population {args.population} | cleanse {args.cleanse} | harvests {args.harvests} | rnc {args.rnc or "engine default"} | restarts {args.restarts} | edge {args.edge} | SMOGD {args.smogd} | redundancy {args.redundancy} | generations {args.generations or "by time"} | one fit at a time", flush=True)
-    print(f"{'dataset':<24}{'r2_test':>10}{'gens':>6}{'fit s':>7}{'stop':>12}  sol{'hff':>10}{'1-R2 train':>12}{'1-R2 val':>11}{'1-R2 smogd':>12}  model", flush=True)
+    print(f"{'dataset':<24}{'r2_test':>10}{'gens':>6}{'fit s':>7}{'stop':>12}  sol{'hff':>10}{'1-R2 train':>12}{'1-R2 val':>11}{'1-R2 smogd':>12}{'MSE train':>11}{'MSE val':>11}{'MSE smogd':>11}  model", flush=True)
     solved = done = faults = 0; t0 = time.time()
     for name in names:
         ds = f"{PMLB}/{name}/{name}.tsv.gz"
@@ -122,7 +122,7 @@ def main():
             sol, note = assess(jf, ds)
             solved += sol
             print(f"{name:<24}{kept['r2_test']:>10.4f}{kept['generations']:>6}{kept['fit_wall']:>7.1f}{kept['stopped_by']:>12}  "
-                  f"{'Y' if sol else 'n':>3}{''.join(f'{v:>{w}}' for v, w in zip(kept.get('hff', ['-'] * 4), (10, 12, 11, 12)))}  {note or kept['symbolic_model']}", flush=True)
+                  f"{'Y' if sol else 'n':>3}{''.join(f'{v:>{w}}' for v, w in zip((kept.get('hff', []) + ['-'] * 7)[:7], (10, 12, 11, 12, 11, 11, 11)))}  {note or kept['symbolic_model']}", flush=True)
             if done % 10 == 0:
                 print(f"   TALLY {solved} solved of {done} = {100*solved/done:.1f}% | {time.time()-t0:.0f} s elapsed", flush=True)
             continue
@@ -146,7 +146,7 @@ def main():
         wall = time.time() - t
         os.remove(train_path)
         os.remove(test_path)
-        info = {l.split("\t")[0]: l.split("\t")[1:] for l in run.stdout.splitlines() if l.startswith(("GENERATIONS", "MODEL_INFIX", "CHROMOSOME_TEST_R2", "SMOGD", "HFF"))}
+        info = {l.split("\t")[0]: l.split("\t")[1:] for l in run.stdout.splitlines() if l.startswith(("GENERATIONS", "MODEL_INFIX", "CHROMOSOME_TEST_R2", "SMOGD", "HFF", "MSE"))}
         done += 1
         if run.returncode != 0 or "MODEL_INFIX" not in info:
             print(f"{name:<24}{'-':>10}{'-':>6}{wall:>7.1f}{'ENGINE FAILED':>12}   n  {run.stderr.strip()[-160:]}", flush=True)
@@ -177,7 +177,7 @@ def main():
             if abs(chromosome_r2 - r2) > 1e-6 + 1e-3 * abs(1.0 - chromosome_r2):
                 fault = f"REPORT FAULT: chromosome test R2 {chromosome_r2:.8f}, reported string {r2:.8f} | "
         # What evolution selected on: HFF fitness (smaller is better) and 1-R2 per block.
-        hff = info.get("HFF", ["-", "-", "-", "-"])
+        hff = info.get("HFF", ["-", "-", "-", "-"]) + info.get("MSE", ["-", "-", "-"])
         json.dump({"algorithm": "hff_rust", "dataset": name, "symbolic_model": model, "r2_test": r2, "hff": hff,
                    "generations": int(gens), "stopped_by": stop, "fit_wall": wall}, open(jf, "w"))
         sol, note = assess(jf, ds)
@@ -188,7 +188,7 @@ def main():
             model = f"[SMOGD {info['SMOGD'][0]} rows] " + model
         faults += bool(fault)
         solved += sol
-        print(f"{name:<24}{r2:>10.4f}{gens:>6}{wall:>7.1f}{stop:>12}  {'Y' if sol else 'n':>3}{hff[0]:>10}{hff[1]:>12}{hff[2]:>11}{hff[3]:>12}  {model}", flush=True)
+        print(f"{name:<24}{r2:>10.4f}{gens:>6}{wall:>7.1f}{stop:>12}  {'Y' if sol else 'n':>3}{hff[0]:>10}{hff[1]:>12}{hff[2]:>11}{hff[3]:>12}{hff[4]:>11}{hff[5]:>11}{hff[6]:>11}  {model}", flush=True)
         if done % 10 == 0:
             print(f"   TALLY {solved} solved of {done} = {100*solved/done:.1f}% | {time.time()-t0:.0f} s elapsed", flush=True)
     print(f"\nDONE: {solved} solved of {done} = {100*solved/max(done,1):.1f}% in {time.time()-t0:.0f} s  (Rust engine, seed {seed}, {args.seconds:.0f} s each) | REPORT FAULTs {faults}", flush=True)
