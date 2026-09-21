@@ -30,6 +30,9 @@ def main():
     ap.add_argument("--max-rows", type=int, default=5000)
     ap.add_argument("--cleanse", type=float, default=0.0, help="the cleansing mutation's rate per row (0 = off)")
     ap.add_argument("--harvests", type=int, default=0, help="harvest-and-regrow: park up to N models and report the smallest (0 = off)")
+    ap.add_argument("--rnc", type=int, nargs=2, default=None, metavar=("LO", "HI"), help="the range random constants are drawn from (engine default -100 100)")
+    ap.add_argument("--restarts", type=int, default=1, help="split each problem's seconds into this many independent searches")
+    ap.add_argument("--engine", default=ENGINE, help="the evolve_fit binary to snapshot into the results folder")
     ap.add_argument("--limit", type=int, default=0, help="only the first N datasets of the shuffled order (a check run)")
     ap.add_argument("--results", default=os.path.join(HERE, "sr_logs", "rust_race"))
     args = ap.parse_args()
@@ -52,12 +55,15 @@ def main():
     import shutil
     engine = os.path.join(args.results, "evolve_fit.bin")
     if not os.path.exists(engine):
-        shutil.copy2(ENGINE, engine)
+        shutil.copy2(args.engine, engine)
     cwd = os.getcwd(); os.chdir(SRBENCH)
     with contextlib.redirect_stdout(io.StringIO()):
         from assess_symbolic_model import assess_symbolic_model_from_file
     os.chdir(cwd)
     signal.signal(signal.SIGALRM, _alarm)
+    knobs = dict(os.environ, EVOLVE_RESTARTS=str(args.restarts))
+    if args.rnc:
+        knobs.update(EVOLVE_RNC_LO=str(args.rnc[0]), EVOLVE_RNC_HI=str(args.rnc[1]))
 
     def assess(jf, ds):
         """SRBench's verdict on one result file: (solved, note). A failure of
@@ -85,7 +91,7 @@ def main():
     import random; random.Random(seed).shuffle(names)
     if args.limit:
         names = names[:args.limit]
-    print(f"RUST ENGINE RACE: {len(names)} datasets | development seed {seed} | {args.seconds:.0f} s each | population {args.population} | cleanse {args.cleanse} | harvests {args.harvests} | one fit at a time", flush=True)
+    print(f"RUST ENGINE RACE: {len(names)} datasets | development seed {seed} | {args.seconds:.0f} s each | population {args.population} | cleanse {args.cleanse} | harvests {args.harvests} | rnc {args.rnc or "engine default"} | restarts {args.restarts} | one fit at a time", flush=True)
     print(f"{'dataset':<24}{'r2_test':>10}{'gens':>6}{'fit s':>7}{'stop':>12}  sol  model", flush=True)
     solved = done = faults = 0; t0 = time.time()
     for name in names:
@@ -111,7 +117,7 @@ def main():
         Xte.assign(target=yte).to_csv(test_path, sep="\t", index=False)
         t = time.time()
         run = subprocess.run([engine, train_path, str(seed), str(args.seconds), str(args.max_rows), str(args.population), "all", str(args.cleanse), test_path, str(args.harvests)],
-                             capture_output=True, text=True)
+                             capture_output=True, text=True, env=knobs)
         wall = time.time() - t
         os.remove(train_path)
         os.remove(test_path)
