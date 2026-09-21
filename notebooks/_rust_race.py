@@ -106,6 +106,8 @@ def main():
     ap.add_argument("--unfinished-from", default=None, metavar="FOLDER",
                     help="THE SECOND PASS: race only the problems whose fit in FOLDER (a first pass's results, same seed) did NOT meet "
                          "our own stop bar. SRBench's verdict plays no part in the choice — using the answer key to aim effort would be cheating")
+    ap.add_argument("--pairs", type=int, default=0, help="pairs of islands, each an intake + a champion island of --population / --champion (0 = the engine's default, 1)")
+    ap.add_argument("--cross", type=int, default=0, metavar="EVERY", help="THE CROSS STEP's beat: every EVERY generations each intake island receives the OTHER pairs' best champions (0 = never)")
     ap.add_argument("--genes", type=int, default=0, help="genes per chromosome (0 = the engine's default, 3)")
     ap.add_argument("--pump", type=int, default=0, help="the pump's beat in generations (0 = the engine's default, 4)")
     ap.add_argument("--head", type=int, default=0, help="a gene's head length (0 = the engine's default, 34)")
@@ -158,6 +160,10 @@ def main():
     knobs["EVOLVE_VHEAD_EVERY"] = str(args.grow_head)
     knobs["EVOLVE_VHEAD_START"] = str(args.grow_head_start)
     knobs["EVOLVE_COMPOUNDS"] = "1" if args.compounds else "0"
+    if args.pairs:
+        knobs["EVOLVE_PAIRS"] = str(args.pairs)
+    if args.cross:
+        knobs["EVOLVE_CROSS_EVERY"] = str(args.cross)
     if args.genes:
         knobs["EVOLVE_GENES"] = str(args.genes)
     if args.pump:
@@ -225,6 +231,8 @@ def main():
     print(f"RUST ENGINE RACE: {len(names)} datasets | development seed {seed} | {args.seconds:.0f} s each | population {total} | cleanse {args.cleanse} | rnc {args.rnc or 'engine default'} | restarts {args.restarts} | one fit at a time", flush=True)
     head = f"{args.grow_head_start} growing +1 every {args.grow_head} gens to {args.head or 34}" if args.grow_head else str(args.head or 34)
     islands = f"{args.population} intake + {args.champion} champion" if args.champion else "3:1 intake:champion"
+    if args.pairs > 1:
+        islands = f"{args.pairs} pairs x ({islands}), cross step every {args.cross or 'never'}"
     block3 = " + ".join(x for x in (f"SMOGD x{args.smogd_noise}" if args.smogd else "", "SMOTE" if args.smote else "") if x) or "off"
     hff = "train" + ("" if args.hff_no_val else " + validation") + (" + block3" if (args.smogd or args.smote) else "") + (" + t_depth" if args.tower else "") + (" + redundancy" if args.redundancy else "")
     print(f"# genes {args.genes or 3} | head {head} | islands {islands} | pump every {args.pump or 4} | generations {args.generations or 'by time'}", flush=True)
