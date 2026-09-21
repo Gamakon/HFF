@@ -100,6 +100,7 @@ def main():
     ap.add_argument("--grow-head", type=int, default=0, metavar="EVERY", help="THE GROWING HEAD: the virtual head gains one position every EVERY generations, up to --head (0 = off: the whole head from the start)")
     ap.add_argument("--grow-head-start", type=int, default=12, help="the virtual head the population is born with when --grow-head is on")
     ap.add_argument("--balanced-tournaments", action="store_true", help="the tournaments (and the pump's promotions) rank on hff's BALANCED pole, for diversity; the hall of fame, the stop bar and the report stay on TrueNorth")
+    ap.add_argument("--stop-log10-p", type=float, default=-19.0, help="the stop bar's p-value half: a fit stops early only when validation 1-R2 <= 1e-10 AND log10 p <= this (inf = off)")
     ap.add_argument("--progress", type=int, default=0, help="a progress line in the log every N generations of a fit (0 = none)")
     ap.add_argument("--pump", type=int, default=0, help="the pump's beat in generations (0 = the engine's default, 4)")
     ap.add_argument("--head", type=int, default=0, help="a gene's head length (0 = the engine's default, 34)")
@@ -147,6 +148,7 @@ def main():
     knobs["EVOLVE_HFF_LOG_VAL"] = "1" if args.hff_log_val else "0"
     knobs["EVOLVE_HFF_LOG_BLOCK3"] = "1" if args.hff_log_block3 else "0"
     knobs["EVOLVE_PROGRESS_EVERY"] = str(args.progress)
+    knobs["EVOLVE_STOP_LOG10_P"] = str(args.stop_log10_p)
     knobs["EVOLVE_BALANCED_TOURNAMENTS"] = "1" if args.balanced_tournaments else "0"
     knobs["EVOLVE_VHEAD_EVERY"] = str(args.grow_head)
     knobs["EVOLVE_VHEAD_START"] = str(args.grow_head_start)
@@ -203,7 +205,7 @@ def main():
     block3 = " + ".join(x for x in (f"SMOGD x{args.smogd_noise}" if args.smogd else "", "SMOTE" if args.smote else "") if x) or "off"
     hff = "train" + ("" if args.hff_no_val else " + validation") + (" + block3" if (args.smogd or args.smote) else "") + (" + t_depth" if args.tower else "") + (" + redundancy" if args.redundancy else "")
     print(f"# head {head} | islands {islands} | pump every {args.pump or 4} | generations {args.generations or 'by time'}", flush=True)
-    print(f"# tournaments on the {'BALANCED pole (hall of fame on TrueNorth)' if args.balanced_tournaments else 'TrueNorth pole'} | HFF = {hff} | block3 = {block3}", flush=True)
+    print(f"# tournaments on the {'BALANCED pole (hall of fame on TrueNorth)' if args.balanced_tournaments else 'TrueNorth pole'} | HFF = {hff} | block3 = {block3} | stop bar: val 1-R2 <= 1e-10 and log10 p <= {args.stop_log10_p}", flush=True)
     print(f"# full models: {os.path.join(args.results, 'side_by_side.tsv')}", flush=True)
     print(f"# notes:       {os.path.join(args.results, 'notes.log')}", flush=True)
 
