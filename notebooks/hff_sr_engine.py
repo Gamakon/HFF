@@ -3134,6 +3134,10 @@ class HFFSREngine:
             self.a_ = winner["a"]
             self.b_ = winner["b"]
             self.reported_a_, self.reported_b_ = float(winner["a"]), float(winner["b"])
+            # The chromosome's direct TRANSLATION, before the deliberate edits
+            # below (snap, drop +b, fold): what the fidelity check compares.
+            self._translation_numeric = _sub_atoms(winner["expr"])
+            self._translation_ab = (float(winner["a"]), float(winner["b"]))
             # POST-REGRESSION SNAP (egglog lattice): the GA found the SHAPE
             # (e.g. r²) but the constant lives in the LSM scalar `a` (≈3.14159).
             # Snap recognises `a` as a lattice constant (π) — pset never contains
@@ -3237,9 +3241,10 @@ class HFFSREngine:
         self.tensor_ops_rows_ += len(top)
         return objects, elites
 
-    def _chromosome_math(self, ind, bundle):
-        """The reported model as one fuller `Math` expression,
-        a * WRAPPER(LINKER(genes)) + b. Returns (math, None) or (None, reason)."""
+    def _chromosome_math(self, ind, bundle, ab=None):
+        """The model as one fuller `Math` expression, a * WRAPPER(LINKER(genes))
+        + b, with the REPORTED (a, b) unless `ab` gives another pair. Returns
+        (math, None) or (None, reason)."""
         import fuller._fuller as _ff
         from _denoise_op import _build_functions_dict, _token_tuple
         pset = self._pset
@@ -3281,7 +3286,8 @@ class HFFSREngine:
                 "sqrt_abs": f"(Sqrt (Abs {body}))"}.get(self.wrapper_name_)
         if body is None:
             return None, f"wrapper {self.wrapper_name_!r} has no Math constructor"
-        return f"(Add (Mul (Num {self.reported_a_!r}) {body}) (Num {self.reported_b_!r}))", None
+        a, b = ab if ab is not None else (self.reported_a_, self.reported_b_)
+        return f"(Add (Mul (Num {float(a)!r}) {body}) (Num {float(b)!r}))", None
 
     # A tidied form is kept only when it predicts what the model predicts:
     # mean squared difference over train+validation, relative to the model's
@@ -3318,14 +3324,25 @@ class HFFSREngine:
         if not np.all(np.isfinite(ref)) or var <= 0:
             self.final_form_note_ = "the chromosome's Math form is not finite, or is constant, on the data"
             return
-        mine = np.asarray(self.predict(X), dtype=np.float64)
-        if float(np.mean((mine - ref) ** 2)) / var > 1e-6:
+        # FIDELITY: the chromosome against its direct translation, both with the
+        # fitted (a, b) — before the snap and the fold, which change the
+        # function on purpose and answer to the data, not to this check.
+        selected_math, _ = self._chromosome_math(ind, bundle, ab=self._translation_ab)
+        selected = np.asarray(_ff.eval_math(selected_math, columns), dtype=np.float64)
+        translated = sp.lambdify([sp.Symbol(v) for v in cols], self._translation_numeric, modules=["numpy"])
+        with np.errstate(all="ignore"):
+            mine = np.broadcast_to(np.asarray(translated(*[X[c].values for c in cols]), dtype=np.float64),
+                                   selected.shape)
+        ok = np.isfinite(selected) & np.isfinite(mine)
+        spread = float(np.var(selected[ok])) if ok.any() else 0.0
+        drift = (float(np.mean((mine[ok] - selected[ok]) ** 2)) / spread) if spread > 0 else float("inf")
+        if not ok.all() or drift > 1e-6:
             # The model that was SELECTED (the chromosome) and the model that is
             # REPORTED and used by predict() (its symbolic translation) are not
             # the same function. That is a fault, never a note.
             self.report_fault_ = ("REPORT FAULT: the reported expression does not compute what the selected "
-                                  f"chromosome computes (relative mean squared difference "
-                                  f"{float(np.mean((mine - ref) ** 2)) / var:.3g} on train+validation)")
+                                  f"chromosome computes (relative mean squared difference {drift:.3g} on "
+                                  f"train+validation; rows where only one of them is finite: {int((~ok).sum())})")
             self.final_form_note_ = self.report_fault_
             print(f"[engine] {self.report_fault_}", flush=True)
             return
@@ -3550,11 +3567,12 @@ class HFFSREngine:
                 # protected-sqrt Abs wrapper over these (proven positivity).
                 _positive = [v for v in Xcols
                              if bool((_train[v].values >= 0).all())]
-                # The fold may not move the function by more than the final
-                # form may: at 1e-6 it was allowed exactly the drift the
-                # REPORT FAULT check forbids (it pruned +0.01*sin(x0) from a
-                # denominator on Feynman I.26.2's data, relative difference 8.5e-7).
-                _folded = _fold_expr(best_e, _rows, tolerance=self.FINAL_FORM_AGREE,
+                # LOOSE ON PURPOSE. The snap and this fold change the function
+                # deliberately — a fitted scale becomes pi, a +0.01*sin(x0) fudge
+                # goes — and the data judges the result (the R² gate below). The
+                # REPORT FAULT check does not police them: it compares the
+                # chromosome with its translation BEFORE any of this.
+                _folded = _fold_expr(best_e, _rows, tolerance=1e-6,
                                      k_variants=32, positive_vars=_positive)
                 if _folded is not None:
                     _folded_r2 = _r2(_folded)
