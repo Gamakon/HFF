@@ -29,7 +29,6 @@ def main():
     ap.add_argument("--population", type=int, default=800)
     ap.add_argument("--max-rows", type=int, default=5000)
     ap.add_argument("--cleanse", type=float, default=0.0, help="the cleansing mutation's rate per row (0 = off)")
-    ap.add_argument("--harvests", type=int, default=4, help="harvest-and-regrow: park up to N models and report the smallest (0 = off; 4 = the engine's default, kept after a two-seed A/B)")
     ap.add_argument("--rnc", type=int, nargs=2, default=None, metavar=("LO", "HI"), help="the range random constants are drawn from (engine default -100 100)")
     ap.add_argument("--restarts", type=int, default=1, help="split each problem's seconds into this many independent searches")
     ap.add_argument("--edge", action="store_true",
@@ -136,7 +135,7 @@ def main():
     # race's size and effort, then the column names directly above the results.
     # Everything newer goes on its own SETTINGS line ABOVE them, never between.
     total = args.population + args.champion if args.champion else args.population
-    print(f"RUST ENGINE RACE: {len(names)} datasets | development seed {seed} | {args.seconds:.0f} s each | population {total} | cleanse {args.cleanse} | harvests {args.harvests} | rnc {args.rnc or 'engine default'} | restarts {args.restarts} | one fit at a time", flush=True)
+    print(f"RUST ENGINE RACE: {len(names)} datasets | development seed {seed} | {args.seconds:.0f} s each | population {total} | cleanse {args.cleanse} | rnc {args.rnc or 'engine default'} | restarts {args.restarts} | one fit at a time", flush=True)
     print(f"SETTINGS: head {args.head or 34} | pump every {args.pump or 4} | islands {f'{args.population} intake + {args.champion} champion' if args.champion else '3:1 intake:champion'} | generations {args.generations or 'by time'} | "
           f"HFF = train{'' if args.hff_no_val else ' + validation'}{' + block3' if (args.smogd or args.smote) else ''}{' + t_depth' if args.tower else ''}{' + redundancy' if args.redundancy else ''} | "
           f"block3 = {'SMOGD x' + str(args.smogd_noise) if args.smogd else ''}{' + ' if args.smogd and args.smote else ''}{'SMOTE' if args.smote else ''}{'' if (args.smogd or args.smote) else 'off'} | "
@@ -189,7 +188,7 @@ def main():
         if args.progress:
             print(f"{name}: fitting ...", flush=True)
         t = time.time()
-        run = subprocess.run([engine, train_path, str(seed), str(args.seconds), str(args.max_rows), str(args.population), "all", str(args.cleanse), test_path, str(args.harvests)],
+        run = subprocess.run([engine, train_path, str(seed), str(args.seconds), str(args.max_rows), str(args.population), "all", str(args.cleanse), test_path],
                              # With --progress the engine's stderr goes STRAIGHT to the log, line by
                              # line as the fit runs; otherwise it is kept for the ENGINE FAILED message.
                              stdout=subprocess.PIPE, stderr=(None if args.progress else subprocess.PIPE), text=True,
