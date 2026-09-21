@@ -32,6 +32,9 @@ def main():
     ap.add_argument("--harvests", type=int, default=4, help="harvest-and-regrow: park up to N models and report the smallest (0 = off; 4 = the engine's default, kept after a two-seed A/B)")
     ap.add_argument("--rnc", type=int, nargs=2, default=None, metavar=("LO", "HI"), help="the range random constants are drawn from (engine default -100 100)")
     ap.add_argument("--restarts", type=int, default=1, help="split each problem's seconds into this many independent searches")
+    ap.add_argument("--edge", action="store_true",
+                    help="edge validation: hold the most isolated 20%% of the training rows (at most 2,000) out of "
+                         "fitting and score them as separate HFF objectives (the SRBench entry's _isolated_rows)")
     ap.add_argument("--engine", default=ENGINE, help="the evolve_fit binary to snapshot into the results folder")
     ap.add_argument("--limit", type=int, default=0, help="only the first N datasets of the shuffled order (a check run)")
     ap.add_argument("--results", default=os.path.join(HERE, "sr_logs", "rust_race"))
@@ -91,7 +94,7 @@ def main():
     import random; random.Random(seed).shuffle(names)
     if args.limit:
         names = names[:args.limit]
-    print(f"RUST ENGINE RACE: {len(names)} datasets | development seed {seed} | {args.seconds:.0f} s each | population {args.population} | cleanse {args.cleanse} | harvests {args.harvests} | rnc {args.rnc or "engine default"} | restarts {args.restarts} | one fit at a time", flush=True)
+    print(f"RUST ENGINE RACE: {len(names)} datasets | development seed {seed} | {args.seconds:.0f} s each | population {args.population} | cleanse {args.cleanse} | harvests {args.harvests} | rnc {args.rnc or "engine default"} | restarts {args.restarts} | edge {args.edge} | one fit at a time", flush=True)
     print(f"{'dataset':<24}{'r2_test':>10}{'gens':>6}{'fit s':>7}{'stop':>12}  sol  model", flush=True)
     solved = done = faults = 0; t0 = time.time()
     for name in names:
@@ -112,12 +115,22 @@ def main():
                 print(f"   TALLY {solved} solved of {done} = {100*solved/done:.1f}% | {time.time()-t0:.0f} s elapsed", flush=True)
             continue
         train_path = os.path.join(args.results, f"{name}.train.tsv")
+        handed = Xtr                      # every training row SRBench handed us: the sign facts come from all of them
+        edge_path = ""
+        if args.edge:
+            edge = R._isolated_rows(Xtr.to_numpy(dtype=float))
+            inside = np.setdiff1d(np.arange(len(Xtr)), edge)
+            edge_path = os.path.join(args.results, f"{name}.edge.tsv")
+            Xtr.iloc[edge].assign(target=ytr.iloc[edge]).to_csv(edge_path, sep="\t", index=False)
+            Xtr, ytr = Xtr.iloc[inside], ytr.iloc[inside]
         Xtr.assign(target=ytr).to_csv(train_path, sep="\t", index=False)
         test_path = os.path.join(args.results, f"{name}.test.tsv")
         Xte.assign(target=yte).to_csv(test_path, sep="\t", index=False)
         t = time.time()
         run = subprocess.run([engine, train_path, str(seed), str(args.seconds), str(args.max_rows), str(args.population), "all", str(args.cleanse), test_path, str(args.harvests)],
-                             capture_output=True, text=True, env=knobs)
+                             capture_output=True, text=True, env=dict(knobs, EVOLVE_EDGE=edge_path))
+        if edge_path:
+            os.remove(edge_path)
         wall = time.time() - t
         os.remove(train_path)
         os.remove(test_path)
@@ -130,7 +143,7 @@ def main():
         raw = info["MODEL_INFIX"][0]
         # The SRBench entry's reporting tidy, on the engine's string.
         cols = [f"x_{i}" for i in range(X.shape[1])]
-        positive = [c for c, v in zip(cols, X.columns) if bool((Xtr[v] > 0).all())]
+        positive = [c for c, v in zip(cols, X.columns) if bool((handed[v] > 0).all())]
         try:
             signal.alarm(20)
             expr = R._tidy_reported(R._with_positive_columns(sp.sympify(raw), positive))
