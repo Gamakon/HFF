@@ -42,6 +42,7 @@ def main():
     ap.add_argument("--hff-no-val", action="store_true", help="leave validation out of HFF: tournaments rank on train + block three (validation still decides the stop bar)")
     ap.add_argument("--tower", action="store_true", help="the tower objective: t_depth (transcendental nesting depth) joins HFF; smooth, a sixth per level, 1 from depth 6")
     ap.add_argument("--hff-log-train", action="store_true", help="the TRAIN block enters HFF on the log scale too: 1 + log10(x)/12, so 6e-6 and 1e-14 are no longer the same zero")
+    ap.add_argument("--progress", type=int, default=0, help="a progress line in the log every N generations of a fit (0 = none)")
     ap.add_argument("--pump", type=int, default=0, help="the pump's beat in generations (0 = the engine's default, 4)")
     ap.add_argument("--head", type=int, default=0, help="a gene's head length (0 = the engine's default, 34)")
     ap.add_argument("--hff-log-val", action="store_true", help="block two (validation) enters HFF on the log scale")
@@ -87,6 +88,7 @@ def main():
     knobs["EVOLVE_HFF_LOG_TRAIN"] = "1" if args.hff_log_train else "0"
     knobs["EVOLVE_HFF_LOG_VAL"] = "1" if args.hff_log_val else "0"
     knobs["EVOLVE_HFF_LOG_BLOCK3"] = "1" if args.hff_log_block3 else "0"
+    knobs["EVOLVE_PROGRESS_EVERY"] = str(args.progress)
     if args.pump:
         knobs["EVOLVE_PUMP_EVERY"] = str(args.pump)
     if args.head:
@@ -184,9 +186,14 @@ def main():
         Xtr.assign(target=ytr).to_csv(train_path, sep="\t", index=False)
         test_path = os.path.join(args.results, f"{name}.test.tsv")
         Xte.assign(target=yte).to_csv(test_path, sep="\t", index=False)
+        if args.progress:
+            print(f"{name}: fitting ...", flush=True)
         t = time.time()
         run = subprocess.run([engine, train_path, str(seed), str(args.seconds), str(args.max_rows), str(args.population), "all", str(args.cleanse), test_path, str(args.harvests)],
-                             capture_output=True, text=True, env=dict(knobs, EVOLVE_EDGE=edge_path))
+                             # With --progress the engine's stderr goes STRAIGHT to the log, line by
+                             # line as the fit runs; otherwise it is kept for the ENGINE FAILED message.
+                             stdout=subprocess.PIPE, stderr=(None if args.progress else subprocess.PIPE), text=True,
+                             env=dict(knobs, EVOLVE_EDGE=edge_path))
         if edge_path:
             os.remove(edge_path)
         wall = time.time() - t
@@ -195,7 +202,7 @@ def main():
         info = {l.split("\t")[0]: l.split("\t")[1:] for l in run.stdout.splitlines() if l.startswith(("GENERATIONS", "MODEL_INFIX", "CHROMOSOME_TEST_R2", "SMOGD", "SMOTE", "HFF", "MSE", "TOWER", "MODEL_PLAIN"))}
         done += 1
         if run.returncode != 0 or "MODEL_INFIX" not in info:
-            print(f"{name:<24}{'-':>10}{'-':>6}{wall:>7.1f}{'ENGINE FAILED':>12}   n  {run.stderr.strip()[-160:]}", flush=True)
+            print(f"{name:<24}{'-':>10}{'-':>6}{wall:>7.1f}{'ENGINE FAILED':>12}   n  {(run.stderr or 'its own message is in the lines above').strip()[-160:]}", flush=True)
             continue
         gens, stop = info["GENERATIONS"][0], info["GENERATIONS"][1]
         faithful = info["MODEL_INFIX"][0]                 # executes exactly as the chromosome does (Piecewise where a protection fires)
