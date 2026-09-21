@@ -180,26 +180,36 @@ def main():
         wall = time.time() - t
         os.remove(train_path)
         os.remove(test_path)
-        info = {l.split("\t")[0]: l.split("\t")[1:] for l in run.stdout.splitlines() if l.startswith(("GENERATIONS", "MODEL_INFIX", "CHROMOSOME_TEST_R2", "SMOGD", "SMOTE", "HFF", "MSE", "TOWER"))}
+        info = {l.split("\t")[0]: l.split("\t")[1:] for l in run.stdout.splitlines() if l.startswith(("GENERATIONS", "MODEL_INFIX", "CHROMOSOME_TEST_R2", "SMOGD", "SMOTE", "HFF", "MSE", "TOWER", "MODEL_PLAIN"))}
         done += 1
         if run.returncode != 0 or "MODEL_INFIX" not in info:
             print(f"{name:<24}{'-':>10}{'-':>6}{wall:>7.1f}{'ENGINE FAILED':>12}   n  {run.stderr.strip()[-160:]}", flush=True)
             continue
         gens, stop = info["GENERATIONS"][0], info["GENERATIONS"][1]
-        raw = info["MODEL_INFIX"][0]
-        # The SRBench entry's reporting tidy, on the engine's string.
+        faithful = info["MODEL_INFIX"][0]                 # executes exactly as the chromosome does (Piecewise where a protection fires)
+        raw = info.get("MODEL_PLAIN", [faithful])[0]      # the FUNCTION, protections written as the ordinary operators: what SRBench compares
         cols = [f"x_{i}" for i in range(X.shape[1])]
         positive = [c for c, v in zip(cols, X.columns) if bool((handed[v] > 0).all())]
+        tidy = lambda text: R._tidy_reported(R._with_positive_columns(sp.sympify(text), positive))
+        # 1. The reported / submitted model: the reporting tidy of the plain function.
+        tidy_note = ""
         try:
             signal.alarm(20)
-            expr = R._tidy_reported(R._with_positive_columns(sp.sympify(raw), positive))
-            model = str(expr)
-            f = sp.lambdify([sp.Symbol(c) for c in cols], expr, "numpy")
+            model = str(tidy(raw))
+        except Exception as e:
+            model, tidy_note = raw, f" | REPORT TIDY FAILED ({type(e).__name__}: {str(e)[:80]}); fuller's string reported as it is"
+        finally:
+            signal.alarm(0)
+        # 2. Its test R2, from the FAITHFUL form — the one that may be executed.
+        try:
+            signal.alarm(20)
+            f = sp.lambdify([sp.Symbol(c) for c in cols], tidy(faithful), "numpy")
             with np.errstate(all="ignore"):
                 pred = np.broadcast_to(np.asarray(f(*Xte.to_numpy(float).T), float), (len(yte),))
             r2 = float(r2_score(yte, pred)) if np.all(np.isfinite(pred)) else float("nan")
         except Exception as e:
-            model, r2 = raw, float("nan")
+            r2 = float("nan")
+            tidy_note += f" | TEST R2 NOT COMPUTED ({type(e).__name__}: {str(e)[:80]})"
         finally:
             signal.alarm(0)
         # REPORT FAULT: the string we report must compute what the selected
@@ -230,7 +240,7 @@ def main():
         direct_jf = os.path.join(direct_dir, os.path.basename(jf))
         json.dump({"algorithm": "hff_rust_fuller_direct", "dataset": name, "symbolic_model": raw, "r2_test": r2}, open(direct_jf, "w"))
         sol_fuller, note_fuller = assess(direct_jf, ds)
-        json.dump({"algorithm": "hff_rust", "dataset": name, "symbolic_model": model, "r2_test": r2, "hff": hff, "detail": detail,
+        json.dump({"algorithm": "hff_rust", "dataset": name, "symbolic_model": model, "r2_test": r2, "hff": hff, "detail": detail + tidy_note,
                    "fuller_model": raw, "sol_fuller": sol_fuller, "note_fuller": note_fuller,
                    "generations": int(gens), "stopped_by": stop, "fit_wall": wall}, open(jf, "w"))
         sol, note = assess(jf, ds)
@@ -242,7 +252,7 @@ def main():
         solved += sol
         solved_fuller += sol_fuller
         print(f"{name:<24}{r2:>10.4f}{gens:>6}{wall:>7.1f}{stop:>12}  {'Y' if sol else 'n':>3}  {model}", flush=True)
-        print(f"      exact: sympy {'Y' if sol else 'n'}, fuller {'Y' if sol_fuller else 'n'}{(' (' + note_fuller + ')') if note_fuller else ''}{detail}", flush=True)
+        print(f"      exact: sympy {'Y' if sol else 'n'}, fuller {'Y' if sol_fuller else 'n'}{(' (' + note_fuller + ')') if note_fuller else ''}{detail}{tidy_note}", flush=True)
         if done % 10 == 0:
             print(f"   TALLY {solved} solved of {done} = {100*solved/done:.1f}% | {time.time()-t0:.0f} s elapsed", flush=True)
     print(f"\nDONE: {solved} solved of {done} = {100*solved/max(done,1):.1f}% in {time.time()-t0:.0f} s  (Rust engine, seed {seed}, {args.seconds:.0f} s each) | fuller direct: {solved_fuller} solved | REPORT FAULTs {faults}", flush=True)
