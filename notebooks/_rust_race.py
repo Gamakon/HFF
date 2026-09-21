@@ -42,6 +42,7 @@ def main():
     ap.add_argument("--hff-no-val", action="store_true", help="leave validation out of HFF: tournaments rank on train + block three (validation still decides the stop bar)")
     ap.add_argument("--tower", action="store_true", help="the tower objective: t_depth (transcendental nesting depth) joins HFF; smooth, a sixth per level, 1 from depth 6")
     ap.add_argument("--hff-log-train", action="store_true", help="the TRAIN block enters HFF on the log scale too: 1 + log10(x)/12, so 6e-6 and 1e-14 are no longer the same zero")
+    ap.add_argument("--pump", type=int, default=0, help="the pump's beat in generations (0 = the engine's default, 4)")
     ap.add_argument("--head", type=int, default=0, help="a gene's head length (0 = the engine's default, 34)")
     ap.add_argument("--hff-log-val", action="store_true", help="block two (validation) enters HFF on the log scale")
     ap.add_argument("--hff-log-block3", action="store_true", help="block three (SMOGD/SMOTE) enters HFF on the log scale")
@@ -86,6 +87,8 @@ def main():
     knobs["EVOLVE_HFF_LOG_TRAIN"] = "1" if args.hff_log_train else "0"
     knobs["EVOLVE_HFF_LOG_VAL"] = "1" if args.hff_log_val else "0"
     knobs["EVOLVE_HFF_LOG_BLOCK3"] = "1" if args.hff_log_block3 else "0"
+    if args.pump:
+        knobs["EVOLVE_PUMP_EVERY"] = str(args.pump)
     if args.head:
         knobs["EVOLVE_HEAD"] = str(args.head)
     if args.champion:
@@ -132,7 +135,7 @@ def main():
     # Everything newer goes on its own SETTINGS line ABOVE them, never between.
     total = args.population + args.champion if args.champion else args.population
     print(f"RUST ENGINE RACE: {len(names)} datasets | development seed {seed} | {args.seconds:.0f} s each | population {total} | cleanse {args.cleanse} | harvests {args.harvests} | rnc {args.rnc or 'engine default'} | restarts {args.restarts} | one fit at a time", flush=True)
-    print(f"SETTINGS: head {args.head or 34} | islands {f'{args.population} intake + {args.champion} champion' if args.champion else '3:1 intake:champion'} | generations {args.generations or 'by time'} | "
+    print(f"SETTINGS: head {args.head or 34} | pump every {args.pump or 4} | islands {f'{args.population} intake + {args.champion} champion' if args.champion else '3:1 intake:champion'} | generations {args.generations or 'by time'} | "
           f"HFF = train{'' if args.hff_no_val else ' + validation'}{' + block3' if (args.smogd or args.smote) else ''}{' + t_depth' if args.tower else ''}{' + redundancy' if args.redundancy else ''} | "
           f"block3 = {'SMOGD x' + str(args.smogd_noise) if args.smogd else ''}{' + ' if args.smogd and args.smote else ''}{'SMOTE' if args.smote else ''}{'' if (args.smogd or args.smote) else 'off'} | "
           f"HFF scale: train {'log' if args.hff_log_train else 'linear'}, validation {'log' if (args.hff_log or args.hff_log_val) else 'linear'}, block3 {'log' if (args.hff_log or args.hff_log_block3) else 'linear'} | side by side: {os.path.join(args.results, 'side_by_side.tsv')}", flush=True)
