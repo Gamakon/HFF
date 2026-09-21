@@ -358,7 +358,7 @@ def concretize_individual(individual, toolbox, pset, X_ho, y_ho,
 
 
 def instrumented_tidy_gene(gene, pset, rows_train, rows_val,
-                           k: int = 64, iters: int = 12):
+                           k: int = 64, iters: int = 12, protected=None):
     """Final-answer tidying via fuller.eclass_extract_hff_instrumented.
 
     Runs the e-class tournament on one gene's karva, scoring every equivalent
@@ -391,6 +391,10 @@ def instrumented_tidy_gene(gene, pset, rows_train, rows_val,
     # ranked is [(score, math_sexpr), ...], best (lowest) first.
     try:
         _score, best_sexpr = ranked[0]
-        return from_math(best_sexpr)
+        # `protected`: the caller's symbolic forms of the protected operators,
+        # faithful on ITS data. Without them from_math writes a/b and
+        # sqrt(Abs(x)), and the tidied gene is a different function wherever a
+        # divisor is tiny or an argument overflows (Feynman I.12.2).
+        return from_math(best_sexpr, protected)
     except Exception:
         return None

@@ -2786,6 +2786,8 @@ class HFFSREngine:
         _div_rows = pd.concat([f[bundle.variables] for f in _div_frames], ignore_index=True).astype(float)
 
         sym_map.update(hgh.protected_div_symbolic_entries(_div_rows, list(bundle.variables)))
+        # and protected_sqrt is 0 on a non-finite argument, where sqrt(Abs(x)) is inf.
+        sym_map["protected_sqrt"] = hgh.symbolic_protected_sqrt(_div_rows, list(bundle.variables))
         # Sympy mappings for the extended primitive set.
         sym_map["tanh"] = sp.tanh
         sym_map["_pset_square"] = lambda x: x ** 2
@@ -2964,7 +2966,13 @@ class HFFSREngine:
                     if _tidy_rows_tr is not None:
                         try:
                             from _snap_op import instrumented_tidy_gene as _tidy
-                            _tidied = _tidy(_g, self._pset, _tidy_rows_tr, _tidy_rows_va)
+                            # The RESOLVED gene ("?" is an index, not a symbol)
+                            # and this fit's faithful protected operators.
+                            _tidied = _tidy(_resolved_gene(_g), self._pset, _tidy_rows_tr, _tidy_rows_va,
+                                            protected={("ProtectedDiv", 2): sym_map["protected_div_zero"],
+                                                       ("ProtectedSqrt", 1): sym_map["protected_sqrt"],
+                                                       ("ProtectedLog", 1): sym_map["protected_log"],
+                                                       ("ProtectedInv", 1): sym_map["_pset_inv"]})
                         except Exception:
                             _tidied = None
                         if _tidied is not None and _has_unresolved_rnc(_tidied):
@@ -3542,7 +3550,11 @@ class HFFSREngine:
                 # protected-sqrt Abs wrapper over these (proven positivity).
                 _positive = [v for v in Xcols
                              if bool((_train[v].values >= 0).all())]
-                _folded = _fold_expr(best_e, _rows, tolerance=1e-6,
+                # The fold may not move the function by more than the final
+                # form may: at 1e-6 it was allowed exactly the drift the
+                # REPORT FAULT check forbids (it pruned +0.01*sin(x0) from a
+                # denominator on Feynman I.26.2's data, relative difference 8.5e-7).
+                _folded = _fold_expr(best_e, _rows, tolerance=self.FINAL_FORM_AGREE,
                                      k_variants=32, positive_vars=_positive)
                 if _folded is not None:
                     _folded_r2 = _r2(_folded)

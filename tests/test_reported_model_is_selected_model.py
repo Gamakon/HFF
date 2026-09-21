@@ -103,3 +103,67 @@ class TestCompressSeesResolvedConstants:
         resolved = _resolved_gene(gene)
         assert isinstance(resolved, types.SimpleNamespace) and resolved.tail == []
         assert all(getattr(t, "name", None) != "?" for t in resolved.head)
+
+
+class TestPruneNeedsEvidence:
+    """A term is dropped as negligible only on the problem's real ranges."""
+
+    def test_without_ranges_nothing_is_pruned(self):
+        expr = sp.exp(sp.exp(x)) - (x**2 + 81)**2 / x**2           # strogatz_shearflow1's gene
+        assert hgh._prune_tiny_additive(expr) == expr
+        assert hgh._prune_tiny_additive(expr, var_ranges={"y": (0.0, 1.0)}) == expr
+
+    def test_with_ranges_a_negligible_constant_still_goes(self):
+        expr = sp.pi * x**2 + sp.Float(1e-9)
+        assert hgh._prune_tiny_additive(expr, var_ranges={"x": (1.0, 5.0)}) == sp.pi * x**2
+
+    def test_compress_keeps_the_gene_that_was_pruned_on_a_made_up_domain(self):
+        from _sympy_to_karva import visit_subtree                    # noqa: F401  (import must work)
+        expr = sp.exp(sp.exp(x)) - (x**2 + 81)**2 / x**2
+        kept = hgh._prune_tiny_additive(expr)
+        for value in (0.3, -1.0, 2.0):
+            assert float(kept.subs(x, value)) == pytest.approx(float(expr.subs(x, value)), rel=1e-12)
+
+
+class TestProtectedSqrtOnNonFinite:
+    """protected_sqrt is 0 where its argument is not finite."""
+
+    ROWS = pd.DataFrame({"x": [1.0, 400.0]})
+
+    def test_an_argument_that_overflows_on_some_rows_is_the_exact_definition(self):
+        import hff_sr_engine as engine
+        root = hgh.symbolic_protected_sqrt(self.ROWS, ["x"])
+        got = root(sp.exp(x)**2)
+        assert isinstance(got, sp.Piecewise)
+        f = sp.lambdify([x], got, "numpy")
+        for value in (1.0, 400.0):
+            with np.errstate(all="ignore"):
+                e = engine.protected_exp(value)
+                want = engine.protected_sqrt(e * e)                 # e*e overflows to inf at 400
+                assert float(f(np.float64(value))) == pytest.approx(want, rel=1e-12)
+        assert want == 0.0
+
+    def test_an_always_finite_argument_stays_a_plain_root(self):
+        root = hgh.symbolic_protected_sqrt(self.ROWS, ["x"])
+        assert root(x + 1) == sp.sqrt(sp.Abs(x + 1))
+
+
+class TestTidiedGeneKeepsTheProtectedOperators:
+    """fuller's from_math renders ProtectedDiv as a/b and ProtectedSqrt as
+    sqrt(Abs(x)). The engine's tidy path must hand it the faithful forms."""
+
+    def test_from_math_uses_the_callers_protected_operators(self):
+        from fuller.sympy_bridge import from_math
+        math_expr = '(ProtectedDiv (Var "y") (Num 0.00000000000000466))'
+        assert from_math(math_expr) == y / sp.Float(4.66e-15)          # the generic rendering
+        faithful = hgh.protected_div_symbolic_entries(ROWS, VARS)
+        got = from_math(math_expr, {("ProtectedDiv", 2): faithful["protected_div_zero"]})
+        assert got == 0
+
+    def test_a_root_of_an_overflow_is_zero_in_the_tidied_form(self):
+        from fuller.sympy_bridge import from_math
+        rows = pd.DataFrame({"x": [1.0, 400.0]})
+        root = hgh.symbolic_protected_sqrt(rows, ["x"])
+        got = from_math('(ProtectedSqrt (Pow2 (Exp (Var "x"))))', {("ProtectedSqrt", 1): root})
+        with np.errstate(all="ignore"):
+            assert float(sp.lambdify([x], got, "numpy")(np.float64(400.0))) == 0.0

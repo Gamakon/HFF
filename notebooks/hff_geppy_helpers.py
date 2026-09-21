@@ -207,6 +207,47 @@ def symbolic_protected_div(rows, variables, when_tiny):
     return divide
 
 
+LARGEST_FINITE = 1.7976931348623157e308
+
+
+def symbolic_protected_sqrt(rows, variables):
+    """The SYMBOLIC protected_sqrt that agrees with the numeric one.
+
+    Numerically protected_sqrt(x) is sqrt(|x|) for a finite x and 0.0 otherwise
+    (the engine's primitive, fuller's evaluator). sqrt(Abs(x)) alone says inf
+    where the operator says 0: Feynman I.12.2's gene squared an exp that
+    overflows f64 on 236 of 3,750 rows, so the selected chromosome divided by
+    col_2 there and the reported model divided by inf. Decided on the rows the
+    model is selected on: argument always finite -> sqrt(Abs(x)); never -> 0;
+    sometimes, or not decidable -> the exact Piecewise definition."""
+    import sympy as sp
+    columns = [rows[v].to_numpy(dtype=float) for v in variables]
+    symbols = [sp.Symbol(v) for v in variables]
+
+    def root(x):
+        x = sp.sympify(x)
+        plain = sp.sqrt(sp.Abs(x))
+        exact = sp.Piecewise((plain, sp.Abs(x) < sp.Float(LARGEST_FINITE)), (sp.Integer(0), True))
+        if not x.free_symbols:
+            return plain if x.is_finite else (sp.Integer(0) if x.is_finite is False else exact)
+        if not all(str(sym) in variables for sym in x.free_symbols):
+            return exact
+        try:
+            with np.errstate(all="ignore"):
+                value = np.broadcast_to(np.asarray(sp.lambdify(symbols, x, "numpy")(*columns), dtype=float),
+                                        (len(rows),))
+        except Exception:
+            return exact
+        finite = np.isfinite(value)
+        if finite.all():
+            return plain
+        if not finite.any():
+            return sp.Integer(0)
+        return exact
+
+    return root
+
+
 def protected_div_symbolic_entries(rows, variables) -> dict:
     """Entries for a symbolic function map: all three protected divides,
     threshold-faithful on `rows`. Lay them over custom_symbolic_function_map()."""
@@ -1468,6 +1509,14 @@ def _prune_tiny_additive(expr, rel_tol: float = 1e-3, seed: int = 0,
 
     if not isinstance(expr, sp.Add):
         return expr
+    # NO EVIDENCE, NO EDIT. Without the problem's real ranges this used to probe
+    # a made-up domain, U(0.5, 5), and on it judged a term negligible that on
+    # the data was the model: strogatz_shearflow1's gene exp(exp(c1)) -
+    # (c1**2+81)**2/c1**2 was reported as exp(exp(c1)), relative difference
+    # 1.23 from the chromosome that was selected, and a model with holdout
+    # R2 0.75 scored -0.01. Every symbol needs a range, or nothing is pruned.
+    if not var_ranges or any(s.name not in var_ranges for s in expr.free_symbols):
+        return expr
 
     var_terms = [t for t in expr.args if t.free_symbols]
     const_terms = [t for t in expr.args if not t.free_symbols]
@@ -1477,9 +1526,7 @@ def _prune_tiny_additive(expr, rel_tol: float = 1e-3, seed: int = 0,
     n_probe = 64
     sample = {}
     for s in free_syms:
-        lo, hi = (0.5, 5.0)
-        if var_ranges is not None and s.name in var_ranges:
-            lo, hi = var_ranges[s.name]
+        lo, hi = var_ranges[s.name]
         sample[s] = rng.uniform(lo, hi, size=n_probe)
 
     var_mags = []
