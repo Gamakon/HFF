@@ -46,6 +46,12 @@ def main():
     seed = prod.DEV_SEEDS[args.seed_index]
     assert seed not in SEEDS, "development runs never use SRBench's seeds"
     os.makedirs(args.results, exist_ok=True)
+    # A race runs ITS OWN copy of the engine, taken at launch: rebuilding the
+    # engine while a race is running must never change what that race measures.
+    import shutil
+    engine = os.path.join(args.results, "evolve_fit.bin")
+    if not os.path.exists(engine):
+        shutil.copy2(ENGINE, engine)
     cwd = os.getcwd(); os.chdir(SRBENCH)
     with contextlib.redirect_stdout(io.StringIO()):
         from assess_symbolic_model import assess_symbolic_model_from_file
@@ -80,7 +86,7 @@ def main():
         names = names[:args.limit]
     print(f"RUST ENGINE RACE: {len(names)} datasets | development seed {seed} | {args.seconds:.0f} s each | population {args.population} | cleanse {args.cleanse} | one fit at a time", flush=True)
     print(f"{'dataset':<24}{'r2_test':>10}{'gens':>6}{'fit s':>7}{'stop':>12}  sol  model", flush=True)
-    solved = done = 0; t0 = time.time()
+    solved = done = faults = 0; t0 = time.time()
     for name in names:
         ds = f"{PMLB}/{name}/{name}.tsv.gz"
         df = pd.read_csv(ds, sep="\t")
@@ -100,12 +106,15 @@ def main():
             continue
         train_path = os.path.join(args.results, f"{name}.train.tsv")
         Xtr.assign(target=ytr).to_csv(train_path, sep="\t", index=False)
+        test_path = os.path.join(args.results, f"{name}.test.tsv")
+        Xte.assign(target=yte).to_csv(test_path, sep="\t", index=False)
         t = time.time()
-        run = subprocess.run([ENGINE, train_path, str(seed), str(args.seconds), str(args.max_rows), str(args.population), "all", str(args.cleanse)],
+        run = subprocess.run([engine, train_path, str(seed), str(args.seconds), str(args.max_rows), str(args.population), "all", str(args.cleanse), test_path],
                              capture_output=True, text=True)
         wall = time.time() - t
         os.remove(train_path)
-        info = {l.split("\t")[0]: l.split("\t")[1:] for l in run.stdout.splitlines() if l.startswith(("GENERATIONS", "MODEL_INFIX"))}
+        os.remove(test_path)
+        info = {l.split("\t")[0]: l.split("\t")[1:] for l in run.stdout.splitlines() if l.startswith(("GENERATIONS", "MODEL_INFIX", "CHROMOSOME_TEST_R2"))}
         done += 1
         if run.returncode != 0 or "MODEL_INFIX" not in info:
             print(f"{name:<24}{'-':>10}{'-':>6}{wall:>7.1f}{'ENGINE FAILED':>12}   n  {run.stderr.strip()[-160:]}", flush=True)
@@ -127,16 +136,26 @@ def main():
             model, r2 = raw, float("nan")
         finally:
             signal.alarm(0)
+        # REPORT FAULT: the string we report must compute what the selected
+        # chromosome computes. The engine scored the RAW chromosome on these same
+        # test rows in f64; the tidy may snap a constant or drop a 1e-4 term, no more.
+        fault = ""
+        if "CHROMOSOME_TEST_R2" in info and r2 == r2:
+            chromosome_r2 = float(info["CHROMOSOME_TEST_R2"][0])
+            if abs(chromosome_r2 - r2) > 1e-6 + 1e-3 * abs(1.0 - chromosome_r2):
+                fault = f"REPORT FAULT: chromosome test R2 {chromosome_r2:.8f}, reported string {r2:.8f} | "
         json.dump({"algorithm": "hff_rust", "dataset": name, "symbolic_model": model, "r2_test": r2,
                    "generations": int(gens), "stopped_by": stop, "fit_wall": wall}, open(jf, "w"))
         sol, note = assess(jf, ds)
         if note:
             model = note
+        model = fault + model
+        faults += bool(fault)
         solved += sol
         print(f"{name:<24}{r2:>10.4f}{gens:>6}{wall:>7.1f}{stop:>12}  {'Y' if sol else 'n':>3}  {model}", flush=True)
         if done % 10 == 0:
             print(f"   TALLY {solved} solved of {done} = {100*solved/done:.1f}% | {time.time()-t0:.0f} s elapsed", flush=True)
-    print(f"\nDONE: {solved} solved of {done} = {100*solved/max(done,1):.1f}% in {time.time()-t0:.0f} s  (Rust engine, seed {seed}, {args.seconds:.0f} s each)", flush=True)
+    print(f"\nDONE: {solved} solved of {done} = {100*solved/max(done,1):.1f}% in {time.time()-t0:.0f} s  (Rust engine, seed {seed}, {args.seconds:.0f} s each) | REPORT FAULTs {faults}", flush=True)
 
 if __name__ == "__main__":
     main()
