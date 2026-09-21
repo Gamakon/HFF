@@ -118,7 +118,15 @@ def main():
         names = [n for n in names if n in wanted]
     if args.limit:
         names = names[:args.limit]
-    print(f"RUST ENGINE RACE: {len(names)} datasets | development seed {seed} | {args.seconds:.0f} s each | population {args.population}{f" intake + {args.champion} champion" if args.champion else " (3:1 intake:champion)"} | cleanse {args.cleanse} | harvests {args.harvests} | rnc {args.rnc or "engine default"} | restarts {args.restarts} | edge {args.edge} | SMOGD {args.smogd} (noise x{args.smogd_noise}) | SMOTE {args.smote} | HFF log scale on blocks 2+3 {args.hff_log} | HFF without validation {args.hff_no_val} | tower objective (t_depth) {args.tower} | redundancy {args.redundancy} | generations {args.generations or "by time"} | one fit at a time", flush=True)
+    # THE STANDARD HEADER, unchanged since the first Rust race: one line of the
+    # race's size and effort, then the column names directly above the results.
+    # Everything newer goes on its own SETTINGS line ABOVE them, never between.
+    total = args.population + args.champion if args.champion else args.population
+    print(f"RUST ENGINE RACE: {len(names)} datasets | development seed {seed} | {args.seconds:.0f} s each | population {total} | cleanse {args.cleanse} | harvests {args.harvests} | rnc {args.rnc or 'engine default'} | restarts {args.restarts} | one fit at a time", flush=True)
+    print(f"SETTINGS: islands {f'{args.population} intake + {args.champion} champion' if args.champion else '3:1 intake:champion'} | generations {args.generations or 'by time'} | "
+          f"HFF = train{'' if args.hff_no_val else ' + validation'}{' + block3' if (args.smogd or args.smote) else ''}{' + t_depth' if args.tower else ''}{' + redundancy' if args.redundancy else ''} | "
+          f"block3 = {'SMOGD x' + str(args.smogd_noise) if args.smogd else ''}{' + ' if args.smogd and args.smote else ''}{'SMOTE' if args.smote else ''}{'' if (args.smogd or args.smote) else 'off'} | "
+          f"HFF log scale {args.hff_log} | side by side: {os.path.join(args.results, 'side_by_side.tsv')}", flush=True)
     print(f"{'dataset':<24}{'r2_test':>10}{'gens':>6}{'fit s':>7}{'stop':>12}  sol  model", flush=True)
     solved = solved_fuller = done = faults = 0; t0 = time.time()
     # SIDE BY SIDE: what fuller wrote and what sympy made of it, with SRBench's
@@ -130,7 +138,7 @@ def main():
         with open(side_path, "a") as f:
             f.write("\t".join([name, "Y" if sol else "n", "Y" if sol_fuller else "n", f"{r2:.6f}", str(gens), stop,
                                str(fuller_string).replace("\t", " "), str(sympy_string).replace("\t", " ")]) + "\n")
-    print(f"side by side: {side_path}", flush=True)
+
     for name in names:
         ds = f"{PMLB}/{name}/{name}.tsv.gz"
         df = pd.read_csv(ds, sep="\t")
