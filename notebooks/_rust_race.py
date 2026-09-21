@@ -29,6 +29,7 @@ def main():
     ap.add_argument("--population", type=int, default=800)
     ap.add_argument("--max-rows", type=int, default=5000)
     ap.add_argument("--cleanse", type=float, default=0.0, help="the cleansing mutation's rate per row (0 = off)")
+    ap.add_argument("--harvests", type=int, default=0, help="harvest-and-regrow: park up to N models and report the smallest (0 = off)")
     ap.add_argument("--limit", type=int, default=0, help="only the first N datasets of the shuffled order (a check run)")
     ap.add_argument("--results", default=os.path.join(HERE, "sr_logs", "rust_race"))
     args = ap.parse_args()
@@ -84,7 +85,7 @@ def main():
     import random; random.Random(seed).shuffle(names)
     if args.limit:
         names = names[:args.limit]
-    print(f"RUST ENGINE RACE: {len(names)} datasets | development seed {seed} | {args.seconds:.0f} s each | population {args.population} | cleanse {args.cleanse} | one fit at a time", flush=True)
+    print(f"RUST ENGINE RACE: {len(names)} datasets | development seed {seed} | {args.seconds:.0f} s each | population {args.population} | cleanse {args.cleanse} | harvests {args.harvests} | one fit at a time", flush=True)
     print(f"{'dataset':<24}{'r2_test':>10}{'gens':>6}{'fit s':>7}{'stop':>12}  sol  model", flush=True)
     solved = done = faults = 0; t0 = time.time()
     for name in names:
@@ -109,7 +110,7 @@ def main():
         test_path = os.path.join(args.results, f"{name}.test.tsv")
         Xte.assign(target=yte).to_csv(test_path, sep="\t", index=False)
         t = time.time()
-        run = subprocess.run([engine, train_path, str(seed), str(args.seconds), str(args.max_rows), str(args.population), "all", str(args.cleanse), test_path],
+        run = subprocess.run([engine, train_path, str(seed), str(args.seconds), str(args.max_rows), str(args.population), "all", str(args.cleanse), test_path, str(args.harvests)],
                              capture_output=True, text=True)
         wall = time.time() - t
         os.remove(train_path)

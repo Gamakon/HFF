@@ -298,11 +298,42 @@ def _with_positive_columns(expr, positive_columns):
         declared = lambda e: sp.sympify(str(e), locals=local)
         expr = expr.replace(sp.Abs, lambda u: u if declared(u).is_positive else sp.Abs(u))
         radicals = lambda e: sum(1 for p in e.atoms(sp.Pow) if not p.exp.is_Integer)
-        reread = declared(expr)
+        reread = _merge_radicals(declared(expr))
+        expr = _merge_radicals(expr)
         return reread if radicals(reread) <= radicals(expr) else expr
     except Exception as e:
         print(f"[hff-sr] positivity re-read failed ({type(e).__name__}: {e}); reporting it as is")
         return expr
+
+
+def _merge_radicals(expr):
+    """sqrt(a)*sqrt(b)/sqrt(c) -> sqrt(a*b/c), in every product.
+
+    sympy splits a radical whenever a factor is known non-negative (an Abs, or a
+    column declared positive), and SRBench reads our string with NO assumptions:
+    it cannot put sqrt(x_0)*sqrt(x_1/x_2) back together to match sqrt(x_0*x_1/x_2)
+    (Feynman I.47.23, found in one generation and scored unsolved). Every radicand
+    here is non-negative on the data — it came out of an Abs or a positive column
+    — so merging changes nothing numerically. Symbols in the result carry no
+    assumptions, so sympy leaves it merged."""
+    half = sp.Rational(1, 2)
+
+    def merge(product):
+        inside, rest, n = sp.Integer(1), [], 0
+        for factor in product.args:
+            if factor.is_Pow and factor.exp in (half, -half):
+                inside = inside * (factor.base if factor.exp == half else 1 / factor.base)
+                n += 1
+            else:
+                rest.append(factor)
+        # One radical is left exactly as it is: x/sqrt(y) must not become
+        # x*sqrt(1/y), which sympy does not take for the same thing.
+        if n < 2:
+            return product
+        return sp.Mul(*rest) * sp.sqrt(inside)
+
+    plain = {s: sp.Symbol(s.name) for s in expr.free_symbols}
+    return expr.xreplace(plain).replace(lambda e: e.is_Mul, merge)
 
 
 def _load_constant_values() -> dict:
