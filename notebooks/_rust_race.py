@@ -102,6 +102,10 @@ def main():
     ap.add_argument("--balanced-tournaments", action="store_true", help="the tournaments (and the pump's promotions) rank on hff's BALANCED pole, for diversity; the hall of fame, the stop bar and the report stay on TrueNorth")
     ap.add_argument("--stop-log10-p", type=float, default=-19.0, help="the stop bar's p-value half: a fit stops early only when validation 1-R2 <= 1e-10 AND log10 p <= this (inf = off)")
     ap.add_argument("--progress", type=int, default=0, help="a progress line in the log every N generations of a fit (0 = none)")
+    ap.add_argument("--compounds", action="store_true", help="the compound functions (sqrt|a+-b|, 1/sqrt|a+-b|, 1/(a+-b)) join the symbol table — meant for the second pass")
+    ap.add_argument("--unfinished-from", default=None, metavar="FOLDER",
+                    help="THE SECOND PASS: race only the problems whose fit in FOLDER (a first pass's results, same seed) did NOT meet "
+                         "our own stop bar. SRBench's verdict plays no part in the choice — using the answer key to aim effort would be cheating")
     ap.add_argument("--genes", type=int, default=0, help="genes per chromosome (0 = the engine's default, 3)")
     ap.add_argument("--pump", type=int, default=0, help="the pump's beat in generations (0 = the engine's default, 4)")
     ap.add_argument("--head", type=int, default=0, help="a gene's head length (0 = the engine's default, 34)")
@@ -153,6 +157,7 @@ def main():
     knobs["EVOLVE_BALANCED_TOURNAMENTS"] = "1" if args.balanced_tournaments else "0"
     knobs["EVOLVE_VHEAD_EVERY"] = str(args.grow_head)
     knobs["EVOLVE_VHEAD_START"] = str(args.grow_head_start)
+    knobs["EVOLVE_COMPOUNDS"] = "1" if args.compounds else "0"
     if args.genes:
         knobs["EVOLVE_GENES"] = str(args.genes)
     if args.pump:
@@ -196,6 +201,21 @@ def main():
         if missing:
             raise SystemExit(f"--problems names not in the ground-truth set: {missing}")
         names = [n for n in names if n in wanted]
+    # THE SECOND PASS. The race exists to pick off the easy laws fast and set them
+    # aside, so the resources go to the hard ones. A problem is SET ASIDE when its
+    # first-pass fit met OUR stop bar (stopped_by == "early_stop": validation 1-R2
+    # and log10 p) — a signal the engine owns, the same inside a real SRBench fit().
+    # SRBench's verdict is never read here.
+    first_pass = {}
+    if args.unfinished_from:
+        for path in glob.glob(os.path.join(args.unfinished_from, f"*_rust_{seed}.json")):
+            kept = json.load(open(path))
+            first_pass[kept["dataset"]] = kept
+        other_seeds = [p for p in glob.glob(os.path.join(args.unfinished_from, "*_rust_*.json")) if not p.endswith(f"_rust_{seed}.json")]
+        if not first_pass or other_seeds:
+            raise SystemExit(f"--unfinished-from {args.unfinished_from}: needs a first pass on THIS seed ({seed}); found {len(first_pass)} fits on it and {len(other_seeds)} on other seeds")
+        set_aside = [n for n in names if first_pass.get(n, {}).get("stopped_by") == "early_stop"]
+        names = [n for n in names if n not in set_aside]
     if args.limit:
         names = names[:args.limit]
     # THE STANDARD HEADER, unchanged since the first Rust race: one line of the
@@ -209,6 +229,9 @@ def main():
     hff = "train" + ("" if args.hff_no_val else " + validation") + (" + block3" if (args.smogd or args.smote) else "") + (" + t_depth" if args.tower else "") + (" + redundancy" if args.redundancy else "")
     print(f"# genes {args.genes or 3} | head {head} | islands {islands} | pump every {args.pump or 4} | generations {args.generations or 'by time'}", flush=True)
     print(f"# tournaments on the {'BALANCED pole (hall of fame on TrueNorth)' if args.balanced_tournaments else 'TrueNorth pole'} | HFF = {hff} | block3 = {block3} | stop bar: val 1-R2 <= 1e-10 and log10 p <= {args.stop_log10_p}", flush=True)
+    if args.unfinished_from:
+        print(f"# SECOND PASS of {args.unfinished_from}: {len(set_aside)} problems met our stop bar there and are set aside; {len(names)} are raced here", flush=True)
+    print(f"# compounds {'ON' if args.compounds else 'off'} | effort ledger: {os.path.join(args.results, 'effort.tsv')}", flush=True)
     print(f"# full models: {os.path.join(args.results, 'side_by_side.tsv')}", flush=True)
     print(f"# notes:       {os.path.join(args.results, 'notes.log')}", flush=True)
 
@@ -216,6 +239,14 @@ def main():
     # every 20 rows. Nothing else is written between the rows but the tally. The
     # model is cut to fit; the whole of it is in side_by_side.tsv, and anything that
     # went wrong with a fit is written in full to notes.log.
+    effort_path = os.path.join(args.results, "effort.tsv")
+    with open(effort_path, "w") as f:
+        f.write("dataset\tpass1_secs\tpass1_gens\tpass1_stop\tthis_pass_secs\tthis_pass_gens\tthis_pass_stop\ttotal_secs\n")
+    def effort(name, secs, gens, stop):
+        before = first_pass.get(name, {})
+        with open(effort_path, "a") as f:
+            f.write("\t".join([name, f"{before.get('fit_wall', 0.0):.1f}", str(before.get("generations", 0)), str(before.get("stopped_by", "-")),
+                               f"{float(secs):.1f}", str(gens), stop, f"{before.get('fit_wall', 0.0) + float(secs):.1f}"]) + "\n")
     rows_written = [0]
     def table_row(name, sol, sol_fuller, r2, gens, secs, stop, scores, model, note=""):
         if rows_written[0] % 20 == 0:
@@ -361,9 +392,21 @@ def main():
         solved += sol
         solved_fuller += sol_fuller
         table_row(name, sol, sol_fuller, r2, gens, wall, stop, scores, model_shown, row_note)
+        effort(name, wall, gens, stop)
         if done % 10 == 0:
             tally()
     print(f"\nDONE: {solved} solved of {done} = {100*solved/max(done,1):.1f}% in {time.time()-t0:.0f} s  (Rust engine, seed {seed}, {args.seconds:.0f} s each) | fuller direct: {solved_fuller} solved | REPORT FAULTs {faults}", flush=True)
+    if args.unfinished_from:
+        aside_solved = 0
+        for n in set_aside:
+            path = os.path.join(args.unfinished_from, f"{n}_rust_{seed}.json.updated")
+            if os.path.exists(path):
+                a = json.load(open(path))
+                aside_solved += bool(any(bool(a.get(k)) for k in ("symbolic_error_is_zero", "symbolic_error_is_constant", "symbolic_fraction_is_constant"))
+                                     and str(a.get("simplified_symbolic_model")) not in ("None", "0", "nan"))
+        total = len(set_aside) + done
+        print(f"BOTH PASSES: {aside_solved + solved} solved of {total} = {100*(aside_solved + solved)/max(total,1):.1f}% "
+              f"(first pass, set aside by the stop bar: {aside_solved} of {len(set_aside)}; second pass: {solved} of {done})", flush=True)
 
 if __name__ == "__main__":
     main()
