@@ -102,6 +102,7 @@ def main():
     ap.add_argument("--balanced-tournaments", action="store_true", help="the tournaments (and the pump's promotions) rank on hff's BALANCED pole, for diversity; the hall of fame, the stop bar and the report stay on TrueNorth")
     ap.add_argument("--stop-log10-p", type=float, default=-19.0, help="the stop bar's p-value half: a fit stops early only when validation 1-R2 <= 1e-10 AND log10 p <= this (inf = off)")
     ap.add_argument("--progress", type=int, default=0, help="a progress line in the log every N generations of a fit (0 = none)")
+    ap.add_argument("--genes", type=int, default=0, help="genes per chromosome (0 = the engine's default, 3)")
     ap.add_argument("--pump", type=int, default=0, help="the pump's beat in generations (0 = the engine's default, 4)")
     ap.add_argument("--head", type=int, default=0, help="a gene's head length (0 = the engine's default, 34)")
     ap.add_argument("--hff-log-val", action="store_true", help="block two (validation) enters HFF on the log scale")
@@ -152,6 +153,8 @@ def main():
     knobs["EVOLVE_BALANCED_TOURNAMENTS"] = "1" if args.balanced_tournaments else "0"
     knobs["EVOLVE_VHEAD_EVERY"] = str(args.grow_head)
     knobs["EVOLVE_VHEAD_START"] = str(args.grow_head_start)
+    if args.genes:
+        knobs["EVOLVE_GENES"] = str(args.genes)
     if args.pump:
         knobs["EVOLVE_PUMP_EVERY"] = str(args.pump)
     if args.head:
@@ -204,7 +207,7 @@ def main():
     islands = f"{args.population} intake + {args.champion} champion" if args.champion else "3:1 intake:champion"
     block3 = " + ".join(x for x in (f"SMOGD x{args.smogd_noise}" if args.smogd else "", "SMOTE" if args.smote else "") if x) or "off"
     hff = "train" + ("" if args.hff_no_val else " + validation") + (" + block3" if (args.smogd or args.smote) else "") + (" + t_depth" if args.tower else "") + (" + redundancy" if args.redundancy else "")
-    print(f"# head {head} | islands {islands} | pump every {args.pump or 4} | generations {args.generations or 'by time'}", flush=True)
+    print(f"# genes {args.genes or 3} | head {head} | islands {islands} | pump every {args.pump or 4} | generations {args.generations or 'by time'}", flush=True)
     print(f"# tournaments on the {'BALANCED pole (hall of fame on TrueNorth)' if args.balanced_tournaments else 'TrueNorth pole'} | HFF = {hff} | block3 = {block3} | stop bar: val 1-R2 <= 1e-10 and log10 p <= {args.stop_log10_p}", flush=True)
     print(f"# full models: {os.path.join(args.results, 'side_by_side.tsv')}", flush=True)
     print(f"# notes:       {os.path.join(args.results, 'notes.log')}", flush=True)
