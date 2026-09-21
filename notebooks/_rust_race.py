@@ -39,7 +39,7 @@ def main():
     ap.add_argument("--smogd-noise", type=float, default=1.0, help="multiplier on the neighbours' variance SMOGD draws from (1 = the original; 2 or 3 widens the draws)")
     ap.add_argument("--hff-log", action="store_true", help="blocks two and three (validation; SMOGD/SMOTE) enter HFF on the log scale, so small errors still separate")
     ap.add_argument("--hff-no-val", action="store_true", help="leave validation out of HFF: tournaments rank on train + block three (validation still decides the stop bar)")
-    ap.add_argument("--tower", action="store_true", help="the tower objective: t_depth (transcendental nesting depth) joins HFF; smooth, a sixth per level, 1 from depth 6")
+    ap.add_argument("--tower", action="store_true", help="the tower objective: t_depth (transcendental nesting depth) joins HFF; free up to depth 2, then a quarter per level")
     ap.add_argument("--hff-log-train", action="store_true", help="the TRAIN block enters HFF on the log scale too: 1 + log10(x)/12, so 6e-6 and 1e-14 are no longer the same zero")
     ap.add_argument("--grow-head", type=int, default=0, metavar="EVERY", help="THE GROWING HEAD: the virtual head gains one position every EVERY generations, up to --head (0 = off: the whole head from the start)")
     ap.add_argument("--grow-head-start", type=int, default=12, help="the virtual head the population is born with when --grow-head is on")
