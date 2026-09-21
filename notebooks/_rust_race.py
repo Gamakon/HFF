@@ -36,6 +36,7 @@ def main():
                     help="edge validation: hold the most isolated 20%% of the training rows (at most 2,000) out of "
                          "fitting and score them as separate HFF objectives (the SRBench entry's _isolated_rows)")
     ap.add_argument("--smogd", action="store_true", help="SMOGD rows, generated inside the fit, as HFF's third block (tournaments only; the stop bar stays on validation)")
+    ap.add_argument("--champion", type=int, default=0, help="the champion island's size; --population is then the INTAKE island's size (0 = the 3:1 split of --population)")
     ap.add_argument("--smote", action="store_true", help="SMOTE rows (on the segment between a real row and a near neighbour), generated inside the fit, join HFF's third block")
     ap.add_argument("--redundancy", action="store_true", help="leave-one-gene-out redundancy as an HFF objective")
     ap.add_argument("--generations", type=int, default=0, help="stop each fit by generations (0 = by --seconds); give --seconds as a generous ceiling")
@@ -70,6 +71,8 @@ def main():
     os.chdir(cwd)
     signal.signal(signal.SIGALRM, _alarm)
     knobs = dict(os.environ, EVOLVE_RESTARTS=str(args.restarts), EVOLVE_REDUNDANCY="1" if args.redundancy else "0", EVOLVE_SMOGD="1" if args.smogd else "0", EVOLVE_SMOTE="1" if args.smote else "0")
+    if args.champion:
+        knobs["EVOLVE_POP_CHAMPION"] = str(args.champion)
     if args.generations:
         knobs["EVOLVE_MAX_GENERATIONS"] = str(args.generations)
     if args.rnc:
@@ -107,7 +110,7 @@ def main():
         names = [n for n in names if n in wanted]
     if args.limit:
         names = names[:args.limit]
-    print(f"RUST ENGINE RACE: {len(names)} datasets | development seed {seed} | {args.seconds:.0f} s each | population {args.population} | cleanse {args.cleanse} | harvests {args.harvests} | rnc {args.rnc or "engine default"} | restarts {args.restarts} | edge {args.edge} | SMOGD {args.smogd} | SMOTE {args.smote} | redundancy {args.redundancy} | generations {args.generations or "by time"} | one fit at a time", flush=True)
+    print(f"RUST ENGINE RACE: {len(names)} datasets | development seed {seed} | {args.seconds:.0f} s each | population {args.population}{f" intake + {args.champion} champion" if args.champion else " (3:1 intake:champion)"} | cleanse {args.cleanse} | harvests {args.harvests} | rnc {args.rnc or "engine default"} | restarts {args.restarts} | edge {args.edge} | SMOGD {args.smogd} | SMOTE {args.smote} | redundancy {args.redundancy} | generations {args.generations or "by time"} | one fit at a time", flush=True)
     print(f"{'dataset':<24}{'r2_test':>10}{'gens':>6}{'fit s':>7}{'stop':>12}  sol{'hff':>10}{'1-R2 train':>12}{'1-R2 val':>11}{'1-R2 smogd':>12}{'MSE train':>11}{'MSE val':>11}{'MSE smogd':>11}  model", flush=True)
     solved = done = faults = 0; t0 = time.time()
     for name in names:
