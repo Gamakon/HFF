@@ -29,7 +29,7 @@ def main():
     ap.add_argument("--population", type=int, default=800)
     ap.add_argument("--max-rows", type=int, default=5000)
     ap.add_argument("--cleanse", type=float, default=0.0, help="the cleansing mutation's rate per row (0 = off)")
-    ap.add_argument("--harvests", type=int, default=0, help="harvest-and-regrow: park up to N models and report the smallest (0 = off)")
+    ap.add_argument("--harvests", type=int, default=4, help="harvest-and-regrow: park up to N models and report the smallest (0 = off; 4 = the engine's default, kept after a two-seed A/B)")
     ap.add_argument("--rnc", type=int, nargs=2, default=None, metavar=("LO", "HI"), help="the range random constants are drawn from (engine default -100 100)")
     ap.add_argument("--restarts", type=int, default=1, help="split each problem's seconds into this many independent searches")
     ap.add_argument("--engine", default=ENGINE, help="the evolve_fit binary to snapshot into the results folder")
