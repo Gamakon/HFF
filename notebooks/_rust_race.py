@@ -198,7 +198,7 @@ def main():
         wall = time.time() - t
         os.remove(train_path)
         os.remove(test_path)
-        info = {l.split("\t")[0]: l.split("\t")[1:] for l in run.stdout.splitlines() if l.startswith(("GENERATIONS", "MODEL_INFIX", "CHROMOSOME_TEST_R2", "SMOGD", "SMOTE", "HFF", "MSE", "TOWER", "MODEL_PLAIN"))}
+        info = {l.split("\t")[0]: l.split("\t")[1:] for l in run.stdout.splitlines() if l.startswith(("GENERATIONS", "MODEL_INFIX", "CHROMOSOME_TEST_R2", "SMOGD", "SMOTE", "HFF", "MSE", "TOWER", "MODEL_PLAIN", "PVALUE"))}
         done += 1
         if run.returncode != 0 or "MODEL_INFIX" not in info:
             print(f"{name:<24}{'-':>10}{'-':>6}{wall:>7.1f}{'ENGINE FAILED':>12}   n  {(run.stderr or 'its own message is in the lines above').strip()[-160:]}", flush=True)
@@ -254,7 +254,8 @@ def main():
                       + (f" block3 {hff[3]} ({third} rows)" if third else "")
                       + f" | MSE train {hff[4]}"
                       + (f" | t_depth {info['TOWER'][0]}" if "TOWER" in info else "")
-                      + f" | hff {hff[0]}")
+                      + f" | hff {hff[0]}"
+                      + (f" | p {info['PVALUE'][0]} | log10 p {info['PVALUE'][1]} (m = {info['PVALUE'][2]})" if "PVALUE" in info else ""))
         # SUBMITTED TWICE to SRBench's scorer: fuller's own string, exactly as the
         # Rust engine wrote it, and the sympy-tidied one. sympy re-canonicalises
         # whatever it parses, so only the pair says what fuller achieves alone.
