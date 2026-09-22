@@ -42,18 +42,37 @@ class _Timeout(Exception):
 signal.signal(signal.SIGALRM, lambda *_: (_ for _ in ()).throw(_Timeout()))
 
 
-def positive_columns(name: str) -> list[str]:
+_POSITIVE_CACHE = os.path.join(SR_LOGS, "_rule_bench", "positive_columns.json")
+
+
+def positive_columns(name: str, _memo: dict = {}) -> list[str]:
     """The columns the DATA shows strictly positive — the same fact the race
-    computes, read from the dataset rather than from the law."""
-    path = os.path.join(PMLB, name, name + ".tsv.gz")
-    df = pd.read_csv(path, sep="\t", compression="gzip")
-    X = df.drop(columns=["target"])
-    return [f"x_{i}" for i, c in enumerate(X.columns) if float(X[c].min()) > 0.0]
+    computes, read from the dataset rather than from the law.
+
+    Cached on disk: this decompresses a 75,000-row gzip per law and the answer
+    cannot change, so paying it once keeps the bench a minutes-long cycle."""
+    if not _memo and os.path.exists(_POSITIVE_CACHE):
+        _memo.update(json.load(open(_POSITIVE_CACHE)))
+    if name not in _memo:
+        df = pd.read_csv(os.path.join(PMLB, name, name + ".tsv.gz"), sep="\t", compression="gzip")
+        X = df.drop(columns=["target"])
+        _memo[name] = [f"x_{i}" for i, c in enumerate(X.columns) if float(X[c].min()) > 0.0]
+        os.makedirs(os.path.dirname(_POSITIVE_CACHE), exist_ok=True)
+        json.dump(_memo, open(_POSITIVE_CACHE, "w"))
+    return _memo[name]
 
 
-def tidied(raw: str, positive: list[str]) -> str:
-    """The reporting path, exactly as `_rust_race.py` applies it."""
-    return str(R._tidy_reported(R._with_positive_columns(sp.sympify(raw), positive)))
+def tidied(raw: str, positive: list[str], seconds: int = 20) -> str:
+    """The reporting path, exactly as `_rust_race.py` applies it.
+
+    Under the same alarm the race puts on it. A chromosome string can be
+    thousands of characters and sympy has no internal bound — without this the
+    bench stalls on one law and the three-minute cycle is gone."""
+    try:
+        signal.alarm(seconds)
+        return str(R._tidy_reported(R._with_positive_columns(sp.sympify(raw), positive)))
+    finally:
+        signal.alarm(0)
 
 
 def verdict(name: str, model: str, out_dir: str, tag: str) -> tuple[bool, str]:
@@ -141,6 +160,8 @@ def main() -> None:
         try:
             model = tidied(raw, positive)
             note = ""
+        except _Timeout:
+            model, note = raw, "TIDY TIMED OUT (raw string scored)"
         except Exception as e:
             model, note = raw, f"TIDY FAILED {type(e).__name__}"
         ok_raw, n1 = (False, "") if args.tidy_only else verdict(name, raw, out_dir, "raw")

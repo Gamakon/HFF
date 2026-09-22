@@ -313,7 +313,7 @@ def _with_positive_columns(expr, positive_columns):
 
 
 def _merge_radicals(expr):
-    """sqrt(a)*sqrt(b)/sqrt(c) -> sqrt(a*b/c), in every product.
+    """sqrt(a)*sqrt(b)/sqrt(c) -> sqrt(a*b/c); 1/(sqrt(a)*sqrt(b)) -> 1/sqrt(a*b).
 
     sympy splits a radical whenever a factor is known non-negative (an Abs, or a
     column declared positive), and SRBench reads our string with NO assumptions:
@@ -321,22 +321,47 @@ def _merge_radicals(expr):
     (Feynman I.47.23, found in one generation and scored unsolved). Every radicand
     here is non-negative on the data — it came out of an Abs or a positive column
     — so merging changes nothing numerically. Symbols in the result carry no
-    assumptions, so sympy leaves it merged."""
+    assumptions, so sympy leaves it merged.
+
+    A radical crosses the fraction bar ONLY when there is one in the numerator to
+    merge into. With none, the denominator's gather in place. That distinction is
+    the whole rule, and both halves of it are laws we lost:
+      * crossing when nothing is above produced `sqrt(1/X)` for `1/sqrt(X)` —
+        test_5 was reported as 6.28*d**(3/2)*sqrt(1/(G*(m1+m2))) and scored
+        unsolved at log10 p -21.7;
+      * not gathering below at all left I_10_7 as m_0/(sqrt(1-v/c)*sqrt(1+v/c)),
+        which the scorer will not cancel; as m_0/sqrt((1-v/c)*(1+v/c)) it does.
+    I_47_23 fixes the other end: it matches only the fully merged sqrt(x_0*x_1/x_2),
+    so when a numerator radical IS present the whole product must fold into one."""
     half = sp.Rational(1, 2)
 
     def merge(product):
-        inside, rest, n = sp.Integer(1), [], 0
+        # The two sides are gathered SEPARATELY. Folding a denominator radical
+        # into the numerator's radicand is what produced sqrt(1/X): the product
+        # x/sqrt(y) must not become x*sqrt(1/y), which sympy does not take for
+        # the same thing. Each side merges into at most one radical, which is
+        # value-preserving on non-negative radicands and never reciprocates.
+        num, den, rest = sp.Integer(1), sp.Integer(1), []
+        n_num, n_den = 0, 0
         for factor in product.args:
-            if factor.is_Pow and factor.exp in (half, -half):
-                inside = inside * (factor.base if factor.exp == half else 1 / factor.base)
-                n += 1
+            if factor.is_Pow and factor.exp == half:
+                num, n_num = num * factor.base, n_num + 1
+            elif factor.is_Pow and factor.exp == -half:
+                den, n_den = den * factor.base, n_den + 1
             else:
                 rest.append(factor)
-        # One radical is left exactly as it is: x/sqrt(y) must not become
-        # x*sqrt(1/y), which sympy does not take for the same thing.
-        if n < 2:
+        # Nothing to gather on either side: a lone radical stays exactly as it is.
+        if n_num < 2 and n_den < 2:
             return product
-        return sp.Mul(*rest) * sp.sqrt(inside)
+        # WITH a numerator radical the whole product folds into one radicand, as
+        # it always did: I_47_23 is sqrt(x_0*x_1/x_2) and the scorer matches only
+        # that fully merged form — sqrt(x_0*x_1)/sqrt(x_2) fails.
+        if n_num:
+            return sp.Mul(*rest) * sp.sqrt(num / den)
+        # With NONE, the radicals stay in the denominator. Folding them upward
+        # is what produced sqrt(1/X) for 1/sqrt(X) (test_5, scored unsolved at
+        # log10 p -21.7); gathering them in place is what I_10_7 needs.
+        return sp.Mul(*rest) / sp.sqrt(den)
 
     plain = {s: sp.Symbol(s.name) for s in expr.free_symbols}
     return expr.xreplace(plain).replace(lambda e: e.is_Mul, merge)
