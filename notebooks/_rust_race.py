@@ -10,7 +10,7 @@ calls SRBench's `assess_symbolic_model_from_file`. One fit at a time — the
 engine is device-bound, and a clean 30 s is the point. A line per problem as it
 lands, a running tally, development seeds only.
 """
-import argparse, contextlib, glob, io, json, os, signal, subprocess, sys, time, warnings
+import argparse, contextlib, glob, io, json, os, re, signal, subprocess, sys, time, warnings
 warnings.filterwarnings("ignore")
 HERE = os.path.dirname(os.path.abspath(__file__))
 SRBENCH = os.path.join(HERE, "_ledgers", "srbench_repo", "experiment")
@@ -61,6 +61,12 @@ def _cell(value, width, align):
     if len(text) > room:
         text = text[:room - 1] + "~"
     return f"{text:<{width}}" if align == "<" else f"{text:>{width}}"
+
+
+# A Piecewise condition that constant-folded to nan or zoo: the branch cannot be
+# taken on any row, and sympy will not build the expression at all while it is
+# there. Whatever the comparison direction, `False` is what it means.
+UNREACHABLE_COND = re.compile(r"\b(?:nan|zoo)\b\s*(?:[<>]=?|==|!=)\s*[^,()]+")
 
 
 def format_row(name, sol, sol_fuller, r2, gens, secs, stop, scores, model, note=""):
@@ -115,6 +121,7 @@ def main():
                          "separated by commas. There must be exactly --pairs of them. "
                          "Example: 'general:1:1,explorer:3:0.5,refiner:0.3:1.5'")
     ap.add_argument("--max-generations", type=int, default=0, help="stop a fit at this generation (0 = only --seconds stops it)")
+    ap.add_argument("--beam", type=int, default=0, help="THE BEAM's beat in generations: the edge-case functional wraps, tried at the near miss (0 = off)")
     ap.add_argument("--cross", type=int, default=0, metavar="EVERY", help="THE CROSS STEP's beat: every EVERY generations each intake island receives the OTHER pairs' best champions (0 = never)")
     ap.add_argument("--genes", type=int, default=0, help="genes per chromosome (0 = the engine's default, 3)")
     ap.add_argument("--pump", type=int, default=0, help="the pump's beat in generations (0 = the engine's default, 4)")
@@ -184,6 +191,8 @@ def main():
         knobs["EVOLVE_LANES"] = args.lanes
     if args.max_generations:
         knobs["EVOLVE_MAX_GENERATIONS"] = str(args.max_generations)
+    if args.beam:
+        knobs["EVOLVE_BEAM_EVERY"] = str(args.beam)
     if args.genes:
         knobs["EVOLVE_GENES"] = str(args.genes)
     if args.pump:
@@ -287,7 +296,7 @@ def main():
         "grow_head_every": args.grow_head or None, "grow_head_start": args.grow_head_start if args.grow_head else None,
         "intake": args.population, "champion": args.champion or None, "pairs": args.pairs or 1,
         # THE SWIM LANES, so the ledger can say WHICH RULE SET found a law.
-        "lanes": args.lanes, "max_generations": args.max_generations or None,
+        "lanes": args.lanes, "max_generations": args.max_generations or None, "beam_every": args.beam or None,
         "cross_every": args.cross or None, "pump_every": args.pump or 4,
         "rnc": list(args.rnc) if args.rnc else "engine default",
         "cleanse": args.cleanse, "compounds": bool(args.compounds), "gene_subsets": bool(args.gene_subsets),
@@ -397,6 +406,13 @@ def main():
         # 2. Its test R2, from the FAITHFUL form — the one that may be executed.
         try:
             signal.alarm(20)
+            # A guard branch whose CONDITION folded to nan or zoo is UNREACHABLE —
+            # the guard exists to catch exactly that argument. sympy refuses to
+            # BUILD such a Piecewise ("Invalid NaN comparison"), and it raises
+            # inside Piecewise.__new__, so neither evaluate=False nor an xreplace
+            # afterwards can reach it: the condition has to go before sympy parses
+            # the string. III_4_33 lost its test R2 to this.
+            faithful = UNREACHABLE_COND.sub("False", faithful)
             # A protection nested in a protection — 1/ProtectedDiv(..) — parses with a
             # branch sympy has already evaluated to 1/0 = zoo. The OUTER protection
             # guards that branch, so it is never taken; numpy cannot print zoo, so it
