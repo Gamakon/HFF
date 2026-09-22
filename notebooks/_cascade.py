@@ -51,8 +51,10 @@ PLANS = {
         # Stage 2 — the p99 of our own history (351 generations).
         {"name": "s2", "generations": 400, "seconds": 120, "pairs": 1, "lanes": None, "gene_subsets": True},
         # Stage 3 — DEPTH on what is left, with the beam's edge-case wraps
-        # working the families nothing ordinary reaches.
-        {"name": "s3", "generations": 2000, "seconds": 600, "pairs": 1, "lanes": None, "gene_subsets": True, "beam": 4},
+        # working the families nothing ordinary reaches. 120 s, not 600: at 600
+        # the cascade projected 16 hours, and 10x the old two-pass budget would
+        # not be a comparable column anyway.
+        {"name": "s3", "generations": 2000, "seconds": 120, "pairs": 1, "lanes": None, "gene_subsets": True, "beam": 4},
     ],
 }
 
@@ -78,6 +80,34 @@ def stage_argv(st: dict, seed_index: int, results: str, problems: str | None, pr
     if previous:
         argv += ["--unfinished-from", previous]
     return argv
+
+
+def all_laws():
+    """Every ground-truth dataset, for when no problem list was given."""
+    pmlb = os.path.join(HERE, "_ledgers", "pmlb_repo", "datasets")
+    return sorted(os.path.basename(d) for d in
+                  glob.glob(f"{pmlb}/feynman_*") + glob.glob(f"{pmlb}/strogatz_*"))
+
+
+def still_standing(tag, stages, seed):
+    """Every law that met the stop bar in ANY earlier stage.
+
+    `--unfinished-from` reads ONE folder, so it only knows what the stage before
+    it raced. A law struck off in s1 never appears in s2, so s3 had no record of
+    it and raced it AGAIN: the first cascade ran 125 fits in s3 where 76 were
+    owed, burning about a third of the whole run re-solving solved laws. The
+    union over every earlier stage is what the striking-off actually means.
+    """
+    done = set()
+    for st in stages:
+        folder = os.path.join(SR_LOGS, f"{tag}_{st['name']}")
+        for path in glob.glob(os.path.join(folder, f"*_rust_{seed}.json")):
+            try:
+                if json.load(open(path)).get("stopped_by") == "early_stop":
+                    done.add(os.path.basename(path).split("_rust_")[0])
+            except Exception:
+                pass
+    return done
 
 
 def standing(results: str, seed: int) -> tuple[int, int]:
@@ -114,10 +144,25 @@ def main() -> None:
               f"{', beam/' + str(st['beam']) if st.get('beam') else ''}", flush=True)
     print(flush=True)
 
+    every = ([l.strip() for l in open(args.problems) if l.strip() and not l.startswith("#")]
+             if args.problems else all_laws())
+
     t0, previous = time.time(), None
-    for st in plan:
+    for i, st in enumerate(plan):
         results = os.path.join(SR_LOGS, f"{tag}_{st['name']}")
-        argv = stage_argv(st, args.seed_index, results, args.problems, previous)
+        problems = args.problems
+        if i:
+            # The laws still standing after EVERY earlier stage, written out as
+            # this stage's problem list. Without it a law struck off two stages
+            # back is raced again (see `still_standing`).
+            done = still_standing(tag, plan[:i], seed)
+            names = [n for n in every if n not in done]
+            problems = os.path.join(SR_LOGS, f"{tag}_{st['name']}_todo.txt")
+            with open(problems, "w") as f:
+                f.write("\n".join(names) + "\n")
+            print(f"    {len(done)} struck off in all earlier stages; "
+                  f"{len(names)} go into {st['name']}", flush=True)
+        argv = stage_argv(st, args.seed_index, results, problems, previous)
         log = os.path.join(SR_LOGS, f"{tag}_{st['name']}.log")
         print(f"=== {st['name']} ({st['generations']} gens) -> {log}", flush=True)
         with open(log, "w") as f:

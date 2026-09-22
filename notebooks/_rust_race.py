@@ -98,6 +98,8 @@ def main():
                          "fitting and score them as separate HFF objectives (the SRBench entry's _isolated_rows)")
     ap.add_argument("--smogd", action="store_true", help="SMOGD rows, generated inside the fit, as HFF's third block (tournaments only; the stop bar stays on validation)")
     ap.add_argument("--champion", type=int, default=0, help="the champion island's size; --population is then the INTAKE island's size (0 = the 3:1 split of --population)")
+    ap.add_argument("--target-noise", type=float, default=0.0,
+                    help="SRBench's target noise on the TRAIN rows: sigma = level * RMS(y_train). The official ground-truth levels are 0.0, 0.001, 0.01 and 0.1")
     ap.add_argument("--smogd-noise", type=float, default=1.0, help="multiplier on the neighbours' variance SMOGD draws from (1 = the original; 2 or 3 widens the draws)")
     ap.add_argument("--hff-log", action="store_true", help="blocks two and three (validation; SMOGD/SMOTE) enter HFF on the log scale, so small errors still separate")
     ap.add_argument("--hff-no-val", action="store_true", help="leave validation out of HFF: tournaments rank on train + block three (validation still decides the stop bar)")
@@ -297,6 +299,7 @@ def main():
         "intake": args.population, "champion": args.champion or None, "pairs": args.pairs or 1,
         # THE SWIM LANES, so the ledger can say WHICH RULE SET found a law.
         "lanes": args.lanes, "max_generations": args.max_generations or None, "beam_every": args.beam or None,
+        "target_noise": args.target_noise or None,
         "cross_every": args.cross or None, "pump_every": args.pump or 4,
         "rnc": list(args.rnc) if args.rnc else "engine default",
         "cleanse": args.cleanse, "compounds": bool(args.compounds), "gene_subsets": bool(args.gene_subsets),
@@ -340,6 +343,15 @@ def main():
         df = pd.read_csv(ds, sep="\t")
         X, y = df.drop(columns="target"), df["target"]
         Xtr, Xte, ytr, yte = train_test_split(X, y, train_size=0.75, test_size=0.25, random_state=seed)
+        # TARGET NOISE, exactly as SRBench's evaluate_model.py adds it: gaussian
+        # on the TRAIN target only, with sigma = level * RMS(y_train). The test
+        # rows stay clean, so the score still asks whether we recovered the law —
+        # which is the whole point of the noise levels. The ground-truth track is
+        # scored at 0.0, 0.001, 0.01 and 0.1; every race before 2026-09-22 ran
+        # only 0.0.
+        if args.target_noise > 0:
+            rms = float(np.sqrt(np.mean(np.square(ytr.to_numpy(float)))))
+            ytr = ytr + np.random.RandomState(seed).normal(0.0, args.target_noise * rms, size=len(ytr))
         jf = os.path.join(args.results, f"{name}_rust_{seed}.json")
         if os.path.exists(jf):
             # Already fitted in this results folder: score it, do not fit again.
