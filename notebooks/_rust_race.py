@@ -63,9 +63,47 @@ def _cell(value, width, align):
     return f"{text:<{width}}" if align == "<" else f"{text:>{width}}"
 
 
+def survives_the_scorer(text):
+    """Does our reported form survive SRBench's own rounding? (ok, what it becomes)
+
+    `srbench/postprocessing/symbolic_utils.py::round_floats` rounds EVERY float
+    to 3 decimals and sends anything under 1e-4 to zero, and it does that to our
+    model before comparing it with the law. A model can be numerically perfect
+    and still lose all its structure there: strogatz_lv2 was reported as
+    `-4096*y*tan(tan(0.000244*(x+y-2)))`, which is `-y*(x+y-2)` to eleven
+    decimals because tan(tan(eu)) ~ eu and 4096 * 0.000244 = 1 — and rounding
+    sends 0.000244 to 0, so the whole term vanishes and the submitted model is 0.
+
+    A form that rounds to a bare number can never match any law, whatever its R2,
+    so knowing it BEFORE we submit is knowing the answer is worthless while
+    there is still time to look for another.
+
+    This is not reading the benchmark's verdict: it is a published,
+    deterministic transform applied to OUR OWN string, the same class of check as
+    the REPORT FAULT guard that asserts the reported string computes what the
+    chromosome computes.
+
+    One `xreplace` over the float atoms, not SRBench's per-float `subs` loop:
+    0.2 ms against 9.9 ms on a real chromosome, same answer.
+    """
+    import sympy as sp          # as main() does: the module stays cheap to import
+    try:
+        expr = sp.sympify(text)
+        rounded = expr.xreplace({f: (sp.Integer(0) if abs(f) < 0.0001 else sp.Float(round(float(f), 3)))
+                                 for f in expr.atoms(sp.Float)})
+    except Exception as e:
+        return None, f"{type(e).__name__}"
+    return (not rounded.is_number), str(rounded)[:40]
+
+
 # A Piecewise condition that constant-folded to nan or zoo: the branch cannot be
 # taken on any row, and sympy will not build the expression at all while it is
 # there. Whatever the comparison direction, `False` is what it means.
+# Where SRBench's simplifier starts failing on our strings. Measured, not chosen:
+# over the first cascade's 342 fits the median model it COULD simplify was 122
+# characters and the median it returned None for was 323.
+LONG_MODEL = 250
+
 UNREACHABLE_COND = re.compile(r"\b(?:nan|zoo)\b\s*(?:[<>]=?|==|!=)\s*[^,()]+")
 
 
@@ -415,6 +453,25 @@ def main():
             model, tidy_note = raw, f" | REPORT TIDY FAILED ({type(e).__name__}: {str(e)[:80]}); fuller's string reported as it is"
         finally:
             signal.alarm(0)
+        # THE PRESCORE. Two things the scorer will do to this string that we can
+        # know now: round it to 3 decimals until it means nothing, or fail to
+        # simplify it at all because it is too long. Both are reported, never
+        # acted on — the model we submit is the model the engine chose.
+        try:
+            signal.alarm(10)
+            alive, became = survives_the_scorer(model)
+            if alive is False:
+                tidy_note += f" | PRESCORE: the form dies on SRBench's 3-decimal rounding (becomes {became})"
+            elif alive is None:
+                tidy_note += f" | PRESCORE: unparseable ({became})"
+        except _Timeout:
+            tidy_note += " | PRESCORE TIMED OUT"
+        finally:
+            signal.alarm(0)
+        # Measured over 342 fits of the first cascade: a model the scorer could
+        # simplify had a median 122 characters, one it returned None for had 323.
+        if len(model) > LONG_MODEL:
+            tidy_note += f" | PRESCORE: {len(model)} chars — the scorer returns None on models this long"
         # 2. Its test R2, from the FAITHFUL form — the one that may be executed.
         try:
             signal.alarm(20)
