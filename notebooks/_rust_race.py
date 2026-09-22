@@ -110,6 +110,11 @@ def main():
                     help="THE SECOND PASS: race only the problems whose fit in FOLDER (a first pass's results, same seed) did NOT meet "
                          "our own stop bar. SRBench's verdict plays no part in the choice — using the answer key to aim effort would be cheating")
     ap.add_argument("--pairs", type=int, default=0, help="pairs of islands, each an intake + a champion island of --population / --champion (0 = the engine's default, 1)")
+    ap.add_argument("--lanes", default=None,
+                    help="THE SWIM LANES: one rule set per pair, as name:explore:recombine[:cleanse] "
+                         "separated by commas. There must be exactly --pairs of them. "
+                         "Example: 'general:1:1,explorer:3:0.5,refiner:0.3:1.5'")
+    ap.add_argument("--max-generations", type=int, default=0, help="stop a fit at this generation (0 = only --seconds stops it)")
     ap.add_argument("--cross", type=int, default=0, metavar="EVERY", help="THE CROSS STEP's beat: every EVERY generations each intake island receives the OTHER pairs' best champions (0 = never)")
     ap.add_argument("--genes", type=int, default=0, help="genes per chromosome (0 = the engine's default, 3)")
     ap.add_argument("--pump", type=int, default=0, help="the pump's beat in generations (0 = the engine's default, 4)")
@@ -172,6 +177,13 @@ def main():
         knobs["EVOLVE_PAIRS"] = str(args.pairs)
     if args.cross:
         knobs["EVOLVE_CROSS_EVERY"] = str(args.cross)
+    if args.lanes:
+        n = len(  [x for x in args.lanes.split(",") if x.strip()])
+        if n != (args.pairs or 1):
+            raise SystemExit(f"--lanes has {n} rule sets but --pairs is {args.pairs or 1}: one lane per pair")
+        knobs["EVOLVE_LANES"] = args.lanes
+    if args.max_generations:
+        knobs["EVOLVE_MAX_GENERATIONS"] = str(args.max_generations)
     if args.genes:
         knobs["EVOLVE_GENES"] = str(args.genes)
     if args.pump:
@@ -274,6 +286,8 @@ def main():
         "genes": args.genes or 3, "head": args.head or 34,
         "grow_head_every": args.grow_head or None, "grow_head_start": args.grow_head_start if args.grow_head else None,
         "intake": args.population, "champion": args.champion or None, "pairs": args.pairs or 1,
+        # THE SWIM LANES, so the ledger can say WHICH RULE SET found a law.
+        "lanes": args.lanes, "max_generations": args.max_generations or None,
         "cross_every": args.cross or None, "pump_every": args.pump or 4,
         "rnc": list(args.rnc) if args.rnc else "engine default",
         "cleanse": args.cleanse, "compounds": bool(args.compounds), "gene_subsets": bool(args.gene_subsets),
