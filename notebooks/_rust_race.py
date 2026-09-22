@@ -255,6 +255,32 @@ def main():
         with open(effort_path, "a") as f:
             f.write("\t".join([name, f"{before.get('fit_wall', 0.0):.1f}", str(before.get("generations", 0)), str(before.get("stopped_by", "-")),
                                f"{float(secs):.1f}", str(gens), stop, f"{before.get('fit_wall', 0.0) + float(secs):.1f}"]) + "\n")
+    # THE METHOD a fit ran under, recorded WITH the fit. Until now the settings
+    # lived only in the log's header and the folder's name, so "which method found
+    # this law" had to be reconstructed by hand from thirty-odd race folders. A
+    # single coordinated run per seed will need to read this, not a human.
+    method = {
+        "engine_commit": subprocess.run(["git", "-C", "/Users/andrewmorgan/Dev/gamakon/fuller", "rev-parse", "--short", "HEAD"],
+                                        capture_output=True, text=True).stdout.strip() or "unknown",
+        "seed": seed, "seconds": args.seconds, "generations_cap": args.generations or None,
+        "genes": args.genes or 3, "head": args.head or 34,
+        "grow_head_every": args.grow_head or None, "grow_head_start": args.grow_head_start if args.grow_head else None,
+        "intake": args.population, "champion": args.champion or None, "pairs": args.pairs or 1,
+        "cross_every": args.cross or None, "pump_every": args.pump or 4,
+        "rnc": list(args.rnc) if args.rnc else "engine default",
+        "cleanse": args.cleanse, "compounds": bool(args.compounds), "gene_subsets": bool(args.gene_subsets),
+        "snap_every": args.snap_every or None, "snap_top_k": args.snap_top_k or None,
+        "tournament_pole": "balanced" if args.balanced_tournaments else "truenorth",
+        "hff": ("train" + ("" if args.hff_no_val else " + validation")
+                + (" + block3" if (args.smogd or args.smote) else "") + (" + t_depth" if args.tower else "")
+                + (" + redundancy" if args.redundancy else "")),
+        "block3": (" + ".join(x for x in (f"SMOGD x{args.smogd_noise}" if args.smogd else "", "SMOTE" if args.smote else "") if x) or None),
+        "hff_log_scale": [bool(args.hff_log_train), bool(args.hff_log or args.hff_log_val), bool(args.hff_log or args.hff_log_block3)],
+        "stop_log10_p": args.stop_log10_p, "second_pass_of": os.path.basename(args.unfinished_from.rstrip("/")) if args.unfinished_from else None,
+        "race": os.path.basename(args.results.rstrip("/")),
+    }
+    with open(os.path.join(args.results, "method.json"), "w") as f:
+        json.dump(method, f, indent=1)
     rows_written = [0]
     def table_row(name, sol, sol_fuller, r2, gens, secs, stop, scores, model, note=""):
         if rows_written[0] % 20 == 0:
@@ -391,7 +417,7 @@ def main():
                    # unique genes evaluated, genes over the evaluator's 64-node limit (dropped), individuals
                    "genes_evaluated": int(info["GENES"][0]) if "GENES" in info else None, "genes_oversized": int(info["GENES"][1]) if "GENES" in info else None, "note": (fault + tidy_note).strip(" |"),
                    "fuller_model": raw, "sol_fuller": sol_fuller, "note_fuller": note_fuller,
-                   "generations": int(gens), "stopped_by": stop, "fit_wall": wall}, open(jf, "w"))
+                   "generations": int(gens), "stopped_by": stop, "fit_wall": wall, "method": method}, open(jf, "w"))
         sol, note = assess(jf, ds)
         side_by_side(name, sol, sol_fuller, r2, gens, stop, raw, model)
         # Anything that went wrong with this fit: shown (cut to fit) in the model
