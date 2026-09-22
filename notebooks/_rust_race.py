@@ -102,6 +102,9 @@ def main():
     ap.add_argument("--balanced-tournaments", action="store_true", help="the tournaments (and the pump's promotions) rank on hff's BALANCED pole, for diversity; the hall of fame, the stop bar and the report stay on TrueNorth")
     ap.add_argument("--stop-log10-p", type=float, default=-19.0, help="the stop bar's p-value half: a fit stops early only when validation 1-R2 <= 1e-10 AND log10 p <= this (inf = off)")
     ap.add_argument("--progress", type=int, default=0, help="a progress line in the log every N generations of a fit (0 = none)")
+    ap.add_argument("--gene-subsets", action="store_true", help="a chromosome is scored under every non-empty SUBSET of its genes and keeps the best, so it decides whether it is a 1-, 2- or 3-gene model")
+    ap.add_argument("--snap-every", type=int, default=0, metavar="N", help="SNAP WINNERS: every N generations the chosen rows' genes go through snap (match, graft, the guard on the train rows) and every kept form is written back into its gene (0 = off)")
+    ap.add_argument("--snap-top-k", type=int, default=0, help="how many rows of each island, by fitness, are snap winners (0 = every evaluated row)")
     ap.add_argument("--compounds", action="store_true", help="the compound functions (sqrt|a+-b|, 1/sqrt|a+-b|, 1/(a+-b)) join the symbol table — meant for the second pass")
     ap.add_argument("--unfinished-from", default=None, metavar="FOLDER",
                     help="THE SECOND PASS: race only the problems whose fit in FOLDER (a first pass's results, same seed) did NOT meet "
@@ -160,6 +163,11 @@ def main():
     knobs["EVOLVE_VHEAD_EVERY"] = str(args.grow_head)
     knobs["EVOLVE_VHEAD_START"] = str(args.grow_head_start)
     knobs["EVOLVE_COMPOUNDS"] = "1" if args.compounds else "0"
+    knobs["EVOLVE_GENE_SUBSETS"] = "1" if args.gene_subsets else "0"
+    if args.snap_every:
+        knobs["EVOLVE_SNAP_EVERY"] = str(args.snap_every)
+    if args.snap_top_k:
+        knobs["EVOLVE_SNAP_TOP_K"] = str(args.snap_top_k)
     if args.pairs:
         knobs["EVOLVE_PAIRS"] = str(args.pairs)
     if args.cross:
@@ -239,7 +247,7 @@ def main():
     print(f"# tournaments on the {'BALANCED pole (hall of fame on TrueNorth)' if args.balanced_tournaments else 'TrueNorth pole'} | HFF = {hff} | block3 = {block3} | stop bar: val 1-R2 <= 1e-10 and log10 p <= {args.stop_log10_p}", flush=True)
     if args.unfinished_from:
         print(f"# SECOND PASS of {args.unfinished_from}: {len(set_aside)} problems met our stop bar there and are set aside; {len(names)} are raced here", flush=True)
-    print(f"# compounds {'ON' if args.compounds else 'off'} | effort ledger: {os.path.join(args.results, 'effort.tsv')}", flush=True)
+    print(f"# compounds {'ON' if args.compounds else 'off'} | gene subsets {'ON' if args.gene_subsets else 'off'} | snap {('every ' + str(args.snap_every)) if args.snap_every else 'off'} | effort ledger: {os.path.join(args.results, 'effort.tsv')}", flush=True)
     print(f"# full models: {os.path.join(args.results, 'side_by_side.tsv')}", flush=True)
     print(f"# notes:       {os.path.join(args.results, 'notes.log')}", flush=True)
 
