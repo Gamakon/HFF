@@ -285,7 +285,11 @@ def main():
         missing = [w for w in wanted if w not in names]
         if missing:
             raise SystemExit(f"--problems names not in the ground-truth set: {missing}")
-        names = [n for n in names if n in wanted]
+        # THE FILE'S ORDER IS THE RUN'S ORDER, so a list can sequence the race
+        # easy-first: the cheap laws stop early and hand their budget back before
+        # the hard ones start. The shuffle above only decides the order when no
+        # list is given.
+        names = [n for n in wanted if n in names]
     # THE SECOND PASS. The race exists to pick off the easy laws fast and set them
     # aside, so the resources go to the hard ones. A problem is SET ASIDE when its
     # first-pass fit met OUR stop bar (stopped_by == "early_stop": validation 1-R2
