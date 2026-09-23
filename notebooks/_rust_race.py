@@ -162,6 +162,12 @@ def main():
                          "Example: 'general:1:1,explorer:3:0.5,refiner:0.3:1.5'")
     ap.add_argument("--max-generations", type=int, default=0, help="stop a fit at this generation (0 = only --seconds stops it)")
     ap.add_argument("--beam", type=int, default=0, help="THE BEAM's beat in generations: the edge-case functional wraps, tried at the near miss (0 = off)")
+    ap.add_argument("--cohort-merge", type=int, default=0,
+                    help="VIRTUAL ALPS: cohorts at or past this label are ONE band, so the elders co-mingle "
+                         "and only the young are kept apart in tournaments (0 = off)")
+    ap.add_argument("--beam-tree", action="store_true",
+                    help="the beam's TREE half as well as its wraps: the cleanse neighbourhood and the COMBINATION MASKS "
+                         "(k nodes collapsed at once). Off by default — without it a beat makes only the wraps.")
     ap.add_argument("--cross", type=int, default=0, metavar="EVERY", help="THE CROSS STEP's beat: every EVERY generations each intake island receives the OTHER pairs' best champions (0 = never)")
     ap.add_argument("--genes", type=int, default=0, help="genes per chromosome (0 = the engine's default, 3)")
     ap.add_argument("--pump", type=int, default=0, help="the pump's beat in generations (0 = the engine's default, 4)")
@@ -233,6 +239,10 @@ def main():
         knobs["EVOLVE_MAX_GENERATIONS"] = str(args.max_generations)
     if args.beam:
         knobs["EVOLVE_BEAM_EVERY"] = str(args.beam)
+    if args.cohort_merge:
+        knobs["EVOLVE_COHORT_MERGE"] = str(args.cohort_merge)
+    if args.beam_tree:
+        knobs["EVOLVE_BEAM_TREE"] = "1"
     if args.genes:
         knobs["EVOLVE_GENES"] = str(args.genes)
     if args.pump:
@@ -336,7 +346,7 @@ def main():
         "grow_head_every": args.grow_head or None, "grow_head_start": args.grow_head_start if args.grow_head else None,
         "intake": args.population, "champion": args.champion or None, "pairs": args.pairs or 1,
         # THE SWIM LANES, so the ledger can say WHICH RULE SET found a law.
-        "lanes": args.lanes, "max_generations": args.max_generations or None, "beam_every": args.beam or None,
+        "lanes": args.lanes, "max_generations": args.max_generations or None, "beam_every": args.beam or None, "beam_tree": args.beam_tree or None, "cohort_merge": args.cohort_merge or None,
         "target_noise": args.target_noise or None,
         "cross_every": args.cross or None, "pump_every": args.pump or 4,
         "rnc": list(args.rnc) if args.rnc else "engine default",
