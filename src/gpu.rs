@@ -125,15 +125,16 @@ impl HffGpuContext {
     }
 
     async fn new_async() -> Result<Self, String> {
-        let instance = wgpu::Instance::new(wgpu::InstanceDescriptor::default());
+        let instance = wgpu::Instance::new(wgpu::InstanceDescriptor::new_without_display_handle());
         let adapter = instance
             .request_adapter(&wgpu::RequestAdapterOptions {
                 power_preference: wgpu::PowerPreference::HighPerformance,
                 compatible_surface: None,
                 force_fallback_adapter: false,
+                apply_limit_buckets: false,
             })
             .await
-            .ok_or_else(|| "no GPU adapter available".to_string())?;
+            .map_err(|e| format!("no GPU adapter available: {e}"))?;
 
         let (device, queue) = adapter
             .request_device(
@@ -141,8 +142,8 @@ impl HffGpuContext {
                     label: Some("HffGpuDevice"),
                     required_features: wgpu::Features::empty(),
                     required_limits: wgpu::Limits::default(),
+                    ..Default::default()
                 },
-                None,
             )
             .await
             .map_err(|e| format!("device request failed: {e:?}"))?;
@@ -193,16 +194,17 @@ impl HffGpuContext {
 
         let pipeline_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
             label: Some("HffGpuPipelineLayout"),
-            bind_group_layouts: &[&bind_group_layout],
-            push_constant_ranges: &[],
+            bind_group_layouts: &[Some(&bind_group_layout)],
+            immediate_size: 0,
         });
 
         let pipeline = device.create_compute_pipeline(&wgpu::ComputePipelineDescriptor {
             label: Some("HffGpuPipeline"),
             layout: Some(&pipeline_layout),
             module: &shader,
-            entry_point: "hf1_truenorth_main",
+            entry_point: Some("hf1_truenorth_main"),
             compilation_options: Default::default(),
+            cache: None,
         });
 
         Ok(Self {
@@ -243,7 +245,7 @@ impl HffGpuContext {
         // BEFORE allocating to give a clear message.
         let obj_bytes = (n as u64).saturating_mul(m as u64).saturating_mul(4);
         let dist_bytes = (n as u64).saturating_mul(4);
-        let max_storage = self.device.limits().max_storage_buffer_binding_size as u64;
+        let max_storage = self.device.limits().max_storage_buffer_binding_size;
         if obj_bytes > max_storage {
             return Err(format!(
                 "objectives buffer {}B exceeds adapter limit {}B (n={}, m={}). \
@@ -399,12 +401,16 @@ impl HffGpuContext {
             // we'd then surface the timeout/disconnect as a recv error.
             let _ = tx.send(result);
         });
-        self.device.poll(wgpu::Maintain::Wait);
+        self.device
+            .poll(wgpu::PollType::wait_indefinitely())
+            .map_err(|e| format!("GPU poll failed: {e}"))?;
         let map_result = rx.recv().map_err(|e| {
             format!("GPU map channel disconnected (device lost?): {e:?}")
         })?;
         map_result.map_err(|e| format!("GPU buffer map failed: {e:?}"))?;
-        let data = buffer_slice.get_mapped_range();
+        let data = buffer_slice
+            .get_mapped_range()
+            .map_err(|e| format!("GPU buffer view failed: {e}"))?;
         let f32_results: &[f32] = bytemuck::cast_slice(&data);
         // Coerce any residual NaN to PI (defensive: shader should have
         // already done this, but f32 round-trip can produce subnormals).

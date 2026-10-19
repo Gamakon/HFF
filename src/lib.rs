@@ -302,6 +302,10 @@ fn calculate_hyperspherical_fitness_hf1_enhanced(
 /// Returns `(fitness, col_min, col_max)`. When `normalize=false` or there is a
 /// single individual, the returned ranges are the raw per-column min/max of
 /// the input matrix.
+/// The fitnesses and the objectives' minima and maxima the normalisation used.
+#[cfg(feature = "python")]
+type FitnessWithRanges = (Py<PyArray1<f64>>, Py<PyArray1<f64>>, Py<PyArray1<f64>>);
+
 #[cfg(feature = "python")]
 #[pyfunction]
 #[pyo3(signature = (objectives, decrowding=None, north_pole_method=None, normalize=None))]
@@ -311,7 +315,7 @@ fn calculate_hyperspherical_fitness_hf1_with_ranges(
     decrowding: Option<bool>,
     north_pole_method: Option<&str>,
     normalize: Option<bool>,
-) -> PyResult<(Py<PyArray1<f64>>, Py<PyArray1<f64>>, Py<PyArray1<f64>>)> {
+) -> PyResult<FitnessWithRanges> {
     let objectives = objectives.as_array();
     let (n_individuals, n_objectives) = objectives.dim();
     let decrowding = decrowding.unwrap_or(false);
