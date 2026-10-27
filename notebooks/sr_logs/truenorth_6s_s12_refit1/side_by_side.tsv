@@ -1,0 +1,2 @@
+dataset	exact_sympy_tidied	exact_fuller_direct	r2_test	generations	stopped_by	fuller_string	sympy_tidied_string
+strogatz_barmag2	Y	Y	1.000000	45	early_stop	((1.4999999959936492*((((6.283185307179586 - x_0) + (sin((x_1 - x_0)) + x_0)) - (sin(x_1) + sin(x_1)))/3.0)) + (-3.141592660264141))	-sin(x_1) - sin(x_0 - x_1)/2

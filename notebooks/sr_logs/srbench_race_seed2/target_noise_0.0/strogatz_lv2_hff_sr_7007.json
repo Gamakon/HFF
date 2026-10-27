@@ -1,0 +1,29 @@
+{
+    "dataset": "strogatz_lv2",
+    "algorithm": "hff_sr",
+    "params": {
+        "config_overrides": {},
+        "head_length": 48,
+        "holdout_fraction": 0.25,
+        "max_rows": 5000,
+        "max_time": 3600,
+        "n_gen": 1500,
+        "n_genes": 3,
+        "random_state": 7007,
+        "val_fraction": 0.15
+    },
+    "random_state": 7007,
+    "time_time": 129.80216097831726,
+    "symbolic_model": "7.05552166736796*log(Abs(0.333333333333333*x_0 + 0.333333333333333*x_1 - 0.333333333333333*Abs(cos(4.2082405307719455*exp(-Abs(x_1 - 4))*sin(x_0))) - 2.03030303030303 + 0.333333333333333*sinh(x_1 + sinh(x_1)*cosh(x_1)/(sinh(x_1)**2 + 1))*cosh(x_1 + sinh(x_1)*cosh(x_1)/(sinh(x_1)**2 + 1))/(sinh(x_1 + sinh(x_1)*cosh(x_1)/(sinh(x_1)**2 + 1))**2 + 1))) - 2.1969165140463374",
+    "mse_train": 1.109088028386277,
+    "mae_train": 0.11059805664952137,
+    "r2_train": -0.5135340378142648,
+    "mse_test": 2.5453196492229653,
+    "mae_test": 0.1737826997561857,
+    "r2_test": 0.0013277406876006648,
+    "simplicity": -2.9,
+    "complexity_function": "sympy",
+    "model_size": 85,
+    "target_noise": 0.0,
+    "feature_noise": 0.0
+}

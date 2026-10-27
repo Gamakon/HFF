@@ -53,3 +53,12 @@ notebooks/sr_logs/simplify_corpus.jsonl
 # otherwise drop it.
 !notebooks/sr_logs/**/*.run.log
 notebooks/sr_logs/.staging_*/
+
+# The bulky, regenerable parts of a run's output (2026-10-27: 1.6 GB of
+# untracked sr_logs, of which ~1.1 GB was this): the checkpoint pickles, the
+# evolved-population binaries, and the half-written sidecars. Every one of
+# them is written by a run and rebuilt by the next one. The per-problem .json
+# and .run.log pairs are the evidence and stay in git.
+notebooks/sr_logs/**/*.pkl
+notebooks/sr_logs/**/*.bin
+notebooks/sr_logs/**/*.json.updated

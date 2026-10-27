@@ -1,0 +1,45 @@
+Sweeping 4 problems (registry has 126)  parallel=1
+
+  selection: ['II_4_23', 'III_15_27', 'II_2_42', 'I_27_6']
+
+[audit] writing per-problem sidecars to sr_logs/cpu_check/
+
+=== II_4_23 ===
+  exact      : False
+  numerical  : False
+  max rel err: 29.044989618596638
+  discovered : 0.115514905380784 - 0.0392844623875084*log(Abs(-3*epsilon*r + q + r*(q - 4))/3)
+  hof exact  : 0/4
+  elapsed    : 342.5s
+=== III_15_27 ===
+  exact      : False
+  numerical  : True
+  max rel err: 1.3355143702207893e-09
+  discovered : 56.5486677647678*log(exp(alpha/(9*d*n))/3) + 62.125061314015
+  hof exact  : 0/6
+  elapsed    : 286.5s
+=== II_2_42 ===
+  exact      : False
+  numerical  : False
+  max rel err: 7526.506576969082
+  discovered : -3.45614259687839*T1 + 3.45614259687839*T2 + 3.45614259687839*sin(kappa - kappa/sin(sqrt(Abs(d + kappa*sin(d)/T2)))) - 3.45614259687839*sqrt(Abs(d + kappa*sin(d)/T2)) + 6.34613243927602
+  hof exact  : 0/10
+  elapsed    : 352.3s
+=== I_27_6 ===
+  exact      : False
+  numerical  : False
+  max rel err: 16.052622583274335
+  discovered : -0.666666666666667*exp(1/2)*log(Abs(sqrt(d1)*sqrt(n)/Abs(sqrt(log(Abs(sqrt(d1) - d2*exp(8/d1))))) - d1 - d2 + n + cos(d2) + sqrt(Abs(sin(cos(d1)) + 2)) + 8)) + 0.666666666666667*exp(1/2)*log(3) + 1.70398819995537
+  hof exact  : 0/10
+  elapsed    : 440.8s
+
+====================================================================================================
+problem        exact   numerical   max_rel_err    hof_exact      t(s)  discovered
+----------------------------------------------------------------------------------------------------
+II_4_23        False   False       2.90e+01       0/4           342.5  0.115514905380784 - 0.0392844623875084*log(Abs(-3*epsilon*r + q + r*(q - 4))/3)
+III_15_27      False   True        1.34e-09       0/6           286.5  56.5486677647678*log(exp(alpha/(9*d*n))/3) + 62.125061314015
+II_2_42        False   False       7.53e+03       0/10          352.3  -3.45614259687839*T1 + 3.45614259687839*T2 + 3.45614259687839*sin(kappa - kappa/sin(sqrt(Abs(d + kappa*sin(d)/T2)))) - 3.45614259687839*sqrt(Abs(d + kappa*sin(d)/T2)) + 6.34613243927602
+I_27_6         False   False       1.61e+01       0/10          440.8  -0.666666666666667*exp(1/2)*log(Abs(sqrt(d1)*sqrt(n)/Abs(sqrt(log(Abs(sqrt(d1) - d2*exp(8/d1))))) - d1 - d2 + n + cos(d2) + sqrt(Abs(sin(cos(d1)) + 2)) + 8)) + 0.666666666666667*exp(1/2)*log(3) + 1.70398819995537
+====================================================================================================
+Best-of-HOF exact recoveries:     0/4  (0%)
+Best-of-HOF numerical recoveries: 1/4  (25%)

@@ -1,0 +1,1 @@
+{"algorithm": "HFF-SR", "dataset": "feynman_III_15_12", "symbolic_model": "(((-9.20001707451239)*(((sin(U) + cos((d*k))) + cos((d*k)))/3.0)) + 6.237228498176764)", "r2_test": 0.8918231040285344}

@@ -1,0 +1,1 @@
+{"algorithm": "HFF-SR", "dataset": "feynman_III_15_12", "symbolic_model": "1.8321891676166*U - 1.8321891676166*log(Abs((2*d*(sqrt(k)*(d - sin(k)) - k) + k**(3/2))/(sqrt(k)*(d - sin(k)) - k))) + 4.61225233881849", "r2_test": 0.24543486542794557}

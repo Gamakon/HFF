@@ -1,0 +1,4 @@
+dataset	exact_sympy_tidied	exact_fuller_direct	r2_test	generations	stopped_by	fuller_string	sympy_tidied_string
+strogatz_bacres2	n	n	0.999881	404	early_stop	(((-0.02469036119789753)*((((1/Abs(((log(Abs(((-89.0) + ((1/Abs(tan((x_0 + cos((x_1 + x_0)))))) + x_0)))) - x_0)*x_0))) + 81.0)/(x_0 - (1/exp(x_0))))*(tanh(log(x_0))*x_1))) + 10.0)	-0.02469036119789753*x_1*(81 + 1/(x_0*Abs(x_0 - log(Abs(x_0 - 89 + 1/Abs(tan(x_0 + cos(x_0 + x_1))))))))*tanh(log(x_0))/(x_0 - exp(-x_0)) + 10
+strogatz_lv2	n	n	1.000000	533	early_stop	((-4095.9987276628926)*(tan(tan(((x_1 + (x_0 + (-2.0)))*0.0002441406225746808)))*x_1))	-4095.9987276628926*x_1*tan(tan(0.0002441406225746808*x_0 + 0.0002441406225746808*x_1 - 0.0004882812451493616))
+feynman_III_17_37	Y	Y	1.000000	39	early_stop	(((-1.4142135757889396)*((144.0 - (x_0 + (x_0*(x_1*cos(x_2)))))/1.4142135623730951)) + 144.0)	x_0*x_1*cos(x_2) + x_0

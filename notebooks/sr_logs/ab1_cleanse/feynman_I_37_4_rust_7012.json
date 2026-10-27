@@ -1,0 +1,1 @@
+{"algorithm": "hff_rust", "dataset": "feynman_I_37_4", "symbolic_model": "2.0980612663442493*exp(cos(x_2))*sqrt(Abs(x_0*x_1*sin(x_2)**2)) - 0.08929121043536581", "r2_test": 0.9846379203358098, "generations": 174, "stopped_by": "time", "fit_wall": 6.218868970870972}

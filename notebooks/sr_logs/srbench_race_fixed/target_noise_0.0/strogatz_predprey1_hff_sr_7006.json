@@ -1,0 +1,29 @@
+{
+    "dataset": "strogatz_predprey1",
+    "algorithm": "hff_sr",
+    "params": {
+        "config_overrides": {},
+        "head_length": 48,
+        "holdout_fraction": 0.25,
+        "max_rows": 5000,
+        "max_time": 3600,
+        "n_gen": 1500,
+        "n_genes": 3,
+        "random_state": 7006,
+        "val_fraction": 0.15
+    },
+    "random_state": 7006,
+    "time_time": 31.322456121444702,
+    "symbolic_model": "-2.543610742754803*log(Abs(0.0333333333333333*x_0 - 0.666666666666667*x_0/x_1**2 + 0.133333333333333)) - 5.150210021141671",
+    "mse_train": 4.429229801571187,
+    "mae_train": 0.503279414232746,
+    "r2_train": 0.2632062460594876,
+    "mse_test": 3.5568863799863872,
+    "mae_test": 0.5670548775408453,
+    "r2_test": 0.3205513192437516,
+    "simplicity": -1.8,
+    "complexity_function": "sympy",
+    "model_size": 17,
+    "target_noise": 0.0,
+    "feature_noise": 0.0
+}

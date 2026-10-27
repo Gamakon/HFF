@@ -1,0 +1,4 @@
+dataset	exact_sympy_tidied	exact_fuller_direct	r2_test	generations	stopped_by	fuller_string	sympy_tidied_string
+feynman_I_44_4	n	n	1.000000	87	early_stop	(-(x_1*(x_0*(x_2*(log(x_3) - log(x_4))))))	-x_0*x_1*x_2*(log(x_3) - log(x_4))
+strogatz_glider2	Y	Y	1.000000	117	early_stop	((x_0 - (cos(x_1)/x_0)) + (-1.2788959224963037e-7))	x_0 - cos(x_1)/x_0
+feynman_II_10_9	Y	Y	1.000000	30	early_stop	((0.200000001133779*((((5.0/(1.0 + x_2))*x_0)/x_1) - 1.6094379124341003)) + 0.32188757398128187)	x_0/(x_1*(x_2 + 1))

@@ -1,0 +1,1 @@
+{"algorithm": "hff_rust_fuller_direct", "dataset": "strogatz_lv1", "symbolic_model": "((2.484092135273682*log((-((-4.0)/exp((1.5707963267948966/((exp((1/x_1))/x_0)**2))))))) + (-3.438196261301176))", "r2_test": 0.8854433232569974}

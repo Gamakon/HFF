@@ -1,0 +1,8 @@
+dataset	exact_sympy_tidied	exact_fuller_direct	r2_test	generations	stopped_by	fuller_string	sympy_tidied_string
+feynman_III_12_43	Y	Y	1.000000	1	early_stop	(((-0.1591549428374411)*(((x_0*(x_1*(-3.0))) + (-9.71238898038469))/3.0)) + (-0.515258233247079))	0.1591549428374411*x_0*x_1
+strogatz_glider2	n	n	1.000000	56	early_stop	(((sqrt(Abs(arcsin((x_0*x_1)))) - (cos(x_1)/x_0)) + x_0) + (-1.253314340739827))	x_0 + sqrt(Abs(arcsin(x_0*x_1))) - 1.253314340739827 - cos(x_1)/x_0
+strogatz_barmag2	n	n	1.000000	45	early_stop	((1.4999999959936492*(((arccos(cos(x_0)) + (sin((x_1 - x_0)) + x_0)) - (sin(x_1) + sin(x_1)))/3.0)) + (-3.141592660264141))	x_0/2 - sin(x_1) - sin(x_0 - x_1)/2 + arccos(cos(x_0))/2 - 3.141592660264141
+feynman_I_18_12	Y	Y	1.000000	1	early_stop	(0.6366197512638958*((x_1*sin(x_2))*(x_0/0.6366197723675814)))	x_0*x_1*sin(x_2)
+feynman_I_14_4	Y	Y	1.000000	1	early_stop	(1.5000000293003768*(((x_1**2)/3.0)*x_0))	x_0*x_1**2/2
+feynman_I_30_5	Y	Y	1.000000	39	early_stop	(arcsin((1/((x_1/x_0)*x_2))) + 1.6518044043678515e-8)	arcsin(x_0/(x_1*x_2))
+feynman_III_17_37	Y	Y	1.000000	71	early_stop	(x_0 + (x_0*(x_1*cos(x_2))))	x_0*x_1*cos(x_2) + x_0

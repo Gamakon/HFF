@@ -1,0 +1,4 @@
+dataset	pass1_secs	pass1_gens	pass1_stop	this_pass_secs	this_pass_gens	this_pass_stop	total_secs
+feynman_I_44_4	0.0	0	-	6.2	87	early_stop	6.2
+strogatz_glider2	0.0	0	-	3.0	117	early_stop	3.0
+feynman_II_10_9	0.0	0	-	1.8	30	early_stop	1.8

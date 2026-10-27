@@ -1,0 +1,29 @@
+{
+    "dataset": "strogatz_vdp2",
+    "algorithm": "hff_sr",
+    "params": {
+        "config_overrides": {},
+        "head_length": 48,
+        "holdout_fraction": 0.25,
+        "max_rows": 5000,
+        "max_time": 3600,
+        "n_gen": 1500,
+        "n_genes": 3,
+        "random_state": 7006,
+        "val_fraction": 0.15
+    },
+    "random_state": 7006,
+    "time_time": 1.3883941173553467,
+    "symbolic_model": "-0.099999999999701544*x_0",
+    "mse_train": 9.94933059941254e-26,
+    "mae_train": 2.9704383628740654e-13,
+    "r2_train": 1.0,
+    "mse_test": 1.0016466238712655e-25,
+    "mae_test": 2.9661899265997005e-13,
+    "r2_test": 1.0,
+    "simplicity": -0.7,
+    "complexity_function": "sympy",
+    "model_size": 3,
+    "target_noise": 0.0,
+    "feature_noise": 0.0
+}

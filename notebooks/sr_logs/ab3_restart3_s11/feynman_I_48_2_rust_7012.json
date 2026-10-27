@@ -1,0 +1,1 @@
+{"algorithm": "hff_rust", "dataset": "feynman_I_48_2", "symbolic_model": "-0.031667538151193116*x_0*x_2**2*(-x_1 - 57.0)*cos(cos(1/(x_2 + sin(x_1 + Piecewise((sqrt(x_2), x_2 < 1.7976931348623157e+308), (0, True))) - Abs(x_1 - 0.957055909668421)))) - 0.08817340641994065", "r2_test": 0.9999951017544108, "generations": 202, "stopped_by": "time", "fit_wall": 6.239677906036377}

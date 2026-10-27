@@ -1,0 +1,1 @@
+{"algorithm": "hff_rust", "dataset": "strogatz_barmag1", "symbolic_model": "0.50825991686812187*sin(x_0 - x_1) - 0.50825991686812187*cos(0.4566337854967313*x_0**(3/2) - 77) + 0.5022843480161896", "r2_test": 0.9982439452773684, "generations": 35, "stopped_by": "n_gen", "fit_wall": 3.760664224624634}

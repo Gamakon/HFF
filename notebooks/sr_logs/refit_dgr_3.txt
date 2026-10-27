@@ -1,0 +1,3 @@
+feynman_II_10_9
+feynman_I_44_4
+strogatz_glider2

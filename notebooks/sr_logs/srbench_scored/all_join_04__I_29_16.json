@@ -1,0 +1,1 @@
+{"algorithm": "HFF-SR", "dataset": "feynman_I_29_16", "symbolic_model": "sqrt(x1**2 - 2*x1*x2*cos(theta1 - theta2) + x2**2)", "r2_test": 1.0}

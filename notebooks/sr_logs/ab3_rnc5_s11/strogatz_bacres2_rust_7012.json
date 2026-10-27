@@ -1,0 +1,1 @@
+{"algorithm": "hff_rust", "dataset": "strogatz_bacres2", "symbolic_model": "-2.680431543771569*x_1*cos(2/x_0)*tanh(tanh(1 + exp(-1/(-1.044212499898521*x_0**2 - 10.2210624994926))))/log(Abs(-x_0 + exp(x_0) + log(x_0))) + 10", "r2_test": 0.9999999988814494, "generations": 334, "stopped_by": "time", "fit_wall": 6.063318967819214}

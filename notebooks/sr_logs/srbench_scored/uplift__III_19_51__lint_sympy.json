@@ -1,0 +1,1 @@
+{"algorithm": "HFF-SR", "dataset": "feynman_III_19_51", "symbolic_model": "0.07583818447508282*epsilon - 0.06959275328201392 - 0.0252793948250276*exp(q)/n - 0.0252793948250276*exp(-h + m + q/epsilon)/n", "r2_test": 0.3729286030149891}

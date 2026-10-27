@@ -1,0 +1,5 @@
+dataset	pass1_secs	pass1_gens	pass1_stop	this_pass_secs	this_pass_gens	this_pass_stop	total_secs
+feynman_II_13_23	0.0	0	-	32.7	338	time	32.7
+feynman_test_5	0.0	0	-	31.2	295	time	31.2
+feynman_I_34_14	0.0	0	-	31.2	295	time	31.2
+feynman_II_6_15b	0.0	0	-	3.3	28	early_stop	3.3

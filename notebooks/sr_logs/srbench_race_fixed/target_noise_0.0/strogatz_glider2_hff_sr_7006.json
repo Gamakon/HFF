@@ -1,0 +1,29 @@
+{
+    "dataset": "strogatz_glider2",
+    "algorithm": "hff_sr",
+    "params": {
+        "config_overrides": {},
+        "head_length": 48,
+        "holdout_fraction": 0.25,
+        "max_rows": 5000,
+        "max_time": 3600,
+        "n_gen": 1500,
+        "n_genes": 3,
+        "random_state": 7006,
+        "val_fraction": 0.15
+    },
+    "random_state": 7006,
+    "time_time": 45.02527070045471,
+    "symbolic_model": "11.12462014382522*sqrt(Abs(0.333333333333333*x_0 - 0.333333333333333*sin(sin(tanh(x_0))**2)**2 - 0.333333333333333*cos(x_1)*tanh(1/x_0) + 2.49054550573213)) - 17.35202455055471",
+    "mse_train": 0.04257718966879429,
+    "mae_train": 0.04569620493399909,
+    "r2_train": 0.9534088237160481,
+    "mse_test": 0.3784670213273495,
+    "mae_test": 0.11452766361939039,
+    "r2_test": 0.6784251218363244,
+    "simplicity": -2.1,
+    "complexity_function": "sympy",
+    "model_size": 30,
+    "target_noise": 0.0,
+    "feature_noise": 0.0
+}

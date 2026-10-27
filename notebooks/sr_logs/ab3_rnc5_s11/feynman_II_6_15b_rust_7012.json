@@ -1,0 +1,1 @@
+{"algorithm": "hff_rust", "dataset": "feynman_II_6_15b", "symbolic_model": "0.01510213498521096*x_1*exp(3*Piecewise((sqrt(Abs(sin(1/x_3))), Abs(sin(1/x_3)) < 1.7976931348623157e+308), (0, True)))*sin(x_2)*cos(x_2)/(x_0*x_3**2)", "r2_test": 0.9999630092036627, "generations": 181, "stopped_by": "time", "fit_wall": 6.2094690799713135}

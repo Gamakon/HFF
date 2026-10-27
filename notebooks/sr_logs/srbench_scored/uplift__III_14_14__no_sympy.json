@@ -1,0 +1,1 @@
+{"algorithm": "HFF-SR", "dataset": "feynman_III_14_14", "symbolic_model": "(((-13.35191417185008)*log(Abs(((((T - q) + cos((I_0/4.0))) + (kb - (Volt - kb)))/3.0)))) + 1.6296603692698444)", "r2_test": 0.8335167907431624}

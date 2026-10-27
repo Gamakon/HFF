@@ -1,0 +1,1 @@
+{"algorithm": "HFF-SR", "dataset": "feynman_II_2_42", "symbolic_model": "((1.5*(((((T2 - T1)*((A*kappa)/d)) + (-7.0)) + ((T2 - T1)*((A*kappa)/d)))/3.0)) + 3.5)", "r2_test": 1.0}

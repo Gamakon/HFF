@@ -1,0 +1,1 @@
+{"algorithm": "HFF-SR", "dataset": "feynman_II_13_34", "symbolic_model": "((8.344949188236173*(((sin((sin(rho_c_0)/v)) + rho_c_0) + v)/3.0)) + (-7.921077817903678))", "r2_test": 0.9485880403846897}

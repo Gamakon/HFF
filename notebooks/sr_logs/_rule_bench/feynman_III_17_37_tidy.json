@@ -1,0 +1,1 @@
+{"algorithm": "hff_rule_bench", "dataset": "feynman_III_17_37", "symbolic_model": "0.6683529417874151*x_1*(x_0 + arcsin(0.25*x_0*x_2**2))*cos(x_2*tanh(x_0 + 4/x_2)**2)/tanh(x_0 + log(x_1/Abs(x_0 - 0.27272727272727274*x_1*(x_1 - 4)))) + 3.2428848182352636", "r2_test": 1.0}

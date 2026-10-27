@@ -1,0 +1,1 @@
+{"algorithm": "hff_rust_fuller_direct", "dataset": "strogatz_lv2", "symbolic_model": "((2443.0936849596687*((sqrt(Abs(tanh((arcsin(tan(x_0))/(1/x_0)))))*(((arcsin(arcsin(x_0))**3)**2)/((-185193.0)/arcsin(x_1))))*(exp(x_1)*x_0))) + 0.008480597707449938)", "r2_test": 0.9364835540111712}

@@ -1,0 +1,1 @@
+{"algorithm": "hff_rust_fuller_direct", "dataset": "feynman_III_17_37", "symbolic_model": "((arccos((x_0**3)) + x_0) + (x_0*(x_1*cos(x_2))))", "r2_test": NaN}

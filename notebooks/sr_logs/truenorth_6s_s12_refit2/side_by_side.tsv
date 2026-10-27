@@ -1,0 +1,3 @@
+dataset	exact_sympy_tidied	exact_fuller_direct	r2_test	generations	stopped_by	fuller_string	sympy_tidied_string
+strogatz_glider2	Y	Y	1.000000	56	early_stop	(((1.2533141373155001 - (cos(x_1)/x_0)) + x_0) + (-1.253314340739827))	x_0 - cos(x_1)/x_0
+strogatz_barmag2	n	n	1.000000	45	early_stop	((1.4999999959936492*(((arccos(cos(x_0)) + (sin((x_1 - x_0)) + x_0)) - (sin(x_1) + sin(x_1)))/3.0)) + (-3.141592660264141))	x_0/2 - sin(x_1) - sin(x_0 - x_1)/2 + arccos(cos(x_0))/2 - 3.141592660264141

@@ -1,0 +1,1 @@
+{"algorithm": "hff_rust_fuller_direct", "dataset": "feynman_I_26_2", "symbolic_model": "(1.5707963347780642 - arccos((x_0*sin(x_1))))", "r2_test": 0.9999999999999998}

@@ -1,0 +1,121 @@
+Sweeping 12 problems (registry has 126)  parallel=6
+
+  selection: ['II_4_23', 'III_15_27', 'II_2_42', 'I_27_6', 'II_8_7', 'I_13_12', 'ideal_gas', 'II_13_17', 'I_39_11', 'II_10_9', 'I_12_5', 'circle_area']
+
+[audit] writing per-problem sidecars to sr_logs/ab_graft_improve/
+
+=== II_8_7 ===
+  exact      : False
+  numerical  : False
+  max rel err: 105.14237346544388
+  discovered : 0.323460277715556 - 0.148975616864193*log(Abs(d + epsilon - q + 4.52341352605983/sqrt(q)))
+  hof exact  : 0/2
+  elapsed    : 112.8s
+  [1/12 done]
+=== ideal_gas ===
+  exact      : True
+  numerical  : True
+  max rel err: 0.0
+  discovered : 8.314462618*T*n/V
+  hof exact  : 0/12
+  elapsed    : 6.6s
+  [2/12 done]
+=== I_27_6 ===
+  exact      : False
+  numerical  : False
+  max rel err: 5.9360975609189
+  discovered : 0.165414863896189*d1 + 0.165414863896189*d2 - 0.165414863896189*sqrt(n) - 0.165414863896189*n - 0.165414863896189*log(d1) + 0.720870247426678
+  hof exact  : 0/11
+  elapsed    : 124.1s
+  [3/12 done]
+=== II_4_23 ===
+  exact      : False
+  numerical  : False
+  max rel err: 21.91475428852939
+  discovered : 0.0634625280966488 - 0.0572334675386665*log(Abs(epsilon - q + r + sqrt(q + r) - sin(sin(r/(exp(epsilon) - sin(r)))))/3)
+  hof exact  : 0/5
+  elapsed    : 156.8s
+  [4/12 done]
+=== III_15_27 ===
+  exact      : False
+  numerical  : False
+  max rel err: 21.89531931514988
+  discovered : -4.51897346487382*log(Abs(-alpha + d + n + sqrt(alpha + d) - sin(sin(d/(exp(n) - sin(d)))))/3) + 2*sqrt(2)*sqrt(pi)
+  hof exact  : 0/5
+  elapsed    : 159.2s
+  [5/12 done]
+=== I_12_5 ===
+  exact      : True
+  numerical  : True
+  max rel err: 0.0
+  discovered : Ef*q2
+  hof exact  : 4/24
+  elapsed    : 4.9s
+  [6/12 done]
+=== circle_area ===
+  exact      : True
+  numerical  : True
+  max rel err: 0.0
+  discovered : pi*r**2
+  hof exact  : 2/2
+  elapsed    : 3.8s
+  [7/12 done]
+=== I_39_11 ===
+  exact      : True
+  numerical  : True
+  max rel err: 0.0
+  discovered : V*pr/(gamma - 1)
+  hof exact  : 1/7
+  elapsed    : 44.3s
+  [8/12 done]
+=== II_13_17 ===
+  exact      : False
+  numerical  : False
+  max rel err: 683.6158463873808
+  discovered : 0.0240436922360243 - 0.0253102132956892*log(Abs(c + log(r/10) + c*epsilon/I)/3)
+  hof exact  : 0/12
+  elapsed    : 103.3s
+  [9/12 done]
+=== I_13_12 ===
+  exact      : False
+  numerical  : False
+  max rel err: 2.2669260129514055
+  discovered : 3.26888333333333*m1*m2/r2 - 3.26888333333333*m1*m2/r1
+  hof exact  : 0/4
+  elapsed    : 252.3s
+  [10/12 done]
+=== II_10_9 ===
+  exact      : False
+  numerical  : False
+  max rel err: 11.419612720305198
+  discovered : (2 - 1.56577856033348*log(Abs(chi + epsilon - sigma_den - sin(cos(epsilon)) + 2.61214124833589)/3))/pi
+  hof exact  : 0/6
+  elapsed    : 102.2s
+  [11/12 done]
+=== II_2_42 ===
+  exact      : False
+  numerical  : False
+  max rel err: 5331.754980222694
+  discovered : -3*sqrt(2)*sqrt(pi)*T1/(2*cos(log(Abs(sin(sqrt(kappa)))))) + 3*sqrt(2)*sqrt(pi)*T2/2 - 3*sqrt(2)*sqrt(pi)*exp(exp(sin(sqrt(A)/d - T2)/(T1*kappa)))/2 + 9.92799555665205
+  hof exact  : 0/9
+  elapsed    : 285.0s
+  [12/12 done]
+
+====================================================================================================
+problem        exact   numerical   max_rel_err    hof_exact      t(s)  discovered
+----------------------------------------------------------------------------------------------------
+II_8_7         False   False       1.05e+02       0/2           112.8  0.323460277715556 - 0.148975616864193*log(Abs(d + epsilon - q + 4.52341352605983/sqrt(q)))
+ideal_gas      True    True        0.00e+00       0/12            6.6  8.314462618*T*n/V
+I_27_6         False   False       5.94e+00       0/11          124.1  0.165414863896189*d1 + 0.165414863896189*d2 - 0.165414863896189*sqrt(n) - 0.165414863896189*n - 0.165414863896189*log(d1) + 0.720870247426678
+II_4_23        False   False       2.19e+01       0/5           156.8  0.0634625280966488 - 0.0572334675386665*log(Abs(epsilon - q + r + sqrt(q + r) - sin(sin(r/(exp(epsilon) - sin(r)))))/3)
+III_15_27      False   False       2.19e+01       0/5           159.2  -4.51897346487382*log(Abs(-alpha + d + n + sqrt(alpha + d) - sin(sin(d/(exp(n) - sin(d)))))/3) + 2*sqrt(2)*sqrt(pi)
+I_12_5         True    True        0.00e+00       4/24            4.9  Ef*q2
+circle_area    True    True        0.00e+00       2/2             3.8  pi*r**2
+I_39_11        True    True        0.00e+00       1/7            44.3  V*pr/(gamma - 1)
+II_13_17       False   False       6.84e+02       0/12          103.3  0.0240436922360243 - 0.0253102132956892*log(Abs(c + log(r/10) + c*epsilon/I)/3)
+I_13_12        False   False       2.27e+00       0/4           252.3  3.26888333333333*m1*m2/r2 - 3.26888333333333*m1*m2/r1
+II_10_9        False   False       1.14e+01       0/6           102.2  (2 - 1.56577856033348*log(Abs(chi + epsilon - sigma_den - sin(cos(epsilon)) + 2.61214124833589)/3))/pi
+II_2_42        False   False       5.33e+03       0/9           285.0  -3*sqrt(2)*sqrt(pi)*T1/(2*cos(log(Abs(sin(sqrt(kappa)))))) + 3*sqrt(2)*sqrt(pi)*T2/2 - 3*sqrt(2)*sqrt(pi)*exp(exp(sin(sqrt(A)/d - T2)/(T1*kappa)))/2 + 9.92799555665205
+====================================================================================================
+Best-of-HOF exact recoveries:     4/12  (33%)
+Best-of-HOF numerical recoveries: 4/12  (33%)

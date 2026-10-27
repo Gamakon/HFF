@@ -1,0 +1,1 @@
+{"algorithm": "HFF-SR", "dataset": "feynman_I_15_3x", "symbolic_model": "(-t*u + x)/sqrt(1 - u**2/c**2)", "r2_test": 1.0}

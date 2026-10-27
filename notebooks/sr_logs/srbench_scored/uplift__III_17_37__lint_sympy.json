@@ -1,0 +1,1 @@
+{"algorithm": "HFF-SR", "dataset": "feynman_III_17_37", "symbolic_model": "1.0*beta*(alpha*cos(theta) + 1)", "r2_test": 1.0}

@@ -1,0 +1,1 @@
+{"algorithm": "hff_rust_fuller_direct", "dataset": "feynman_I_18_14", "symbolic_model": "((0.9964326475171237*((((x_1*x_2) + sin(x_3))*x_0)*sin(x_3))) + (-1.7496232364347486))", "r2_test": 0.9971985859046897}

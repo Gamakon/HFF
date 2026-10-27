@@ -1,0 +1,1 @@
+{"algorithm": "hff_rust", "dataset": "strogatz_vdp1", "symbolic_model": "-0.31170068133078094*(x_0 - 6.968088869475748*exp(3*x_1))*cos(x_0)*sqrt(Abs(x_0/(sin(x_1*exp(cos(x_0*x_1**3)) + 36*(0.166666666666667*x_1 - 1)**2) + 2.332204510175204))) - 0.9232805615800017", "r2_test": 0.8120571715054957, "generations": 361, "stopped_by": "time", "fit_wall": 6.179459810256958}

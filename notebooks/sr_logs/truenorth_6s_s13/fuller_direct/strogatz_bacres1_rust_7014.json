@@ -1,0 +1,1 @@
+{"algorithm": "hff_rust_fuller_direct", "dataset": "strogatz_bacres1", "symbolic_model": "(((-2.267819913793235)*((((x_0 + (x_1/sqrt((x_0 - (1/((x_0/3.0)*(x_0 - 5.0))))))) + (4.0/log(Abs(log(Abs(((1/(((-2.0) + x_1) - x_0)) - x_1))))))) + (sqrt((x_0 + sin((x_0/(-5.0))))) - sin(sqrt(x_1))))/3.0)) + 24.06219563895108)", "r2_test": 0.9961812472375087}

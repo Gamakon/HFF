@@ -1,0 +1,1 @@
+{"algorithm": "hff_rule_bench", "dataset": "feynman_I_18_4", "symbolic_model": "7.754154782082701*sqrt(0.2*x_2 + 0.2*x_3 - 0.04*Abs(x_0 - x_1 - x_2 + x_3) + 1/tanh(sqrt(x_0)*x_2) + (0.2*x_0 - 0.2*sin(x_2))*exp(-x_3)/x_1) - 8.350289922829639", "r2_test": 1.0}

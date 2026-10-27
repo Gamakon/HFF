@@ -1,0 +1,1 @@
+{"algorithm": "hff_rust_fuller_direct", "dataset": "strogatz_vdp1", "symbolic_model": "(((-2.434349047475452)*((log(Abs((x_1 - x_0)))*sin(x_1))*acos(((-3.0) - (tan((x_0**2)) + (x_0*(x_1 + (-0.9999092042625951)))))))) + (-0.0015625997970135086))", "r2_test": NaN}

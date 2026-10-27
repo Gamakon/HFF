@@ -1,0 +1,1 @@
+{"algorithm": "hff_rust", "dataset": "feynman_I_27_6", "symbolic_model": "0.020354173157714338*exp(3*x_0**(1/4)/2)*sqrt(Abs(x_1*(20*x_1/log(x_2**3 + exp(x_1/2 + x_1/(2*x_0))) - x_2)*sin(sqrt(Abs(x_0 + 26*log(sqrt(x_2))/(x_1*(x_0/x_2 + exp(x_1))))))/x_2)) + 0.1989826997532541", "r2_test": 0.9980063768880538, "generations": 206, "stopped_by": "time", "fit_wall": 6.171706914901733}

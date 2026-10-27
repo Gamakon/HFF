@@ -1,0 +1,1 @@
+{"algorithm": "hff_rust_fuller_direct", "dataset": "feynman_II_6_15b", "symbolic_model": "(0.23873241116201124*((cos(x_2)*(x_1/(x_0*(x_3**3))))*sin(x_2)))", "r2_test": 0.9999999999999998}

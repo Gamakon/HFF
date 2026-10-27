@@ -1,0 +1,1 @@
+{"algorithm": "hff_rust_fuller_direct", "dataset": "strogatz_vdp1", "symbolic_model": "((414.3382287287113*((((x_1*(x_1/5.0))*arccos(Abs(x_1)))*(((x_0*(sin(x_1)**2)) + arccos((x_0 + (x_1/exp(x_0)))))*x_1))*cos(x_0))) + (-0.11812482865300403))", "r2_test": 0.827542894690569}

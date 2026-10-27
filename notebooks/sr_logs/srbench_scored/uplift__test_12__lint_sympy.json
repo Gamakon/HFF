@@ -1,0 +1,1 @@
+{"algorithm": "HFF-SR", "dataset": "feynman_test_12", "symbolic_model": "5.4043811931856184*Volt*q/y + 5.4043811931856184*sin(Volt) + 5.4043811931856184*sin(q) - 12.359901577102915", "r2_test": 0.9316825642725759}

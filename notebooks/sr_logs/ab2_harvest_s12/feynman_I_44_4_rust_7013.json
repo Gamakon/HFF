@@ -1,0 +1,1 @@
+{"algorithm": "hff_rust", "dataset": "feynman_I_44_4", "symbolic_model": "1.9776236444274773*x_0*x_1*x_2*(-x_3 + x_4)/((x_3 + x_4)*log(Abs(log(Abs(exp(Piecewise((sqrt(Abs(x_3 - x_4)), Abs(x_3 - x_4) < 1.7976931348623157e+308), (0, True))) - 17.0))))) - 0.00029869860209291374", "r2_test": 0.9995879368301943, "generations": 172, "stopped_by": "time", "fit_wall": 6.234982013702393}

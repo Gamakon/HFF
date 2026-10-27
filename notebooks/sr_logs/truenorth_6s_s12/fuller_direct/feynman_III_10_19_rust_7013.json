@@ -1,0 +1,1 @@
+{"algorithm": "hff_rust_fuller_direct", "dataset": "feynman_III_10_19", "symbolic_model": "((0.5853643977561189*(((((x_3 + tan((1/(exp(((5.0 - ((x_2 - x_3)**2)) - x_2)) + x_1)))) + x_1) + x_2)*(x_0/exp((exp((-x_0))**3))))*tanh((4.0 - arcsin((x_2 - ((x_1 - x_3)**2))))))) + 0.258405716573872)", "r2_test": NaN}

@@ -1,0 +1,1 @@
+{"algorithm": "HFF-SR", "dataset": "feynman_III_10_19", "symbolic_model": "Bx*mom/pi**(1/4) + By*mom/(pi**(1/4)*Bz) + Bz*mom/pi**(1/4) + 0.167359533853883", "r2_test": 0.9529938161029377}

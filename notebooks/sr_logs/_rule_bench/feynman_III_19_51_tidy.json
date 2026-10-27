@@ -1,0 +1,1 @@
+{"algorithm": "hff_rule_bench", "dataset": "feynman_III_19_51", "symbolic_model": "-0.12500000263328494*x_0*x_1**4/(x_2**2*x_3**2*x_4**2)", "r2_test": 1.0}

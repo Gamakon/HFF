@@ -1,0 +1,1 @@
+{"algorithm": "hff_rust", "dataset": "feynman_II_6_15a", "symbolic_model": "-0.003250644849237372 - 0.3526003325544435*x_5*(x_3 + x_4)/(x_0*(x_2 - sin(Piecewise((sqrt(x_2), x_2 < 1.7976931348623157e+308), (0, True)) - exp(-x_1)))**2*(-x_2**3 - 16.0))", "r2_test": 0.9896784473735544, "generations": 169, "stopped_by": "time", "fit_wall": 6.249706029891968}

@@ -1,0 +1,32 @@
+{
+ "feynman_I_47_23|7003|0.0": {
+  "used_s": 1.0334034169791266,
+  "attempts": 1,
+  "stopped_by": "early_stop",
+  "generations": 0,
+  "r2_test": 1.0,
+  "solution": true,
+  "model": "sqrt(x_0*x_1/x_2)",
+  "status": "ok"
+ },
+ "feynman_III_17_37|7003|0.0": {
+  "used_s": 76.53700325003592,
+  "attempts": 2,
+  "stopped_by": "time",
+  "generations": 55,
+  "r2_test": 0.9699029110446615,
+  "solution": false,
+  "model": "(0.013532178481392921*x_0 + 0.017582129239087497)*(-3*x_0 + 54*x_1 + 1)*cos(x_2) + 2.9309001808519923",
+  "status": "ok"
+ },
+ "feynman_I_18_4|7003|0.0": {
+  "used_s": 75.22541025001556,
+  "attempts": 2,
+  "stopped_by": "time",
+  "generations": 77,
+  "r2_test": 0.9381418466855171,
+  "solution": false,
+  "model": "0.53352102874814804*x_2 + 0.53352102874814804*x_3 + 0.53352102874814804*tanh(x_1*x_2/x_3) - 0.53352102874814804*tanh(sin(0.125*x_2)) - 0.5650265506285224 + 0.53352102874814804/(x_1**2*x_3)",
+  "status": "ok"
+ }
+}

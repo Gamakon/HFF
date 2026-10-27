@@ -1,0 +1,1 @@
+{"algorithm": "HFF-SR", "dataset": "feynman_I_34_8", "symbolic_model": "((3.0*(((5.0 + (((v*q)/p)*B)) + 5.0)/3.0)) + (-10.0))", "r2_test": 1.0}

@@ -1,0 +1,1 @@
+{"algorithm": "hff_rust_fuller_direct", "dataset": "strogatz_barmag2", "symbolic_model": "((1.5000000100034072*((((5.755002001601602 - sin(x_1)) + sin((x_1 - x_0))) + (5.755002001601602 - sin(x_1)))/3.0)) + (-5.755001594270879))", "r2_test": 1.0}

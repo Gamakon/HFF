@@ -1,0 +1,29 @@
+{
+    "dataset": "strogatz_shearflow2",
+    "algorithm": "hff_sr",
+    "params": {
+        "config_overrides": {},
+        "head_length": 48,
+        "holdout_fraction": 0.25,
+        "max_rows": 5000,
+        "max_time": 3600,
+        "n_gen": 1500,
+        "n_genes": 3,
+        "random_state": 7004,
+        "val_fraction": 0.15
+    },
+    "random_state": 7004,
+    "time_time": 39.09099292755127,
+    "symbolic_model": "-0.042651514404350739*(-15*cos(x_1)**2 - 2)*(-0.2128149748944373*cos(sin(x_1)) - 1)**2*sin(x_0) + 0.000527129366730647",
+    "mse_train": 5.268636204949244e-05,
+    "mae_train": 0.0045398400913150855,
+    "r2_train": 0.9991328405616435,
+    "mse_test": 3.5486190164889964e-05,
+    "mae_test": 0.0038651839314636947,
+    "r2_test": 0.9992132790545161,
+    "simplicity": -1.9,
+    "complexity_function": "sympy",
+    "model_size": 22,
+    "target_noise": 0.0,
+    "feature_noise": 0.0
+}

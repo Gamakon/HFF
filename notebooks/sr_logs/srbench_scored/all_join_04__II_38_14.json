@@ -1,0 +1,1 @@
+{"algorithm": "HFF-SR", "dataset": "feynman_II_38_14", "symbolic_model": "0.121661867435349*sqrt(Abs(14*Y**(3/2)/sigma - 2*sqrt(Y) + 9.03952133779749)) - 0.292604694215663", "r2_test": 0.9985232877918645}

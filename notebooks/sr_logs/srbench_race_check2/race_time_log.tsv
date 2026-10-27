@@ -1,0 +1,4 @@
+when	dataset	seed	noise	attempt	cap_s	search_s	fit_wall_s	used_s	problem_budget_s	left_s	generations	stopped_by	r2_test	solution
+2026-09-20T19:17:08	feynman_I_47_23	7003	0.0	1	30	1.0	2.1	1.0	100	99.0	0	early_stop	1.0	True
+2026-09-20T19:17:38	feynman_III_17_37	7003	0.0	1	30	30.3	31.5	30.3	100	69.7	30	time	0.9699842145920112	False
+2026-09-20T19:17:58	feynman_I_18_4	7003	0.0	1	30	30.1	32.0	30.1	100	69.9	32	time	0.9346819288257404	False

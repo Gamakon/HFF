@@ -1,0 +1,1 @@
+{"algorithm": "hff_rust_fuller_direct", "dataset": "strogatz_barmag1", "symbolic_model": "(((-0.07913736194942553)*sqrt((-((((2.3978952727983707 + (sin((x_0 + x_1)) + x_0))*(cos(x_1) + exp(cos(x_0))))*tan(sqrt(x_0)))*((4.406719247264253 + (sin((x_1 + ((-1.5707963267948966) + x_1))) + sin(x_0)))*(cos(x_1) + exp(cos(x_0)))))))) + 1.361295468868865)", "r2_test": 0.9806778705437518}

@@ -1,0 +1,1 @@
+{"algorithm": "HFF-SR", "dataset": "feynman_I_26_2", "symbolic_model": "0.212886637854039*pi*n*sin(n)*sin(theta2) + 0.212886637854039*pi*n*sin(theta2)", "r2_test": 0.9960109667757989}

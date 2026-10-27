@@ -1,0 +1,1 @@
+{"algorithm": "HFF-SR", "dataset": "feynman_III_15_27", "symbolic_model": "9.923558968089185 - 4.753235676906214*log(Abs(-alpha + d + n + sqrt(Abs(alpha))))", "r2_test": 0.9320423281698786}

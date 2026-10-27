@@ -1,0 +1,1 @@
+{"algorithm": "hff_rust_fuller_direct", "dataset": "strogatz_glider2", "symbolic_model": "((1.9856107028851049*sqrt(Abs((((((log((x_0 - (arccos(x_0)/(x_1 - (2.0/arcsin(x_1))))))**3) - arcsin(sqrt(x_0))) + sqrt(exp(x_0))) - cos(x_1))/3.0)))) + 0.6340709116865342)", "r2_test": 0.9802167072457022}

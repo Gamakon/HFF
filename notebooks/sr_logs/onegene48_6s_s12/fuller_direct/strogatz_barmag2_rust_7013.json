@@ -1,0 +1,1 @@
+{"algorithm": "hff_rust_fuller_direct", "dataset": "strogatz_barmag2", "symbolic_model": "(((-0.7377934480611668)*log((1/((1/(sqrt((sin((2.0*x_0)) + x_0)) - arcsin(cos((1.0 + x_1)))))**2)))) + 1.0571960550664063)", "r2_test": 0.9424867896408289}

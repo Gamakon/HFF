@@ -1,0 +1,1 @@
+{"algorithm": "hff_rust", "dataset": "strogatz_shearflow1", "symbolic_model": "cos(x_0)*cos(Abs(x_1))/sin(x_1)", "r2_test": 1.0, "generations": 163, "stopped_by": "early_stop", "fit_wall": 2.835016965866089}

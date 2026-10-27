@@ -1,0 +1,1 @@
+{"algorithm": "HFF-SR", "dataset": "feynman_test_15", "symbolic_model": "1.02338056538962*omega + 1.02338056538962*sin(sqrt(theta)) - E/3", "r2_test": 0.8745629530341552}

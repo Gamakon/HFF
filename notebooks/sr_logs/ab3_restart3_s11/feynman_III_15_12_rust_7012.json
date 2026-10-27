@@ -1,0 +1,1 @@
+{"algorithm": "hff_rust", "dataset": "feynman_III_15_12", "symbolic_model": "-2*x_0*cos(x_1*x_2) + 2*x_0", "r2_test": 1.0, "generations": 199, "stopped_by": "time", "fit_wall": 6.1595659255981445}

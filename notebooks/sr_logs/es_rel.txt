@@ -1,0 +1,85 @@
+Sweeping 8 problems (registry has 126)  parallel=4
+
+  selection: ['ideal_gas', 'keplers3', 'I_12_5', 'circle_area', 'gravity', 'I_15_3x', 'III_17_37', 'I_14_3']
+
+[audit] writing per-problem sidecars to sr_logs/es_rel/
+
+=== circle_area ===
+  exact      : True
+  numerical  : True
+  max rel err: 0.0
+  discovered : pi*r**2
+  hof exact  : 2/2
+  elapsed    : 2.9s
+  [1/8 done]
+=== I_12_5 ===
+  exact      : True
+  numerical  : True
+  max rel err: 0.0
+  discovered : Ef*q2
+  hof exact  : 4/24
+  elapsed    : 3.9s
+  [2/8 done]
+=== ideal_gas ===
+  exact      : True
+  numerical  : True
+  max rel err: 0.0
+  discovered : 8.314462618*T*n/V
+  hof exact  : 2/10
+  elapsed    : 5.4s
+  [3/8 done]
+=== keplers3 ===
+  exact      : False
+  numerical  : True
+  max rel err: 1.1652225417298395e-11
+  discovered : 1.15682022220484e-9*sqrt(Abs(a**2*(4*a - 1)/18 + 3*a - 3.47140452079103))
+  hof exact  : 0/27
+  elapsed    : 5.8s
+  [4/8 done]
+=== I_15_3x ===
+  exact      : True
+  numerical  : True
+  max rel err: 1.1133257521872253e-12
+  discovered : -t*u/sqrt(1 - u**2/c**2) + x/sqrt(1 - u**2/c**2)
+  hof exact  : 1/1
+  elapsed    : 3.7s
+  [5/8 done]
+=== gravity ===
+  exact      : True
+  numerical  : True
+  max rel err: 0.0
+  discovered : 6.6743e-11*m1*m2/r**2
+  hof exact  : 12/19
+  elapsed    : 6.8s
+  [6/8 done]
+=== I_14_3 ===
+  exact      : True
+  numerical  : True
+  max rel err: 0.0
+  discovered : g*m*z
+  hof exact  : 1/4
+  elapsed    : 6.0s
+  [7/8 done]
+=== III_17_37 ===
+  exact      : False
+  numerical  : True
+  max rel err: 3.366553397477572e-16
+  discovered : (sqrt(beta)*cos(beta) + (beta - exp(beta*exp(exp(beta + theta)/sqrt(alpha))))*(alpha*beta*cos(theta) + beta + 2.22044604925031e-16))/(beta - exp(beta*exp(exp(beta + theta)/sqrt(alpha))))
+  hof exact  : 11/16
+  elapsed    : 9.7s
+  [8/8 done]
+
+====================================================================================================
+problem        exact   numerical   max_rel_err    hof_exact      t(s)  discovered
+----------------------------------------------------------------------------------------------------
+circle_area    True    True        0.00e+00       2/2             2.9  pi*r**2
+I_12_5         True    True        0.00e+00       4/24            3.9  Ef*q2
+ideal_gas      True    True        0.00e+00       2/10            5.4  8.314462618*T*n/V
+keplers3       False   True        1.17e-11       0/27            5.8  1.15682022220484e-9*sqrt(Abs(a**2*(4*a - 1)/18 + 3*a - 3.47140452079103))
+I_15_3x        True    True        1.11e-12       1/1             3.7  -t*u/sqrt(1 - u**2/c**2) + x/sqrt(1 - u**2/c**2)
+gravity        True    True        0.00e+00       12/19           6.8  6.6743e-11*m1*m2/r**2
+I_14_3         True    True        0.00e+00       1/4             6.0  g*m*z
+III_17_37      False   True        3.37e-16       11/16           9.7  (sqrt(beta)*cos(beta) + (beta - exp(beta*exp(exp(beta + theta)/sqrt(alpha))))*(alpha*beta*cos(theta) + beta + 2.22044604925031e-16))/(beta - exp(beta*exp(exp(beta + theta)/sqrt(alpha))))
+====================================================================================================
+Best-of-HOF exact recoveries:     6/8  (75%)
+Best-of-HOF numerical recoveries: 8/8  (100%)

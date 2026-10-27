@@ -1,0 +1,1 @@
+{"algorithm": "hff_rust", "dataset": "feynman_test_20", "symbolic_model": "0.05189674622428875 - 0.00857875115379086*x_2**2*x_3*(-x_3 + cos(x_1))*(x_0 - x_1*x_4 + x_3 + 46.0)*exp(x_1 - x_5 - Piecewise((sqrt(x_4), x_4 < 1.7976931348623157e+308), (0, True)))/(x_0**3*x_4)", "r2_test": 0.9683872351358374, "generations": 172, "stopped_by": "time", "fit_wall": 6.261996746063232}

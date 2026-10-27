@@ -1,0 +1,1 @@
+{"algorithm": "hff_rule_bench", "dataset": "feynman_I_30_5", "symbolic_model": "(((-2.9999998848805474)*(((-3.686600260738625) - arcsin(((x_0/x_2)/x_1)))/3.0)) + (-3.6866001791405525))", "r2_test": 1.0}

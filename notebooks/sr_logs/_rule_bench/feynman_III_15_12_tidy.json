@@ -1,0 +1,1 @@
+{"algorithm": "hff_rule_bench", "dataset": "feynman_III_15_12", "symbolic_model": "6.14897314994488*log(3/(exp(cos(x_1*x_2)) + log(1/x_0) + log(3/cos(0.125*x_0)))) - 0.1897857587320173", "r2_test": 1.0}

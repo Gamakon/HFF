@@ -1,0 +1,2 @@
+strogatz_glider2
+strogatz_barmag2

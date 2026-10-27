@@ -1,0 +1,1 @@
+{"algorithm": "HFF-SR", "dataset": "feynman_I_47_23", "symbolic_model": "0.99999999999999989*sqrt(Abs(gamma*pr/rho))", "r2_test": 1.0}

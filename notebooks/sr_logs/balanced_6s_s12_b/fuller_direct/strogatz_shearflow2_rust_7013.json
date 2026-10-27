@@ -1,0 +1,1 @@
+{"algorithm": "hff_rust_fuller_direct", "dataset": "strogatz_shearflow2", "symbolic_model": "(((-4.5592679479360845)*log((-(((sin(x_0)*cos(tan(sin(x_1)))) + (-5.0))/3.0)))) + 2.3171531794864118)", "r2_test": 0.9593085357114173}

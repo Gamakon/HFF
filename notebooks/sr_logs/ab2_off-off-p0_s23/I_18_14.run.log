@@ -1,0 +1,336 @@
+/opt/anaconda3/lib/python3.12/site-packages/geppy/__init__.py:26: UserWarning: pkg_resources is deprecated as an API. See https://setuptools.pypa.io/en/latest/pkg_resources.html. The pkg_resources package is slated for removal as early as 2025-11-30. Refrain from using this package or pin to Setuptools<81.
+  from pkg_resources import get_distribution, DistributionNotFound
+hff library OK (test fitness: (0.1415394733244273,))
+registry: ['circle_area', 'gravity', 'coulomb', 'pendulum', 'keplers3', 'ideal_gas', 'I_6_2a', 'I_6_2', 'I_6_2b', 'I_8_14', 'I_9_18', 'I_10_7', 'I_11_19', 'I_12_1', 'I_12_2', 'I_12_4', 'I_12_5', 'I_12_11', 'I_13_4', 'I_13_12', 'I_14_3', 'I_14_4', 'I_15_3x', 'I_15_3t', 'I_15_1', 'I_16_6', 'I_18_4', 'I_18_12', 'I_18_14', 'I_24_6', 'I_25_13', 'I_26_2', 'I_27_6', 'I_29_4', 'I_29_16', 'I_30_3', 'I_30_5', 'I_32_5', 'I_32_17', 'I_34_8', 'I_34_1', 'I_34_14', 'I_34_27', 'I_37_4', 'I_38_12', 'I_39_1', 'I_39_11', 'I_39_22', 'I_40_1', 'I_41_16', 'I_43_16', 'I_43_31', 'I_43_43', 'I_44_4', 'I_47_23', 'I_48_2', 'I_50_26', 'II_2_42', 'II_3_24', 'II_4_23', 'II_6_11', 'II_6_15a', 'II_6_15b', 'II_8_7', 'II_8_31', 'II_10_9', 'II_11_3', 'II_11_17', 'II_11_20', 'II_11_27', 'II_11_28', 'II_13_17', 'II_13_23', 'II_13_34', 'II_15_4', 'II_15_5', 'II_21_32', 'II_24_17', 'II_27_16', 'II_27_18', 'II_34_2a', 'II_34_2', 'II_34_11', 'II_34_29a', 'II_34_29b', 'II_35_18', 'II_35_21', 'II_36_38', 'II_37_1', 'II_38_3', 'II_38_14', 'III_4_32', 'III_4_33', 'III_7_38', 'III_8_54', 'III_9_52', 'III_10_19', 'III_12_43', 'III_13_18', 'III_14_14', 'III_15_12', 'III_15_14', 'III_15_27', 'III_17_37', 'III_19_51', 'III_21_20', 'test_1', 'test_2', 'test_3', 'test_4', 'test_5', 'test_6', 'test_7', 'test_8', 'test_9', 'test_10', 'test_11', 'test_12', 'test_13', 'test_14', 'test_15', 'test_16', 'test_17', 'test_18', 'test_19', 'test_20']
+[feynman override] head_length=48 (keep n_genes=3, avgval linker)
+Selected problem: I_18_14
+  Description : Feynman I-III I.18.14: L = m*r*v*sin(theta)
+  Variables   : ['m', 'r', 'v', 'theta']
+  Train range : {'m': (1.0, 5.0), 'r': (1.0, 5.0), 'v': (1.0, 5.0), 'theta': (1.0, 5.0)}
+  Extrap range: {'m': (1.0, 7.5), 'r': (1.0, 7.5), 'v': (1.0, 7.5), 'theta': (1.0, 7.5)}
+  Truth       : m*r*v*sin(theta)
+  ✓ cache hit  (data/equations/I_18_14, key=fa722a361c797696)
+  train           (800, 5)  target range=[-95.77, 82.65]
+  val             (200, 5)  target range=[-79.32, 81.39]
+  holdout         (200, 5)  target range=[-78.69, 91.21]
+  extrapolation   (200, 5)  target range=[-262.8, 206.6]
+  saved figure → data/figures/I_18_14/eda_pairplot.png
+Wide primitive set enabled: sin, cos, exp, log added.
+[E22 rules] variable pattern tags: {'has_gaussian_input'}
+[rules] HFF_RULES=none: []
+[E22/23 rules] static candidate count: 0
+[E22/23 rules] allowed to take a fitness slot (exact): 0
+[fuller] disabled by HFF_FULLER=0 (control arm)
+Wrapper scope: per_island  (island → wrapper map: ['identity', 'identity'])
+[wgpu] process pool disabled — Metal cannot survive fork(); the population is evaluated in one dispatch instead
+Genes: head_length=48, n_genes=3, rnc_array_length=10
+Population: (per-island, see below), elites: 2, generations: 400, migration FREQ: 30
+  pump per-island sizes: intake=100 (tournsize=8), champion=50 (tournsize=5)
+Initialising evolution at 2026-09-20 12:27:30.002701
+ gen  deme   evals     min fitness          mse_tr          mse_va         max_err      mse_extrap  one_minus_r2_tr  one_minus_r2_va
+   0     0     100    0.0169298881      238.573101      225.509813      51.5777934      5098.32295      0.36138509     0.337038258
+   0     1      50   0.00441657501      239.045794      216.065152      51.1767089      5111.74957     0.362101114     0.322922633
+          wgpu 1d 212g 150c x3w 8ms | egraph 187g->0v+0snap 43ms | graft 0 (-0n, 0 snap) cpu 0 | f64 30 | gen 0.0s | dropped inexpr 2 oversz 0 unbuild 0 {}
+Extending evolution: gen 1 → 400 (+400 generations)
+   1     0     100      0.01524064      237.070267      224.053232      52.0934975      5517.27783     0.359108632     0.334861309
+   1     1      50   0.00441657501      239.045794      216.065152      51.1767089      5111.74957     0.362101114     0.322922633
+          wgpu 1d 87g 146c x3w 3ms | egraph 50g->0v+0snap 0ms | graft 0 (-0n, 0 snap) cpu 0 | f64 40 | gen 0.1s | dropped inexpr 2 oversz 0 unbuild 0 {}
+   2     0     100    0.0115922241      213.118426      207.253065      49.0613246      4731.87082     0.322826929     0.309752428
+   2     1      50   0.00441657501      239.045794      216.065152      51.1767089      5111.74957     0.362101114     0.322922633
+          wgpu 1d 76g 146c x3w 3ms | egraph 48g->0v+0snap 0ms | graft 0 (-0n, 0 snap) cpu 0 | f64 20 | gen 0.1s
+   3     0     100    0.0115922241      213.118426      207.253065      49.0613246      4731.87082     0.322826929     0.309752428
+   3     1      50   0.00441657501      239.045794      216.065152      51.1767089      5111.74957     0.362101114     0.322922633
+          wgpu 1d 92g 146c x3w 3ms | egraph 58g->0v+0snap 0ms | graft 0 (-0n, 0 snap) cpu 0 | f64 20 | gen 0.1s
+   4     0     100    0.0115922241      213.118426      207.253065      49.0613246      4731.87082     0.322826929     0.309752428
+   4     1      50   0.00135087016      206.068531       186.14825      47.8313218      4058.88813     0.312147909     0.278209986
+          wgpu 1d 101g 146c x3w 3ms | egraph 67g->0v+0snap 0ms | graft 0 (-0n, 0 snap) cpu 0 | f64 35 | gen 0.2s
+   5     0     100    0.0115922241      213.118426      207.253065      49.0613246      4731.87082     0.322826929     0.309752428
+   5     1      50   0.00135087016      206.068531       186.14825      47.8313218      4058.88813     0.312147909     0.278209986
+          wgpu 1d 109g 146c x3w 3ms | egraph 72g->0v+0snap 0ms | graft 0 (-0n, 0 snap) cpu 0 | f64 20 | gen 0.1s | dropped inexpr 2 oversz 0 unbuild 0 {}
+   6     0     100    0.0115922241      213.118426      207.253065      49.0613246      4731.87082     0.322826929     0.309752428
+   6     1      50   0.00135087016      206.068531       186.14825      47.8313218      4058.88813     0.312147909     0.278209986
+          wgpu 1d 104g 146c x3w 3ms | egraph 67g->0v+0snap 0ms | graft 0 (-0n, 0 snap) cpu 0 | f64 20 | gen 0.2s | dropped inexpr 1 oversz 0 unbuild 0 {}
+   7     0     100    0.0115922241      213.118426      207.253065      49.0613246      4731.87082     0.322826929     0.309752428
+   7     1      50   0.00135087016      206.068531       186.14825      47.8313218      4058.88813     0.312147909     0.278209986
+          wgpu 1d 101g 146c x3w 3ms | egraph 55g->0v+0snap 0ms | graft 0 (-0n, 0 snap) cpu 0 | f64 20 | gen 0.1s
+   8     0     100    0.0115922241      213.118426      207.253065      49.0613246      4731.87082     0.322826929     0.309752428
+   8     1      50   0.00135087016      206.068531       186.14825      47.8313218      4058.88813     0.312147909     0.278209986
+          wgpu 1d 94g 146c x3w 3ms | egraph 53g->0v+0snap 0ms | graft 0 (-0n, 0 snap) cpu 0 | f64 20 | gen 0.1s | dropped inexpr 1 oversz 0 unbuild 0 {}
+   9     0     100    0.0115922241      213.118426      207.253065      49.0613246      4731.87082     0.322826929     0.309752428
+   9     1      50   0.00135087016      206.068531       186.14825      47.8313218      4058.88813     0.312147909     0.278209986
+          wgpu 1d 98g 146c x3w 3ms | egraph 56g->0v+0snap 0ms | graft 0 (-0n, 0 snap) cpu 0 | f64 20 | gen 0.1s | dropped inexpr 1 oversz 0 unbuild 0 {}
+  10     0     100    0.0115922241      213.118426      207.253065      49.0613246      4731.87082     0.322826929     0.309752428
+  10     1      50   0.00135087016      206.068531       186.14825      47.8313218      4058.88813     0.312147909     0.278209986
+          wgpu 1d 106g 146c x3w 3ms | egraph 51g->0v+0snap 0ms | graft 0 (-0n, 0 snap) cpu 0 | f64 20 | gen 0.1s
+--------- pump migration: intra (promote-2 + intake-reset) ---------
+  11     0     100    0.0115922241      213.118426      207.253065      49.0613246      4731.87082     0.322826929     0.309752428
+  11     1      50   0.00135087016      206.068531       186.14825      47.8313218      4058.88813     0.312147909     0.278209986
+          wgpu 2d 238g 226c x3w 6ms | egraph 145g->0v+0snap 1ms | graft 0 (-0n, 0 snap) cpu 0 | f64 30 | gen 0.1s | dropped inexpr 5 oversz 0 unbuild 0 {}
+  12     0     100    0.0115922241      213.118426      207.253065      49.0613246      4731.87082     0.322826929     0.309752428
+  12     1      50   0.00135087016      206.068531       186.14825      47.8313218      4058.88813     0.312147909     0.278209986
+          wgpu 1d 95g 146c x3w 11ms | egraph 47g->0v+0snap 0ms | graft 0 (-0n, 0 snap) cpu 0 | f64 20 | gen 0.2s | dropped inexpr 2 oversz 0 unbuild 0 {}
+  13     0     100    0.0115922241      213.118426      207.253065      49.0613246      4731.87082     0.322826929     0.309752428
+  13     1      50   0.00135087016      206.068531       186.14825      47.8313218      4058.88813     0.312147909     0.278209986
+          wgpu 1d 105g 146c x3w 3ms | egraph 51g->0v+0snap 0ms | graft 0 (-0n, 0 snap) cpu 0 | f64 20 | gen 0.1s | dropped inexpr 2 oversz 0 unbuild 0 {}
+  14     0     100    0.0115922241      213.118426      207.253065      49.0613246      4731.87082     0.322826929     0.309752428
+  14     1      50   0.00135087016      206.068531       186.14825      47.8313218      4058.88813     0.312147909     0.278209986
+          wgpu 1d 90g 146c x3w 3ms | egraph 49g->0v+0snap 0ms | graft 0 (-0n, 0 snap) cpu 0 | f64 20 | gen 0.1s | dropped inexpr 1 oversz 0 unbuild 0 {}
+  15     0     100    0.0115922241      213.118426      207.253065      49.0613246      4731.87082     0.322826929     0.309752428
+  15     1      50   0.00135087016      206.068531       186.14825      47.8313218      4058.88813     0.312147909     0.278209986
+          wgpu 1d 101g 146c x3w 3ms | egraph 45g->0v+0snap 0ms | graft 0 (-0n, 0 snap) cpu 0 | f64 20 | gen 0.1s | dropped inexpr 1 oversz 0 unbuild 0 {}
+  16     0     100   0.00978057031      180.342797       159.94933       46.315333      3802.61675     0.273179154     0.239054092
+  16     1      50               0      181.267874      155.105591      42.8473481      2731.69122      0.27458044     0.231814827
+          wgpu 1d 84g 146c x3w 3ms | egraph 33g->0v+0snap 0ms | graft 0 (-0n, 0 snap) cpu 0 | f64 21 | gen 0.1s | dropped inexpr 1 oversz 0 unbuild 0 {}
+  17     0     100   0.00978057031      180.342797       159.94933       46.315333      3802.61675     0.273179154     0.239054092
+  17     1      50               0      181.267874      155.105591      42.8473481      2731.69122      0.27458044     0.231814827
+          wgpu 1d 114g 146c x3w 4ms | egraph 60g->0v+0snap 0ms | graft 0 (-0n, 0 snap) cpu 0 | f64 26 | gen 0.2s | dropped inexpr 3 oversz 0 unbuild 0 {}
+  18     0     100   0.00978057031      180.342797       159.94933       46.315333      3802.61675     0.273179154     0.239054092
+  18     1      50               0      181.267874      155.105591      42.8473481      2731.69122      0.27458044     0.231814827
+          wgpu 1d 136g 146c x3w 4ms | egraph 77g->0v+0snap 0ms | graft 0 (-0n, 0 snap) cpu 0 | f64 20 | gen 0.2s | dropped inexpr 1 oversz 0 unbuild 0 {}
+  19     0     100   0.00853503791      180.342797       159.94933       46.315333      3802.61675     0.273179154     0.239054092
+  19     1      50               0      181.267874      155.105591      42.8473481      2731.69122      0.27458044     0.231814827
+          wgpu 1d 133g 146c x3w 4ms | egraph 61g->0v+0snap 0ms | graft 0 (-0n, 0 snap) cpu 0 | f64 37 | gen 0.2s | dropped inexpr 3 oversz 0 unbuild 0 {}
+  20     0     100   0.00853503791      180.342795      159.949329      46.3153347      3802.61676     0.273179152      0.23905409
+  20     1      50               0      181.267874      155.105591      42.8473481      2731.69122      0.27458044     0.231814827
+          wgpu 1d 123g 146c x3w 3ms | egraph 68g->0v+0snap 0ms | graft 0 (-0n, 0 snap) cpu 0 | f64 20 | gen 0.2s | dropped inexpr 1 oversz 0 unbuild 0 {}
+--------- pump migration: intra (promote-2 + intake-reset) ---------
+  21     0     100    0.0073301524      180.342797       159.94933       46.315333      3802.61675     0.273179154     0.239054092
+  21     1      50               0      181.267874      155.105591      42.8473481      2731.69122      0.27458044     0.231814827
+          wgpu 2d 254g 226c x3w 6ms | egraph 144g->0v+0snap 1ms | graft 0 (-0n, 0 snap) cpu 0 | f64 47 | gen 0.2s | dropped inexpr 5 oversz 0 unbuild 0 {}
+  22     0     100    0.0073301524      180.342797       159.94933       46.315333      3802.61675     0.273179154     0.239054092
+  22     1      50               0      181.267874      155.105591      42.8473481      2731.69122      0.27458044     0.231814827
+          wgpu 1d 125g 146c x3w 4ms | egraph 64g->0v+0snap 0ms | graft 0 (-0n, 0 snap) cpu 0 | f64 20 | gen 0.2s
+  23     0     100    0.0073301524      180.342797       159.94933       46.315333      3802.61675     0.273179154     0.239054092
+  23     1      50               0      181.267874      155.105591      42.8473481      2731.69122      0.27458044     0.231814827
+          wgpu 1d 126g 146c x3w 3ms | egraph 70g->0v+0snap 0ms | graft 0 (-0n, 0 snap) cpu 0 | f64 20 | gen 0.2s | dropped inexpr 1 oversz 0 unbuild 0 {}
+  24     0     100    0.0073301524      180.342797       159.94933       46.315333      3802.61675     0.273179154     0.239054092
+  24     1      50               0      181.267874      155.105591      42.8473481      2731.69122      0.27458044     0.231814827
+          wgpu 1d 127g 146c x3w 4ms | egraph 55g->0v+0snap 0ms | graft 0 (-0n, 0 snap) cpu 0 | f64 20 | gen 0.2s | dropped inexpr 1 oversz 0 unbuild 0 {}
+  25     0     100    0.0073301524      180.342797       159.94933       46.315333      3802.61675     0.273179154     0.239054092
+  25     1      50               0      181.267874      155.105591      42.8473481      2731.69122      0.27458044     0.231814827
+          wgpu 1d 117g 146c x3w 4ms | egraph 47g->0v+0snap 0ms | graft 0 (-0n, 0 snap) cpu 0 | f64 20 | gen 0.2s | dropped inexpr 1 oversz 0 unbuild 0 {}
+  26     0     100    0.0073301524      180.342797       159.94933       46.315333      3802.61675     0.273179154     0.239054092
+  26     1      50               0      181.267874      155.105591      42.8473481      2731.69122      0.27458044     0.231814827
+          wgpu 1d 146g 146c x3w 4ms | egraph 58g->0v+0snap 0ms | graft 0 (-0n, 0 snap) cpu 0 | f64 20 | gen 0.2s | dropped inexpr 2 oversz 0 unbuild 0 {}
+  27     0     100    0.0073301524      180.342797       159.94933       46.315333      3802.61675     0.273179154     0.239054092
+  27     1      50               0      181.267874      155.105591      42.8473481      2731.69122      0.27458044     0.231814827
+          wgpu 1d 137g 146c x3w 4ms | egraph 67g->0v+0snap 0ms | graft 0 (-0n, 0 snap) cpu 0 | f64 20 | gen 0.2s | dropped inexpr 4 oversz 0 unbuild 0 {}
+  28     0     100    0.0073301524      180.342797       159.94933       46.315333      3802.61675     0.273179154     0.239054092
+  28     1      50               0      181.267874      155.105591      42.8473481      2731.69122      0.27458044     0.231814827
+          wgpu 1d 120g 146c x3w 4ms | egraph 50g->0v+0snap 0ms | graft 0 (-0n, 0 snap) cpu 0 | f64 20 | gen 0.2s
+  29     0     100    0.0073301524      180.342797       159.94933       46.315333      3802.61675     0.273179154     0.239054092
+  29     1      50               0      181.267874      155.105591      42.8473481      2731.69122      0.27458044     0.231814827
+          wgpu 1d 132g 146c x3w 4ms | egraph 61g->0v+0snap 0ms | graft 0 (-0n, 0 snap) cpu 0 | f64 20 | gen 0.2s | dropped inexpr 1 oversz 0 unbuild 0 {}
+  30     0     100    0.0073301524      180.342797       159.94933       46.315333      3802.61675     0.273179154     0.239054092
+  30     1      50               0      181.267874      155.105591      42.8473481      2731.69122      0.27458044     0.231814827
+          wgpu 1d 128g 146c x3w 4ms | egraph 51g->0v+0snap 0ms | graft 0 (-0n, 0 snap) cpu 0 | f64 20 | gen 0.2s | dropped inexpr 3 oversz 0 unbuild 0 {}
+--------- pump migration: intra (promote-2 + intake-reset) ---------
+  31     0     100   0.00312839305      238.573101      225.509813      51.5777934      5098.32295      0.36138509     0.337038258
+  31     1      50               0      181.267874      155.105591      42.8473481      2731.69122      0.27458044     0.231814827
+          wgpu 2d 260g 226c x3w 7ms | egraph 141g->0v+0snap 1ms | graft 0 (-0n, 0 snap) cpu 0 | f64 30 | gen 0.2s | dropped inexpr 10 oversz 0 unbuild 0 {}
+  32     0     100   0.00312839305      238.573101      225.509813      51.5777934      5098.32295      0.36138509     0.337038258
+  32     1      50               0      181.267874      155.105591      42.8473481      2731.69122      0.27458044     0.231814827
+          wgpu 1d 121g 146c x3w 4ms | egraph 55g->0v+0snap 1ms | graft 0 (-0n, 0 snap) cpu 0 | f64 20 | gen 0.1s | dropped inexpr 2 oversz 0 unbuild 0 {}
+  33     0     100   0.00312839305      238.573101      225.509813      51.5777934      5098.32295      0.36138509     0.337038258
+  33     1      50               0      181.267874      155.105591      42.8473481      2731.69122      0.27458044     0.231814827
+          wgpu 1d 116g 146c x3w 34ms | egraph 52g->0v+0snap 0ms | graft 0 (-0n, 0 snap) cpu 0 | f64 20 | gen 0.2s
+  34     0     100   0.00312839305      238.573101      225.509813      51.5777934      5098.32295      0.36138509     0.337038258
+  34     1      50               0      181.267874      155.105591      42.8473481      2731.69122      0.27458044     0.231814827
+          wgpu 1d 116g 146c x3w 4ms | egraph 47g->0v+0snap 0ms | graft 0 (-0n, 0 snap) cpu 0 | f64 20 | gen 0.1s | dropped inexpr 2 oversz 0 unbuild 0 {}
+  35     0     100   0.00312839305      238.573101      225.509813      51.5777934      5098.32295      0.36138509     0.337038258
+  35     1      50               0      181.267874      155.105591      42.8473481      2731.69122      0.27458044     0.231814827
+          wgpu 1d 128g 146c x3w 4ms | egraph 63g->0v+0snap 0ms | graft 0 (-0n, 0 snap) cpu 0 | f64 20 | gen 0.1s
+  36     0     100   0.00312839305      238.573101      225.509813      51.5777934      5098.32295      0.36138509     0.337038258
+  36     1      50               0      181.267874      155.105591      42.8473481      2731.69122      0.27458044     0.231814827
+          wgpu 1d 116g 146c x3w 3ms | egraph 47g->0v+0snap 1ms | graft 0 (-0n, 0 snap) cpu 0 | f64 20 | gen 0.1s
+  37     0     100   0.00312839305      238.573101      225.509813      51.5777934      5098.32295      0.36138509     0.337038258
+  37     1      50               0      181.267874      155.105591      42.8473481      2731.69122      0.27458044     0.231814827
+          wgpu 1d 125g 146c x3w 3ms | egraph 47g->0v+0snap 0ms | graft 0 (-0n, 0 snap) cpu 0 | f64 20 | gen 0.1s | dropped inexpr 1 oversz 0 unbuild 0 {}
+  38     0     100   0.00312839305      238.573101      225.509813      51.5777934      5098.32295      0.36138509     0.337038258
+  38     1      50               0      181.267874      155.105591      42.8473481      2731.69122      0.27458044     0.231814827
+          wgpu 1d 120g 146c x3w 3ms | egraph 49g->0v+0snap 0ms | graft 0 (-0n, 0 snap) cpu 0 | f64 20 | gen 0.2s | dropped inexpr 1 oversz 0 unbuild 0 {}
+  39     0     100   0.00312839305      238.573101      225.509813      51.5777934      5098.32295      0.36138509     0.337038258
+  39     1      50               0      181.267874      155.105591      42.8473481      2731.69122      0.27458044     0.231814827
+          wgpu 1d 140g 146c x3w 4ms | egraph 50g->0v+0snap 0ms | graft 0 (-0n, 0 snap) cpu 0 | f64 20 | gen 0.1s
+  40     0     100   0.00312839305      238.573101      225.509813      51.5777934      5098.32295      0.36138509     0.337038258
+  40     1      50               0      181.267874      155.105591      42.8473481      2731.69122      0.27458044     0.231814827
+          wgpu 1d 127g 146c x3w 4ms | egraph 47g->0v+0snap 0ms | graft 0 (-0n, 0 snap) cpu 0 | f64 20 | gen 0.1s
+--------- pump migration: intra (promote-2 + intake-reset) ---------
+  41     0     100               0      107.615972      94.6836236      40.1796606      1247.62691      0.16301422     0.141510487
+  41     1      50               0      181.267874      155.105591      42.8473481      2731.69122      0.27458044     0.231814827
+          wgpu 2d 247g 226c x3w 6ms | egraph 136g->0v+0snap 1ms | graft 0 (-0n, 0 snap) cpu 0 | f64 30 | gen 0.1s | dropped inexpr 2 oversz 0 unbuild 0 {}
+  42     0     100               0      107.615972      94.6836236      40.1796606      1247.62691      0.16301422     0.141510487
+  42     1      50               0      181.267874      155.105591      42.8473481      2731.69122      0.27458044     0.231814827
+          wgpu 1d 139g 146c x3w 4ms | egraph 75g->0v+0snap 0ms | graft 0 (-0n, 0 snap) cpu 0 | f64 20 | gen 0.1s
+  43     0     100               0      107.615972      94.6836236      40.1796606      1247.62691      0.16301422     0.141510487
+  43     1      50               0      181.267874      155.105591      42.8473481      2731.69122      0.27458044     0.231814827
+          wgpu 1d 135g 146c x3w 4ms | egraph 72g->0v+0snap 0ms | graft 0 (-0n, 0 snap) cpu 0 | f64 20 | gen 0.1s | dropped inexpr 2 oversz 0 unbuild 0 {}
+  44     0     100               0      107.615972      94.6836236      40.1796606      1247.62691      0.16301422     0.141510487
+  44     1      50               0      181.267874      155.105591      42.8473481      2731.69122      0.27458044     0.231814827
+          wgpu 1d 146g 146c x3w 4ms | egraph 80g->0v+0snap 0ms | graft 0 (-0n, 0 snap) cpu 0 | f64 26 | gen 0.1s | dropped inexpr 5 oversz 0 unbuild 0 {}
+  45     0     100               0      41.5776276      32.9798146      19.3252103      560.331217    0.0629808416    0.0492903573
+  45     1      50               0      181.267874      155.105591      42.8473481      2731.69122      0.27458044     0.231814827
+          wgpu 1d 137g 146c x3w 4ms | egraph 69g->0v+0snap 1ms | graft 0 (-0n, 0 snap) cpu 0 | f64 20 | gen 0.1s | dropped inexpr 6 oversz 0 unbuild 0 {}
+  46     0     100               0      41.5776276      32.9798146      19.3252103      560.331217    0.0629808416    0.0492903573
+  46     1      50               0      181.267874      155.105591      42.8473481      2731.69122      0.27458044     0.231814827
+          wgpu 1d 147g 146c x3w 4ms | egraph 67g->0v+0snap 0ms | graft 0 (-0n, 0 snap) cpu 0 | f64 20 | gen 0.1s | dropped inexpr 4 oversz 0 unbuild 0 {}
+  47     0     100               0      41.5776276      32.9798146      19.3252103      560.331217    0.0629808416    0.0492903573
+  47     1      50               0      181.267874      155.105591      42.8473481      2731.69122      0.27458044     0.231814827
+          wgpu 1d 145g 146c x3w 4ms | egraph 70g->0v+0snap 0ms | graft 0 (-0n, 0 snap) cpu 0 | f64 20 | gen 0.1s | dropped inexpr 7 oversz 0 unbuild 0 {}
+  48     0     100               0      41.5776276      32.9798146      19.3252103      560.331217    0.0629808416    0.0492903573
+  48     1      50               0      181.267874      155.105591      42.8473481      2731.69122      0.27458044     0.231814827
+          wgpu 1d 139g 146c x3w 4ms | egraph 55g->0v+0snap 0ms | graft 0 (-0n, 0 snap) cpu 0 | f64 20 | gen 0.1s | dropped inexpr 5 oversz 0 unbuild 0 {}
+  49     0     100               0      41.5776276      32.9798146      19.3252103      560.331217    0.0629808416    0.0492903573
+  49     1      50               0      181.267874      155.105591      42.8473481      2731.69122      0.27458044     0.231814827
+          wgpu 1d 146g 146c x3w 4ms | egraph 63g->0v+0snap 0ms | graft 0 (-0n, 0 snap) cpu 0 | f64 20 | gen 0.1s | dropped inexpr 5 oversz 0 unbuild 0 {}
+  50     0     100               0      41.5776276      32.9798146      19.3252103      560.331217    0.0629808416    0.0492903573
+  50     1      50               0      181.267874      155.105591      42.8473481      2731.69122      0.27458044     0.231814827
+          wgpu 1d 148g 146c x3w 4ms | egraph 69g->0v+0snap 0ms | graft 0 (-0n, 0 snap) cpu 0 | f64 20 | gen 0.1s | dropped inexpr 3 oversz 0 unbuild 0 {}
+--------- pump migration: intra (promote-2 + intake-reset) ---------
+  51     0     100               0         229.917      215.948637      50.6499359      5452.74638     0.348273026     0.322748493
+  51     1      50               0      41.5776276      32.9798146      19.3252103      560.331217    0.0629808416    0.0492903573
+          wgpu 2d 247g 226c x3w 7ms | egraph 132g->0v+0snap 1ms | graft 0 (-0n, 0 snap) cpu 0 | f64 30 | gen 0.2s | dropped inexpr 4 oversz 0 unbuild 0 {}
+  52     0     100               0         229.917      215.948637      50.6499359      5452.74638     0.348273026     0.322748493
+  52     1      50               0       41.577629      32.9798141      19.3252048      560.331252    0.0629808437    0.0492903565
+          wgpu 1d 123g 146c x3w 3ms | egraph 67g->0v+0snap 0ms | graft 0 (-0n, 0 snap) cpu 0 | f64 20 | gen 0.1s | dropped inexpr 3 oversz 0 unbuild 0 {}
+  53     0     100               0      28.4884887      23.9982355      18.0287555      633.161201    0.0431537127     0.035866836
+  53     1      50               0      41.5776276      32.9798146      19.3252103      560.331217    0.0629808416    0.0492903573
+          wgpu 1d 119g 146c x3w 3ms | egraph 62g->0v+0snap 0ms | graft 0 (-0n, 0 snap) cpu 0 | f64 20 | gen 0.1s | dropped inexpr 5 oversz 0 unbuild 0 {}
+  54     0     100               0      28.4884887      23.9982355      18.0287555      633.161201    0.0431537127     0.035866836
+  54     1      50               0       41.577629      32.9798141      19.3252048      560.331252    0.0629808437    0.0492903565
+          wgpu 1d 105g 146c x3w 3ms | egraph 43g->0v+0snap 0ms | graft 0 (-0n, 0 snap) cpu 0 | f64 20 | gen 0.1s | dropped inexpr 3 oversz 0 unbuild 0 {}
+  55     0     100               0      28.4884896      23.9982347      18.0287492      633.161229    0.0431537141    0.0358668349
+  55     1      50               0      41.5776276      32.9798146      19.3252103      560.331217    0.0629808416    0.0492903573
+          wgpu 1d 117g 146c x3w 3ms | egraph 55g->0v+0snap 0ms | graft 0 (-0n, 0 snap) cpu 0 | f64 20 | gen 0.1s | dropped inexpr 2 oversz 0 unbuild 0 {}
+  56     0     100               0      28.4884896      23.9982347      18.0287492      633.161229    0.0431537141    0.0358668349
+  56     1      50               0      41.5776276      32.9798146      19.3252103      560.331217    0.0629808416    0.0492903573
+          wgpu 1d 108g 146c x3w 3ms | egraph 50g->0v+0snap 0ms | graft 0 (-0n, 0 snap) cpu 0 | f64 20 | gen 0.1s | dropped inexpr 1 oversz 0 unbuild 0 {}
+  57     0     100               0      28.4884896      23.9982347      18.0287492      633.161229    0.0431537141    0.0358668349
+  57     1      50               0      41.5776276      32.9798146      19.3252103      560.331217    0.0629808416    0.0492903573
+          wgpu 1d 112g 146c x3w 3ms | egraph 44g->0v+0snap 0ms | graft 0 (-0n, 0 snap) cpu 0 | f64 20 | gen 0.1s
+  58     0     100               0      6.21264292      5.45456227      6.94774456      101.492056   0.00941076975   0.00815217813
+  58     1      50               0      41.5776276      32.9798146      19.3252103      560.331217    0.0629808416    0.0492903573
+          wgpu 1d 111g 146c x3w 3ms | egraph 44g->0v+0snap 0ms | graft 0 (-0n, 0 snap) cpu 0 | f64 20 | gen 0.1s | dropped inexpr 1 oversz 0 unbuild 0 {}
+  59     0     100               0      2.18824757      2.02806985      4.33145077      4.00542639   0.00331470749   0.00303107488
+  59     1      50               0      41.5776276      32.9798146      19.3252103      560.331217    0.0629808416    0.0492903573
+          wgpu 1d 114g 146c x3w 3ms | egraph 47g->0v+0snap 0ms | graft 0 (-0n, 0 snap) cpu 0 | f64 20 | gen 0.1s | dropped inexpr 3 oversz 0 unbuild 0 {}
+  60     0     100               0      6.21264292      5.45456227      6.94774456      101.492056   0.00941076975   0.00815217813
+  60     1      50               0      41.5776276      32.9798146      19.3252103      560.331217    0.0629808416    0.0492903573
+          wgpu 1d 133g 146c x3w 3ms | egraph 80g->0v+0snap 0ms | graft 0 (-0n, 0 snap) cpu 0 | f64 20 | gen 0.1s | dropped inexpr 7 oversz 0 unbuild 0 {}
+--------- pump migration: intra (promote-2 + intake-reset) + cross ---------
+  61     0     100               0      0.12516235     0.113669628     0.540205195       0.1345285  0.000189593072  0.000169886236
+  61     1      50               0     0.821662535     0.859964496      2.20623422      1.36605294   0.00124463566   0.00128526973
+          wgpu 2d 253g 226c x3w 6ms | egraph 151g->0v+0snap 1ms | graft 0 (-0n, 0 snap) cpu 0 | f64 30 | gen 0.1s | dropped inexpr 12 oversz 0 unbuild 0 {}
+  62     0     100               0      204.017761      190.230554      47.2625945      5269.62743      0.30904145      0.28431124
+  62     1      50               0     0.821662535     0.859964496      2.20623422      1.36605294   0.00124463566   0.00128526973
+          wgpu 1d 130g 146c x3w 3ms | egraph 69g->0v+0snap 0ms | graft 0 (-0n, 0 snap) cpu 0 | f64 20 | gen 0.1s | dropped inexpr 3 oversz 0 unbuild 0 {}
+  63     0     100               0  1.36967977e-29  1.54007989e-29  1.42108547e-14  1.23279764e-28  2.07475967e-32  2.30174394e-32
+  63     1      50               0      6.21264292      5.45456227      6.94774456      101.492056   0.00941076975   0.00815217813
+          wgpu 1d 121g 146c x3w 3ms | egraph 49g->0v+0snap 0ms | graft 0 (-0n, 0 snap) cpu 0 | f64 20 | gen 0.1s | dropped inexpr 3 oversz 0 unbuild 0 {}
+
+*** Early stop at generation 63: best val_R² = 1.0000000000 ≥ 0.9999999990, holdout_R² = 1.0000000000 confirmed
+
+This sub-run: 2026-09-20 12:27:30.210359 → 2026-09-20 12:27:39.732315
+Now at generation 63 (HOF size: 31)
+[join] 70 dispatches, 8,502 genes, 29,484 candidates scored in 0.28s GPU+host; e-graph 4,314 trees -> 0 variants + 0 snaps in 0.07s; 0 grafts (0 snap), 0 nodes removed; cpu-path individuals 0, f64-rejected 0, snaps refused for naming an input 0
+[join]   inexpressible:    149  no pset token for semantic id "pow" with arity 2
+  HFF-chosen LSM kept: a=1, b=0
+Chromosome wrapper: id=0  →  identity
+hof[0] runtime val: mse=1.540e-29  R²=1.000000
+Pre-snap expression (after sympify + LSM compose):
+  1.0*m*r*v*sin(theta)
+
+Per-level snap results (before MSE scoring):
+  strict      →  m*r*v*sin(theta)
+  default     →  m*r*v*sin(theta)
+  aggressive  →  m*r*v*sin(theta)
+
+Snap-level comparison (sorted by holdout MSE, lowest first)
+------------------------------------------------------------------------------------------
+  level       MSE            R²         expression                                        
+------------------------------------------------------------------------------------------
+★ strict      1.274e-29      1.0000     m*r*v*sin(theta)                                  
+  default     1.274e-29      1.0000     m*r*v*sin(theta)                                  
+  aggressive  1.274e-29      1.0000     m*r*v*sin(theta)                                  
+
+Winning snap level: 'strict'  →  m*r*v*sin(theta)
+
+Canonical discovered expression: m*r*v*sin(theta)
+[38;2;0;50;255m
+############################################################ [38;2;255;255;255m
+[38;2;0;50;255m Equation Recovery: I_18_14 [38;2;255;255;255m
+[38;2;0;50;255m Truth: m*r*v*sin(theta) [38;2;255;255;255m
+[38;2;0;50;255m [38;2;255;255;255m
+[38;2;255;0;255m     Exact recovery     : True [38;2;255;255;255m
+[38;2;255;0;255m     Numerical recovery : True (max rel_err 0.00e+00 on 10k samples) [38;2;255;255;255m
+[38;2;255;0;255m     Discovered         : m*r*v*sin(theta) [38;2;255;255;255m
+[38;2;255;0;255m     LSM (a, b)         : (1, 0) [38;2;255;255;255m
+[38;2;0;50;255m
+############################################################ [38;2;255;255;255m
+In-range holdout : MSE=1.699e-29  MAE=2.096e-15  R²=1.0000
+Extrapolation    : MSE=1.233e-28  MAE=4.665e-15  R²=1.0000
+
+Top 10 HOF models (north_pole=truenorth) (★ = Pareto-optimal)
+(deduped HOF: 7 unique chromosomes from 31 raw HOF entries)
+ ----------------------------------------------------------------------------------------------------------------
+       model     wrapper      length   train_mse     val_mse     max_err    train_r2      val_r2 angular_distance
+ ----------------------------------------------------------------------------------------------------------------
+★           0    identity          24      0.0000      0.0000      0.0000      1.0000      1.0000      0.0000
+            1    identity          21     28.4885     23.9982     18.0287      0.9568      0.9641      0.2707
+           25    identity          16     41.5776     32.9798     19.3252      0.9370      0.9507      0.3224
+           27    identity           8    107.6160     94.6836     40.1797      0.8370      0.8585      0.7819
+           29    identity          43    181.2679    155.1056     42.8473      0.7254      0.7682      1.1572
+           26    identity          53    182.8677    161.0780     42.6023      0.7230      0.7593      1.1778
+            8     log_abs          12    229.9170    215.9486     50.6499      0.6517      0.6773      1.5708
+
+Pareto-optimal in top 7: 1    Pareto-optimal in full HOF: 1 / 7
+
+Recovery sweep across 7/7 unique HOF chromosomes (capped):
+  Structural / exact     : 1/7  (14.3%)
+  Numerical (≤1e-6 err)  : 1/7  (14.3%)
+{
+    "date": "2026/09/20",
+    "seed": "23",
+    "task": "equation_recovery",
+    "north_pole_method": "truenorth",
+    "hff_include_val": true,
+    "problem": "I_18_14",
+    "truth_expr": "m*r*v*sin(theta)",
+    "final_terminal_inputs": [
+        "m",
+        "r",
+        "v",
+        "theta"
+    ],
+    "wide_primitives": true,
+    "head_length": "48",
+    "n_genes": "3",
+    "rnc_array_length": "10",
+    "tournament size": "intake=8, champion=5",
+    "population size": "150",
+    "population per island": "intake=100, champion=50",
+    "gpu_join": true,
+    "rule_families": "none",
+    "eclass_k": 8,
+    "fuller_mode": "off",
+    "graft_mode": "off",
+    "parsimony_axis": false,
+    "number of elites": "2",
+    "number of generations": "400",
+    "number of islands": "2",
+    "migration FREQ": "30",
+    "wrapper_id": 0,
+    "wrapper_name": "identity",
+    "won_via": "evolved",
+    "recovery_exact": true,
+    "recovery_numerical": true,
+    "recovery_max_rel_err": 0.0,
+    "discovered_expr": "m*r*v*sin(theta)",
+    "holdout_mse": 1.6994898867338732e-29,
+    "holdout_r2": 1.0,
+    "extrap_mse": 1.2327976375733477e-28,
+    "extrap_r2": 1.0,
+    "hof_size": 7,
+    "hof_exact_recoveries": 1,
+    "hof_numerical_recoveries": 1
+}

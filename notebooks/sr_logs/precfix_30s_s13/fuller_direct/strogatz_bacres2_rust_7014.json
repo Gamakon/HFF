@@ -1,0 +1,1 @@
+{"algorithm": "hff_rust_fuller_direct", "dataset": "strogatz_bacres2", "symbolic_model": "((11.999999641179748*((((x_1/((x_0 + x_0) + (x_0**3))) + (-8.0)) - (x_1/(x_0 + x_0)))/3.0)) + 41.999998984738916)", "r2_test": 1.0}

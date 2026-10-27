@@ -1,0 +1,7 @@
+feynman_III_12_43
+strogatz_glider2
+feynman_I_18_12
+feynman_I_14_4
+feynman_I_30_5
+feynman_III_17_37
+strogatz_barmag2

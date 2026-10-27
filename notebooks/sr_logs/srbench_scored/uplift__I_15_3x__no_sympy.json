@@ -1,0 +1,1 @@
+{"algorithm": "HFF-SR", "dataset": "feynman_I_15_3x", "symbolic_model": "((3.151350109260979*(((exp(cos(t)) + x) + cos(u))/3.0)) + (-3.7488970482631085))", "r2_test": 0.9715810913965794}

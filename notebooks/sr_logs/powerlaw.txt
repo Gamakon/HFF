@@ -1,0 +1,121 @@
+Sweeping 12 problems (registry has 126)  parallel=6
+
+  selection: ['II_4_23', 'III_15_27', 'II_8_7', 'II_13_17', 'I_38_12', 'III_15_14', 'I_43_43', 'I_39_11', 'II_2_42', 'I_27_6', 'I_12_5', 'I_18_12']
+
+[audit] writing per-problem sidecars to sr_logs/powerlaw/
+
+=== II_4_23 ===
+  exact      : True
+  numerical  : True
+  max rel err: 0.0
+  discovered : q/(4*pi*epsilon*r)
+  hof exact  : 1/1
+  elapsed    : 4.9s
+  [1/12 done]
+=== III_15_27 ===
+  exact      : True
+  numerical  : True
+  max rel err: 0.0
+  discovered : 2*pi*alpha/(d*n)
+  hof exact  : 1/1
+  elapsed    : 5.0s
+  [2/12 done]
+=== III_15_14 ===
+  exact      : True
+  numerical  : True
+  max rel err: 2.2244613956462767e-15
+  discovered : 0.0126651479552922*h**2/(E_n*d**2)
+  hof exact  : 1/1
+  elapsed    : 5.0s
+  [3/12 done]
+=== II_8_7 ===
+  exact      : True
+  numerical  : True
+  max rel err: 4.789296378402998e-16
+  discovered : 0.0477464829275686*q**2/(d*epsilon)
+  hof exact  : 1/1
+  elapsed    : 5.0s
+  [4/12 done]
+=== II_13_17 ===
+  exact      : True
+  numerical  : True
+  max rel err: 0.0
+  discovered : I/(2*pi*c**2*epsilon*r)
+  hof exact  : 1/1
+  elapsed    : 5.0s
+  [5/12 done]
+=== I_38_12 ===
+  exact      : True
+  numerical  : True
+  max rel err: 0.0
+  discovered : epsilon*h**2/(pi*m*q**2)
+  hof exact  : 1/1
+  elapsed    : 5.1s
+  [6/12 done]
+=== I_12_5 ===
+  exact      : True
+  numerical  : True
+  max rel err: 0.0
+  discovered : Ef*q2
+  hof exact  : 1/1
+  elapsed    : 4.1s
+  [7/12 done]
+=== I_39_11 ===
+  exact      : True
+  numerical  : True
+  max rel err: 0.0
+  discovered : V*pr/(gamma - 1)
+  hof exact  : 1/7
+  elapsed    : 45.1s
+  [8/12 done]
+=== I_18_12 ===
+  exact      : True
+  numerical  : True
+  max rel err: 0.0
+  discovered : F*r*sin(theta)
+  hof exact  : 1/17
+  elapsed    : 50.2s
+  [9/12 done]
+=== I_27_6 ===
+  exact      : False
+  numerical  : False
+  max rel err: 5.9360975609189
+  discovered : 0.165414863896189*d1 + 0.165414863896189*d2 - 0.165414863896189*sqrt(n) - 0.165414863896189*n - 0.165414863896189*log(d1) + 0.720870247426678
+  hof exact  : 0/11
+  elapsed    : 108.3s
+  [10/12 done]
+=== I_43_43 ===
+  exact      : False
+  numerical  : False
+  max rel err: 26.26345552638582
+  discovered : 3.36810681913734 - 2.15649491677535*log(Abs(8*sqrt(v)*(A + log(kb)) - 16*sqrt(v)*(-gamma + sqrt(v)) + 5*v*(A - kb))/(24*sqrt(v)))
+  hof exact  : 0/5
+  elapsed    : 191.3s
+  [11/12 done]
+=== II_2_42 ===
+  exact      : False
+  numerical  : False
+  max rel err: 5331.754980222694
+  discovered : -3*sqrt(2)*sqrt(pi)*T1/(2*cos(log(Abs(sin(sqrt(kappa)))))) + 3*sqrt(2)*sqrt(pi)*T2/2 - 3*sqrt(2)*sqrt(pi)*exp(exp(sin(sqrt(A)/d - T2)/(T1*kappa)))/2 + 9.92799555665205
+  hof exact  : 0/9
+  elapsed    : 259.5s
+  [12/12 done]
+
+====================================================================================================
+problem        exact   numerical   max_rel_err    hof_exact      t(s)  discovered
+----------------------------------------------------------------------------------------------------
+II_4_23        True    True        0.00e+00       1/1             4.9  q/(4*pi*epsilon*r)
+III_15_27      True    True        0.00e+00       1/1             5.0  2*pi*alpha/(d*n)
+III_15_14      True    True        2.22e-15       1/1             5.0  0.0126651479552922*h**2/(E_n*d**2)
+II_8_7         True    True        4.79e-16       1/1             5.0  0.0477464829275686*q**2/(d*epsilon)
+II_13_17       True    True        0.00e+00       1/1             5.0  I/(2*pi*c**2*epsilon*r)
+I_38_12        True    True        0.00e+00       1/1             5.1  epsilon*h**2/(pi*m*q**2)
+I_12_5         True    True        0.00e+00       1/1             4.1  Ef*q2
+I_39_11        True    True        0.00e+00       1/7            45.1  V*pr/(gamma - 1)
+I_18_12        True    True        0.00e+00       1/17           50.2  F*r*sin(theta)
+I_27_6         False   False       5.94e+00       0/11          108.3  0.165414863896189*d1 + 0.165414863896189*d2 - 0.165414863896189*sqrt(n) - 0.165414863896189*n - 0.165414863896189*log(d1) + 0.720870247426678
+I_43_43        False   False       2.63e+01       0/5           191.3  3.36810681913734 - 2.15649491677535*log(Abs(8*sqrt(v)*(A + log(kb)) - 16*sqrt(v)*(-gamma + sqrt(v)) + 5*v*(A - kb))/(24*sqrt(v)))
+II_2_42        False   False       5.33e+03       0/9           259.5  -3*sqrt(2)*sqrt(pi)*T1/(2*cos(log(Abs(sin(sqrt(kappa)))))) + 3*sqrt(2)*sqrt(pi)*T2/2 - 3*sqrt(2)*sqrt(pi)*exp(exp(sin(sqrt(A)/d - T2)/(T1*kappa)))/2 + 9.92799555665205
+====================================================================================================
+Best-of-HOF exact recoveries:     9/12  (75%)
+Best-of-HOF numerical recoveries: 9/12  (75%)

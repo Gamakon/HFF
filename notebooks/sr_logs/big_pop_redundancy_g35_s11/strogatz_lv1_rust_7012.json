@@ -1,0 +1,1 @@
+{"algorithm": "hff_rust", "dataset": "strogatz_lv1", "symbolic_model": "-3.205112129813532*x_0*tanh(x_1/(5 - sin(x_0**2)))*tanh(tanh(x_1**3))*sqrt(Abs(x_0**3 - (-0.0833333333333333*x_0 + 0.0833333333333333*x_1**3)*log(x_1**4))) + 0.026709803397384324", "r2_test": -2.228243339195281, "generations": 35, "stopped_by": "n_gen", "fit_wall": 3.5158841609954834}

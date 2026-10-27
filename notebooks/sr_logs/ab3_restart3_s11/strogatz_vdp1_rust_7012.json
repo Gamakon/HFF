@@ -1,0 +1,1 @@
+{"algorithm": "hff_rust", "dataset": "strogatz_vdp1", "symbolic_model": "-3.33333333333333*x_0**3 + 3.33333333333333*x_0 + 10*x_1", "r2_test": 1.0, "generations": 387, "stopped_by": "time", "fit_wall": 6.079362154006958}

@@ -1,0 +1,1 @@
+{"algorithm": "HFF-SR", "dataset": "feynman_I_37_4", "symbolic_model": "sqrt(pi)*(-8*sqrt(2)*log(Abs(cos(delta) + cos(sqrt(Abs(cos(cos(sqrt(I1)))))/sqrt(I1)) - 4)/3) + 4)", "r2_test": 0.8712140697931587}

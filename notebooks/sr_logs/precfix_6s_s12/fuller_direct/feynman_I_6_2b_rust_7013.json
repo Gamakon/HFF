@@ -1,0 +1,1 @@
+{"algorithm": "hff_rust_fuller_direct", "dataset": "feynman_I_6_2b", "symbolic_model": "((0.4477058624954859*sqrt(Abs((((sin((x_1 + cos(x_2)))/x_0)*(sin((x_0 + 0.1411200080598672))/x_0))*(sin((x_2 + cos(x_1)))/exp(x_0)))))) + 0.1252474750144006)", "r2_test": 0.9825760435904893}

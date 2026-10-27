@@ -1,0 +1,1 @@
+{"algorithm": "hff_rust_fuller_direct", "dataset": "feynman_III_9_52", "symbolic_model": "(((-24.90641272685574)*log(Abs(((sin((sin(sin(x_3)) - log((x_1*x_2)))) + (2.0526665296085063/(sqrt(x_3)*x_0))) + (x_3 - cos((x_5 - x_4))))))) + 30.622373439871318)", "r2_test": 0.8605426701522654}

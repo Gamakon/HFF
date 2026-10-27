@@ -1,0 +1,13 @@
+# CONTROL — solved fast in every race; a lane run must not lose these
+feynman_I_12_1
+feynman_I_6_2a
+feynman_I_14_3
+# LORENTZ 1/sqrt(1-v^2/c^2) — the family recorded 0 of 9 until I_10_7
+feynman_I_10_7
+feynman_I_15_10
+feynman_I_48_2
+feynman_II_13_23
+# EXPONENTIAL x/(exp(x)-1) — the beam's other edge-case wrap
+feynman_III_4_32
+feynman_III_4_33
+feynman_I_41_16

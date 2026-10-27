@@ -1,0 +1,1 @@
+{"algorithm": "hff_rule_bench", "dataset": "feynman_II_10_9", "symbolic_model": "1.4683375979566735 - 0.584203177069306*log(x_2 + log(x_1**4) + tan(sin(x_0 + 1/(x_1*x_2**3))) + arccos(x_2 - 10/x_1)/x_0**2)", "r2_test": 1.0}

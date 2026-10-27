@@ -1,0 +1,29 @@
+{
+    "dataset": "strogatz_vdp1",
+    "algorithm": "hff_sr",
+    "params": {
+        "config_overrides": {},
+        "head_length": 48,
+        "holdout_fraction": 0.25,
+        "max_rows": 5000,
+        "max_time": 3600,
+        "n_gen": 1500,
+        "n_genes": 3,
+        "random_state": 7006,
+        "val_fraction": 0.15
+    },
+    "random_state": 7006,
+    "time_time": 31.139145851135254,
+    "symbolic_model": "-0.027141304607379874 - 0.027667248277025137*exp(sqrt(Abs(sin(tanh(sin(x_1))**2))))*cos(x_0)*Abs(x_0 - 9)/x_0",
+    "mse_train": 3.8352810167994433,
+    "mae_train": 0.6731629573079215,
+    "r2_train": -0.40280364707506866,
+    "mse_test": 902.9427541876129,
+    "mae_test": 4.316741866911791,
+    "r2_test": -216.95561355236572,
+    "simplicity": -1.9,
+    "complexity_function": "sympy",
+    "model_size": 23,
+    "target_noise": 0.0,
+    "feature_noise": 0.0
+}

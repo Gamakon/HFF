@@ -1,0 +1,1 @@
+{"algorithm": "hff_rust", "dataset": "strogatz_glider2", "symbolic_model": "x_0 - cos(x_1)/x_0", "r2_test": 1.0, "generations": 24, "stopped_by": "early_stop", "fit_wall": 0.5440261363983154}

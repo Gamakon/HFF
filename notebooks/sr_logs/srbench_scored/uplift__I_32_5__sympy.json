@@ -1,0 +1,1 @@
+{"algorithm": "HFF-SR", "dataset": "feynman_I_32_5", "symbolic_model": "-0.425773275708078*pi*log(Abs(log(c) + cos(log(a)) + cos(log(q)))/3) - 0.391862215266173", "r2_test": 0.5465550925248515}

@@ -1,0 +1,1 @@
+{"algorithm": "HFF-SR", "dataset": "feynman_III_8_54", "symbolic_model": "0.617857864103271 - 0.0813358826723529*exp(-cos(h)/2)*sqrt(Abs(E_n*exp(cos(h)) + h**(1/4)/sqrt2 + t - exp(h/2) + exp(cos(h))*cos(exp(E_n)) + 0.693147180559945))", "r2_test": 0.026258219482133027}

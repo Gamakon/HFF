@@ -1,0 +1,1 @@
+{"algorithm": "hff_rust_fuller_direct", "dataset": "strogatz_lv2", "symbolic_model": "((-4095.9987276628926)*(tan(tan(((x_1 + (x_0 + (-2.0)))*0.0002441406225746808)))*x_1))", "r2_test": 0.9999999999952162}

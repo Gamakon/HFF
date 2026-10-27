@@ -1,0 +1,32 @@
+{
+ "engine_commit": "3e8ac84",
+ "seed": 7014,
+ "seconds": 8.0,
+ "generations_cap": null,
+ "genes": 3,
+ "head": 34,
+ "grow_head_every": null,
+ "grow_head_start": null,
+ "intake": 800,
+ "champion": null,
+ "pairs": 3,
+ "cross_every": null,
+ "pump_every": 4,
+ "rnc": "engine default",
+ "cleanse": 0.0,
+ "compounds": false,
+ "gene_subsets": false,
+ "snap_every": null,
+ "snap_top_k": null,
+ "tournament_pole": "truenorth",
+ "hff": "train + validation",
+ "block3": null,
+ "hff_log_scale": [
+  false,
+  false,
+  false
+ ],
+ "stop_log10_p": -19.0,
+ "second_pass_of": null,
+ "race": "lane_smoke"
+}

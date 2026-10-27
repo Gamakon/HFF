@@ -1,0 +1,1 @@
+{"algorithm": "hff_rust_fuller_direct", "dataset": "feynman_test_1", "symbolic_model": "(((-23.430188051365903)*log(Abs((((tanh(sqrt(x_6)) - (x_4 - arcsin((1/sqrt(x_3))))) + tanh(((x_6 - x_0) + cos((x_2/x_6))))) + (x_5/sqrt((x_2*x_1))))))) + 24.450965082183952)", "r2_test": 0.6758307977161295}

@@ -1,0 +1,1 @@
+{"algorithm": "hff_rust_fuller_direct", "dataset": "strogatz_bacres2", "symbolic_model": "(((-164.0093659133519)*((tanh(log(x_0))*x_1)/((82.0 - (1/x_1))*(x_0 - (1/exp((x_0 + sin(x_0)))))))) + 10.001689607267078)", "r2_test": 0.9999995529166019}

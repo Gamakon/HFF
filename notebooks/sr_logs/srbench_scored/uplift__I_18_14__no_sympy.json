@@ -1,0 +1,1 @@
+{"algorithm": "HFF-SR", "dataset": "feynman_I_18_14", "symbolic_model": "((((sin(theta)*(v*(r*m))) + (sin(theta)*(m*(r*v)))) + (sin(theta)*(v*(r*m))))/3.0)", "r2_test": 1.0}

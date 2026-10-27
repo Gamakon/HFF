@@ -1,0 +1,1 @@
+{"algorithm": "hff_rust", "dataset": "feynman_I_34_14", "symbolic_model": "4609.107433502944*log(1548 + (0.333333333333333*x_0 + 0.333333333333333*x_1)*(x_2 + x_1**2*log(x_2 + tanh(x_1))**2/x_0**2)/x_0) - 33852.581546243135", "r2_test": 0.9997788085143724, "generations": 35, "stopped_by": "n_gen", "fit_wall": 5.11150598526001}

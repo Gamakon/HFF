@@ -1,0 +1,1 @@
+{"algorithm": "hff_rust_fuller_direct", "dataset": "strogatz_glider2", "symbolic_model": "((2.4347798944948327*sqrt(((((1/(((x_0*sqrt((sqrt(x_0) + x_1)))*sqrt(x_0))**2)) - cos((x_1/(-0.999329299739067)))) + ((0.49467912331169095*x_0)*x_0))/3.0))) + 0.05408609866166536)", "r2_test": 0.9828833976111357}

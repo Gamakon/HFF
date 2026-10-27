@@ -1,0 +1,29 @@
+{
+    "dataset": "feynman_II_13_34",
+    "algorithm": "hff_sr",
+    "params": {
+        "config_overrides": {},
+        "head_length": 48,
+        "holdout_fraction": 0.25,
+        "max_rows": 5000,
+        "max_time": 36000,
+        "n_gen": 1500,
+        "n_genes": 3,
+        "random_state": 7006,
+        "val_fraction": 0.15
+    },
+    "random_state": 7006,
+    "time_time": 33.0926399230957,
+    "symbolic_model": "-0.0005215738673833418*x_0*x_1*(-x_1 - 19 + exp(-4*(sin(x_2)/2 + 1)**2))*(-cos(x_2) + 87 + 66/x_2) - 0.016462420323758664",
+    "mse_train": 0.006667261188635035,
+    "mae_train": 0.047141975947152075,
+    "r2_train": 0.99849711116114,
+    "mse_test": 0.006876401546019504,
+    "mae_test": 0.04721716526285836,
+    "r2_test": 0.9984591078883726,
+    "simplicity": -2.4,
+    "complexity_function": "sympy",
+    "model_size": 33,
+    "target_noise": 0.0,
+    "feature_noise": 0.0
+}

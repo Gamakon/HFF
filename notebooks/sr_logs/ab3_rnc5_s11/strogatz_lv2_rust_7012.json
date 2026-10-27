@@ -1,0 +1,1 @@
+{"algorithm": "hff_rust", "dataset": "strogatz_lv2", "symbolic_model": "(-x_0 - x_1 + 2.0)*Piecewise((x_1, x_1 < 1.7976931348623157e+308), (0, True))", "r2_test": 1.0, "generations": 47, "stopped_by": "early_stop", "fit_wall": 0.9129810333251953}

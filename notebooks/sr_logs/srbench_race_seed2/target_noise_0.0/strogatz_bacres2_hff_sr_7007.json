@@ -1,0 +1,29 @@
+{
+    "dataset": "strogatz_bacres2",
+    "algorithm": "hff_sr",
+    "params": {
+        "config_overrides": {},
+        "head_length": 48,
+        "holdout_fraction": 0.25,
+        "max_rows": 5000,
+        "max_time": 3600,
+        "n_gen": 1500,
+        "n_genes": 3,
+        "random_state": 7007,
+        "val_fraction": 0.15
+    },
+    "random_state": 7007,
+    "time_time": 145.14611983299255,
+    "symbolic_model": "-5.928452510023514*sqrt(x_1/(x_0*tanh(exp(sin(121*(-0.0909090909090909*x_0 - 1)**2)**3) + 2.8284271247461903)))*sqrt(0.0253164556962025*sqrt(x_1) + 1) + 14.983471883556863",
+    "mse_train": 0.041555557837677275,
+    "mae_train": 0.16650155038582776,
+    "r2_train": 0.9914603159689857,
+    "mse_test": 0.033085486564943596,
+    "mae_test": 0.1502892666145169,
+    "r2_test": 0.9923351751459432,
+    "simplicity": -2.3,
+    "complexity_function": "sympy",
+    "model_size": 38,
+    "target_noise": 0.0,
+    "feature_noise": 0.0
+}

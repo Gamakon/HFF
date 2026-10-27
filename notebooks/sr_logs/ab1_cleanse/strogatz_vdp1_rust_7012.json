@@ -1,0 +1,1 @@
+{"algorithm": "hff_rust", "dataset": "strogatz_vdp1", "symbolic_model": "33.482113987648006*cos(tanh(x_0 + exp(3*x_1) + cos((x_0 + cos(x_0 - cos(x_0 + x_1)))**2))*Abs(x_0))*tanh(tanh(exp(3*x_1 - 3*cos(x_1**2/cos(cos(cos(x_0)))))))*tanh(sqrt(Abs(x_0))) - 1.0208910339667028", "r2_test": 0.8296091420876315, "generations": 345, "stopped_by": "time", "fit_wall": 6.178316116333008}

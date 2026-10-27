@@ -1,0 +1,1 @@
+{"algorithm": "hff_rust_fuller_direct", "dataset": "strogatz_glider2", "symbolic_model": "(((sqrt(Abs(arcsin((x_0*x_1)))) - (cos(x_1)/x_0)) + x_0) + (-1.253314340739827))", "r2_test": NaN}

@@ -1,0 +1,1 @@
+{"algorithm": "hff_rule_bench", "dataset": "feynman_I_27_6", "symbolic_model": "0.4986821178700973*sqrt(-x_0 + x_1*(sqrt(x_0) + x_0)/x_2 + sqrt(sqrt(x_0) - exp(-3*x_1**2/(x_0*x_2**2))) + arcsin(x_2 + (x_2 + exp(1/x_2))*sin(x_1)/(x_0*x_2)) + log(x_0)) - 0.4300131480390883", "r2_test": 1.0}

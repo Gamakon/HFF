@@ -1,0 +1,2 @@
+reported_at_gen	found_at_gen	hff	log10_p	mse_train	r2_train	r2_val_bl2	r2_val_bk3	t_depth	model
+16	16	1.346002e-5	-14.99	9.9895e-11	0.9999999998	0.9999999998	-	1	(((-7.209007740020752)*(((x_0*cos(2.0))*(x_3*x_1))*(x_2/(3.0 - (x_1/(1/x_0)))))) + 8.634144251118414e-6)

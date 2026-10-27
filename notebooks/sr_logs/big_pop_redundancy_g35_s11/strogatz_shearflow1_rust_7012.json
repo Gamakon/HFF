@@ -1,0 +1,1 @@
+{"algorithm": "hff_rust", "dataset": "strogatz_shearflow1", "symbolic_model": "1836.6140807558493*sqrt(Abs(log(Abs(x_1))**3 + cos(sin(x_1 + exp(1/((-11 + (2*x_0 - 2.7347563526876915)/x_0)*tanh(log(Abs(x_0))))))) + 729000)) - 1568129.5139474857", "r2_test": 0.7724242191316242, "generations": 35, "stopped_by": "n_gen", "fit_wall": 3.6345880031585693}

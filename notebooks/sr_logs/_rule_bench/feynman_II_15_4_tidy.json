@@ -1,0 +1,1 @@
+{"algorithm": "hff_rule_bench", "dataset": "feynman_II_15_4", "symbolic_model": "-x_0*x_1*cos(x_2)", "r2_test": 1.0}

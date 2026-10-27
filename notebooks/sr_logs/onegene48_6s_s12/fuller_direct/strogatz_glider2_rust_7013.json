@@ -1,0 +1,1 @@
+{"algorithm": "hff_rust_fuller_direct", "dataset": "strogatz_glider2", "symbolic_model": "((x_0 - (sin((1.5707963267948966 + x_1))/x_0)) + (-1.2788959224963037e-7))", "r2_test": 1.0}

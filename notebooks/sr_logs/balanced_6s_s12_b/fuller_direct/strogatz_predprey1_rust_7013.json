@@ -1,0 +1,1 @@
+{"algorithm": "hff_rust_fuller_direct", "dataset": "strogatz_predprey1", "symbolic_model": "((0.00024892333680309964*(((0.21068150841353384 - tanh((1/x_1)))*(-19683.0))*(x_0**2))) + 0.042523786053638185)", "r2_test": 0.9658303634896727}

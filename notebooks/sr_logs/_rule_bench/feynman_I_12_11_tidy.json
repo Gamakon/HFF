@@ -1,0 +1,1 @@
+{"algorithm": "hff_rule_bench", "dataset": "feynman_I_12_11", "symbolic_model": "1.5919954135798011*x_2*x_3*(-2*x_0 + 2*tanh(x_1**2)/(x_1*x_4))*sin(x_1/(x_2*(-x_3 - 5/x_4**2)) + x_4)/log(1/(x_4*(x_2 + x_3 + sin(x_1)))) + 2.4187233742689225", "r2_test": 1.0}

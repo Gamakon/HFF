@@ -1,0 +1,4 @@
+dataset	pass1_secs	pass1_gens	pass1_stop	this_pass_secs	this_pass_gens	this_pass_stop	total_secs
+feynman_test_12	0.0	0	-	123.8	1434	time	123.8
+strogatz_glider1	0.0	0	-	60.0	2000	n_gen	60.0
+strogatz_bacres2	0.0	0	-	63.6	2000	n_gen	63.6

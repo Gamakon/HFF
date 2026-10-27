@@ -1,0 +1,1 @@
+{"algorithm": "hff_rust", "dataset": "strogatz_glider1", "symbolic_model": "-0.9994154917260861*log(exp(sin(x_1))/Abs((log(0.7608695652173914*x_0) + sin(sin(x_0)) + 20)*log(exp(x_0/2)/Abs(log(x_0*Abs(23 + cos(x_0)/x_0**4)) + 23)))) - 4.0813896760834085", "r2_test": 0.9999078239714808, "generations": 352, "stopped_by": "time", "fit_wall": 6.2041966915130615}

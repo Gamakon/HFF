@@ -1,0 +1,1 @@
+{"algorithm": "hff_rust_fuller_direct", "dataset": "feynman_I_13_4", "symbolic_model": "((1.341960005139572*(((x_0/(tanh(x_3) + tanh(((arccos(cos(x_1))*x_2)/x_1))))*(x_3 + x_1))*(x_2 + (1/((x_2*(((-0.4523156594418099) - (1/tanh(x_2)))**2))/x_3))))) + 0.7884966265625337)", "r2_test": 0.9898955955111352}

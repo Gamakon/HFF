@@ -1,0 +1,29 @@
+{
+    "dataset": "strogatz_barmag2",
+    "algorithm": "hff_sr",
+    "params": {
+        "config_overrides": {},
+        "head_length": 48,
+        "holdout_fraction": 0.25,
+        "max_rows": 5000,
+        "max_time": 3600,
+        "n_gen": 1500,
+        "n_genes": 3,
+        "random_state": 7008,
+        "val_fraction": 0.15
+    },
+    "random_state": 7008,
+    "time_time": 43.79651403427124,
+    "symbolic_model": "-0.2421585621688462*sqrt(x_0) - (0.7264756865065386 + 0.01513491013555289/(0.179284291400159*x_1 - log(x_1)**2/2 - 0.05976143046671968/(-x_1 + log(8836*(0.170212765957447*(0.25*x_0 + 0.25*x_1 + (x_0/2 + 1)**2/(x_0 + x_1) + 0.249125499586623*log(0.0163934426229508/x_0))**2 - 1)**2))**2 - 1/x_1)**4)*sin(x_1) - 0.2421585621688462*sin(x_0) + 0.7449317097351119",
+    "mse_train": 0.00459415661942002,
+    "mae_train": 0.023979883932811898,
+    "r2_train": 0.9440208251701584,
+    "mse_test": 0.015056832176372673,
+    "mae_test": 0.04690600843115659,
+    "r2_test": 0.7946125773904146,
+    "simplicity": -2.7,
+    "complexity_function": "sympy",
+    "model_size": 83,
+    "target_noise": 0.0,
+    "feature_noise": 0.0
+}

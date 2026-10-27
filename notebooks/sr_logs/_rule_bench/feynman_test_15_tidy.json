@@ -1,0 +1,1 @@
+{"algorithm": "hff_rule_bench", "dataset": "feynman_test_15", "symbolic_model": "0.03974707445235029*x_2*(5 - 2*x_1*arcsin(cos(x_3))/x_0)*(5 - 3*x_1*sin(cos(x_3))/x_0) - 0.00252267149802865", "r2_test": 1.0}

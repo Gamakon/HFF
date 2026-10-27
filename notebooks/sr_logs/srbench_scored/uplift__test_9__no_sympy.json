@@ -1,0 +1,1 @@
+{"algorithm": "HFF-SR", "dataset": "feynman_test_9", "symbolic_model": "(((-1457.6441668885316)*((cos((m2/((sin(m1)/G) + sqrt(Abs(m2))))) + (m1/sin((c*(r/(G*((G + (m2/c)) + m2)))))))/3.0)) + 5345.786937775449)", "r2_test": 0.6001892779956107}

@@ -1,0 +1,1 @@
+{"algorithm": "hff_rust", "dataset": "strogatz_bacres1", "symbolic_model": "0.957665546058982*log(269.99898629592098/(x_0**6*x_1**6*Abs((0.59584792743222296*sin(log(Abs(sqrt(x_0) - 0.00694444444444444*x_0**2*(cos(54/x_1) - 1)))) - 1)**6))) + 25.15827991885357", "r2_test": 0.9324315572210173, "generations": 35, "stopped_by": "n_gen", "fit_wall": 3.48691725730896}

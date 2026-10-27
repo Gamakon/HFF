@@ -1,0 +1,1 @@
+{"algorithm": "hff_rust", "dataset": "feynman_II_11_27", "symbolic_model": "4.69186777120552*x_0*x_1*x_2*x_3/Abs(x_1 - Piecewise((sqrt(Abs(log(x_1) - 18.0)), Abs(log(x_1) - 18.0) < 1.7976931348623157e+308), (0, True)) + tanh(log(x_0))) + 0.0030271484849614394", "r2_test": 0.9996624149085453, "generations": 170, "stopped_by": "time", "fit_wall": 6.2490150928497314}

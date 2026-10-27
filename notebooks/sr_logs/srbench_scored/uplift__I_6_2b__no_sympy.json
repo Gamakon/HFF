@@ -1,0 +1,1 @@
+{"algorithm": "HFF-SR", "dataset": "feynman_I_6_2b", "symbolic_model": "(((-0.15388511390479798)*log(Abs((((sqrt(Abs((9.0*(theta1 - theta)))) + sqrt(Abs(((theta + sin(sigma))*(theta1 - theta))))) + (sigma + (sigma**2)))/3.0)))) + 0.3679548545634435)", "r2_test": 0.8460815751974211}

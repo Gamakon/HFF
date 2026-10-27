@@ -1,0 +1,1 @@
+{"algorithm": "hff_rust_fuller_direct", "dataset": "strogatz_glider1", "symbolic_model": "((0.9998900464278972*log((1/exp((((0.8948393168143698/((-4.0)/x_0))**2) + sin(x_1)))))) + 0.00020822185693830653)", "r2_test": 0.9999998887821538}

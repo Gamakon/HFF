@@ -1,0 +1,1 @@
+{"algorithm": "hff_rust_fuller_direct", "dataset": "feynman_test_5", "symbolic_model": "(6.283185264789541*sqrt((((x_0**2)*(x_0/x_1))/(x_2 + x_3))))", "r2_test": 0.9999999999999998}

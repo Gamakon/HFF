@@ -1,0 +1,1 @@
+{"algorithm": "HFF-SR", "dataset": "feynman_test_5", "symbolic_model": "((4.946161335613309*(((((d/m2) + d) + (((m1 + d)/m1) + d)) + cos(G))/3.0)) + (-4.465319269777913))", "r2_test": 0.9518642335126257}

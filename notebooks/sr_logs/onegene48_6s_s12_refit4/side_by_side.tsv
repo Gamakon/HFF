@@ -1,0 +1,2 @@
+dataset	exact_sympy_tidied	exact_fuller_direct	r2_test	generations	stopped_by	fuller_string	sympy_tidied_string
+feynman_I_44_4	Y	Y	1.000000	87	early_stop	(x_1*(x_0*(x_2*log((x_4/x_3)))))	x_0*x_1*x_2*log(x_4/x_3)

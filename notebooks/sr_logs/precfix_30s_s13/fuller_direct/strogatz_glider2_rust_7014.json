@@ -1,0 +1,1 @@
+{"algorithm": "hff_rust_fuller_direct", "dataset": "strogatz_glider2", "symbolic_model": "(x_0 - (cos(x_1)/x_0))", "r2_test": 1.0}

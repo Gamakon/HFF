@@ -1,0 +1,29 @@
+{
+    "dataset": "strogatz_barmag1",
+    "algorithm": "hff_sr",
+    "params": {
+        "config_overrides": {},
+        "head_length": 48,
+        "holdout_fraction": 0.25,
+        "max_rows": 5000,
+        "max_time": 3600,
+        "n_gen": 1500,
+        "n_genes": 3,
+        "random_state": 7004,
+        "val_fraction": 0.15
+    },
+    "random_state": 7004,
+    "time_time": 34.131428956985474,
+    "symbolic_model": "2.017971282301504 - 0.14298017635855578*log(Abs((sin(2*x_1)*cos(x_0) + 0.36787944117144233)*(exp(x_0**(3/2)) - 2)*(0.7763252617777122*sin(x_1) + 0.36787944117144233)))",
+    "mse_train": 0.012747867746864688,
+    "mae_train": 0.03936941754942012,
+    "r2_train": 0.7542742321660113,
+    "mse_test": 0.016867828883452837,
+    "mae_test": 0.04246095590630421,
+    "r2_test": 0.6385801938934075,
+    "simplicity": -2.1,
+    "complexity_function": "sympy",
+    "model_size": 28,
+    "target_noise": 0.0,
+    "feature_noise": 0.0
+}

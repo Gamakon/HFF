@@ -1,0 +1,1 @@
+{"algorithm": "HFF-SR", "dataset": "feynman_II_6_15a", "symbolic_model": "-2.4516625*log(Abs(r + sin(r) + sin(sqrt(Abs(cos(sqrt(p_d)*sqrt(Abs(sin(cos(r)))))))/z))/3) + 1/(2*sqrt(pi))", "r2_test": 0.6813773129486398}

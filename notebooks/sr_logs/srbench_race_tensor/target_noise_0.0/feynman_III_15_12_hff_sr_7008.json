@@ -1,0 +1,29 @@
+{
+    "dataset": "feynman_III_15_12",
+    "algorithm": "hff_sr",
+    "params": {
+        "config_overrides": {},
+        "head_length": 48,
+        "holdout_fraction": 0.25,
+        "max_rows": 5000,
+        "max_time": 36000,
+        "n_gen": 1500,
+        "n_genes": 3,
+        "random_state": 7008,
+        "val_fraction": 0.15
+    },
+    "random_state": 7008,
+    "time_time": 222.5256450176239,
+    "symbolic_model": "3.3574758096933546*sqrt(Abs((exp(Abs(log(x_1))) - 6.2504589318866928*(1 + 0.3999853149883513*log(tanh(x_2))/(x_1 - 0.926818505417785))**2/x_2)*(cos(exp(tanh(exp(-x_2/2)))) - (sqrt(x_2) + sin(log(x_2)))/x_1)))*Abs(x_0 - x_0*exp(-sqrt(Abs(1.9746483092648504 + 4/(x_2 - log(Abs(log((x_1**2 - exp(-cos(exp(x_2)) - (-x_1 + x_2 + 1.9746483092648504)/x_1))**2))))**4)))) - 0.37653970457533426",
+    "mse_train": 13.333035058308589,
+    "mae_train": 2.801450064455406,
+    "r2_train": 0.4945550455135099,
+    "mse_test": 13.097094899052655,
+    "mae_test": 2.7846484722568787,
+    "r2_test": 0.4933496392099387,
+    "simplicity": -2.9,
+    "complexity_function": "sympy",
+    "model_size": 103,
+    "target_noise": 0.0,
+    "feature_noise": 0.0
+}

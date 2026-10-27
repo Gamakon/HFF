@@ -1,0 +1,1 @@
+{"algorithm": "hff_rule_bench", "dataset": "feynman_test_19", "symbolic_model": "-0.1261970281764011 + 0.020266007649682307*(x_4 - sin(sqrt(Abs(x_1/(x_2 + x_3 + x_4**3/x_5 + x_4 - x_5)))))*(2*x_5**2 - log(x_5))*(2*(-x_3 + sin(x_1)/(x_2*(sqrt(arccos(x_3**3/x_5)) - exp(x_2))))**2 - x_5**2/x_2**2)/x_0", "r2_test": 1.0}

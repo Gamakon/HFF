@@ -1,0 +1,1 @@
+{"algorithm": "hff_rust", "dataset": "feynman_I_18_14", "symbolic_model": "x_0*x_1*x_2*sin(x_3)", "r2_test": 1.0, "generations": 6, "stopped_by": "harvested", "fit_wall": 1.248089075088501}

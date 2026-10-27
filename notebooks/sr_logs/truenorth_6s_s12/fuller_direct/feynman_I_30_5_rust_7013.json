@@ -1,0 +1,1 @@
+{"algorithm": "hff_rust_fuller_direct", "dataset": "feynman_I_30_5", "symbolic_model": "(((arccos(sqrt(x_0)) + arcsin((1/((x_1/x_0)*x_2)))) + arcsin(x_0)) + (-1.5707963102768525))", "r2_test": NaN}

@@ -1,0 +1,1 @@
+{"algorithm": "HFF-SR", "dataset": "feynman_II_3_24", "symbolic_model": "0.749524430088854 - 0.609481228151783*log(Abs(Pwr/15 + 10/3 - (Pwr + cos(r))/(3*r)))", "r2_test": 0.9835041429706374}

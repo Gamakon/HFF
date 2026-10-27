@@ -1,0 +1,1 @@
+{"algorithm": "hff_rust", "dataset": "feynman_test_5", "symbolic_model": "6.283185250614801*sqrt(x_0**3/(x_1*(x_2 + x_3)))", "r2_test": 0.9999999999999996, "generations": 88, "stopped_by": "harvested", "fit_wall": 3.501485824584961}

@@ -1,0 +1,2 @@
+dataset	pass1_secs	pass1_gens	pass1_stop	this_pass_secs	this_pass_gens	this_pass_stop	total_secs
+strogatz_lv2	0.0	0	-	3.4	76	early_stop	3.4
