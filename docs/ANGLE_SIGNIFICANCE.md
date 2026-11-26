@@ -102,10 +102,66 @@ artefact of the null rather than an improvement. Re-plotting with
 `null="truenorth"` separates the two effects. This has not yet been redone
 for the poster figures.
 
+## Validation on real objectives (sheet-cutting planner)
+
+The table above uses independent uniform objectives. The null was also
+checked on a real many-objective problem: a material-aware sheet-cutting
+planner with one lateness objective per open customer order, re-planned
+through a simulated shift as orders arrive (m ranging from 14 to 43). At
+each re-plan, 40 populations of 40 *random* plans were scored, so no plan
+is genuinely better than another and the ideal is median p = 0.5
+(ln −0.69) and best-of-40 p ≈ 1/41 (ln −3.71).
+
+**Constant columns break calibration.** Many lateness objectives are
+constant across a population (orders on time in every plan). `apply_minmax`
+maps a constant column to 0, which adds nothing to ‖x‖² but still counts
+towards m, so 1 − cos θ is deflated and the null overstates quality.
+Early in the shift, with 7–10 of 14–25 columns constant, the TrueNorth
+null gave a best-of-40 ln p of about −11 (ideal −3.7).
+
+**Drop constant columns before scoring.** Doing so leaves every ranking
+unchanged, since all angles move monotonically together. Afterwards
+(one seed, median over 15 populations at each re-plan):
+
+| re-plan | m (all → informative) | `truenorth` median / best ln p | `uniform_sphere` median / best ln p |
+|---|---|---|---|
+| start | 14 → 8 | −0.97 / −3.3 | −3.3 / −5.7 |
+| backlog building | 26 → 21 | −3.8 / −9.9 | −12.1 / −20.6 |
+| afternoon | 33 → 32 | −0.75 / −3.6 | −10.8 / −15.5 |
+| end of shift | 20 → 18 | −0.06 / −1.0 | −4.3 / −6.8 |
+| ideal | | −0.69 / −3.71 | −0.69 / −3.71 |
+
+- **Most of the day:** the TrueNorth null is close to calibrated. The
+  uniform-sphere null drifts by about 15 nats as m rises and falls.
+- **While the backlog builds:** the TrueNorth null still overstates quality
+  by a few nats. Lateness columns there are zero-inflated (many plans have
+  zero lateness for an order) and correlated (plans tend to make the same
+  orders late together), which violates the independent-uniform
+  assumption.
+
+**Practical guidance:**
+
+- Drop constant objectives before computing angles and p-values, and pass
+  the number of informative objectives as `n_objectives`.
+- Treat `null="truenorth"` as a fast closed-form approximation. It is good
+  for monitoring and coarse thresholds across m, and much better than the
+  uniform-sphere null, but not exact on skewed or correlated objectives.
+- For decisions that must be calibrated (stopping rules, accept or switch
+  plans), use an **empirical null**. Sample random solutions for the
+  current problem, fix the normalisation ranges from that sample, and
+  express a solution's angle as a z-score against the sample's angles.
+
+**Open question: constant-column convention.** The GECCO 2026 poster says
+constant-valued columns are "mapped to 0.5"; `apply_minmax` maps them to 0.
+The two give different angles (0 shrinks θ; 0.5 adds 0.25 per constant
+column to ‖x‖²). Rankings are unaffected either way, but the code and the
+paper should agree, and the null assumes neither: it assumes informative
+columns only.
+
 ## Assumptions
 
-- Normalised objectives in [0, 1] (the default min-max normalisation) and
-  no decrowding. The Python wrapper refuses `significance="truenorth"`
+- Normalised objectives in [0, 1] (the default min-max normalisation),
+  constant columns removed, and no decrowding. The Python wrapper refuses `significance="truenorth"`
   with decrowding or the balanced pole.
 - The null is a central-limit approximation: well calibrated from about
   m ≥ 5, slightly conservative below.
