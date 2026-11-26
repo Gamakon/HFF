@@ -44,12 +44,13 @@ include/hff.h            C header — must stay in sync with c_api.rs signatures
 
 ### Algorithm surface
 
-Four operations, exposed identically from all three frontends (Rust, Python, C):
+Five operations, exposed identically from all three frontends (Rust, Python, C):
 
 1. **HF1 Balanced** — angular distance from a solution to the diagonal pole `(1/√m, …, 1/√m)` on the unit hypersphere. Solution-level fitness.
 2. **HF1 TrueNorth** — augmented-space variant: builds a point in ℝ^(m+1) whose extra coordinate encodes the solution's energy, with the reference pole at `(0,…,0,1)`. Use for direct minimization rather than balanced trade-offs.
 3. **HIGD** — set-level quality indicator. For each of N uniform reference points on the sphere, find the nearest solution's angular distance, then apply the Beta-CDF correction `I_{sin²θ}((d−1)/2, 1/2)` so values are comparable across dimensions.
 4. **Angular IGD** — same as HIGD but without CDF correction; returns raw mean angular distance in radians.
+5. **Angle significance** — `significance.rs`: turns an angle into ln P(Θ ≤ θ) under a chosen null so scores are comparable across objective counts. `AngleNull::TrueNorth` (Φ((1 − cos θ − 1/3)/√(4/(45m)))) is the calibrated null for TrueNorth angles; `AngleNull::UniformSphere` is the Beta-CDF correction (right for HIGD, but it drifts with m on TrueNorth angles). Exposed as `calculate_angle_log_pvalue` (PyO3), `hff_angle_log_pvalue` (C), `hff.calculate_angle_significance` and `significance=` (Python). See `docs/ANGLE_SIGNIFICANCE.md`.
 
 ### Normalization rule (critical)
 

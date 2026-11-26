@@ -16,6 +16,34 @@ You choose the null that matches the angle:
 | `"truenorth"` | Φ((1 − cos θ − 1/3) / √(4/(45m))) | HF1 TrueNorth angles |
 | `"uniform_sphere"` | I_{sin²θ}((m−1)/2, ½), the poster's eq. 3 | angles between uniformly spread directions (HIGD) |
 
+## Usage
+
+```python
+import hff
+
+# ln p instead of the angle; same ranking, comparable across m
+logp = hff.calculate_fitness_hf1_enhanced(
+    F, north_pole_method="truenorth", significance="truenorth"
+)
+
+# convert existing angles; log=False returns p itself
+logp = hff.calculate_angle_significance(theta, n_objectives=m, null="truenorth")
+
+# stable scale across generations
+hff.calculate_fitness_hf1_fixed(F, col_min, col_max,
+                                north_pole_method="truenorth", significance="truenorth")
+```
+
+Typical uses:
+
+- **Re-planning when objectives change.** When objectives are added or
+  removed mid-run (for example, new orders arriving), the incumbent and new
+  solutions can be judged on one scale before and after.
+- **Thresholds that don't depend on m.** "Accept a plan once ln p < −10"
+  means the same thing at m = 10 and m = 40.
+- **Tracking over time.** Score drift reflects real changes in quality, not
+  a change in objective count.
+
 ## Why TrueNorth needs its own null
 
 The Beta-CDF correction is the exact distribution of the angle between a
@@ -56,6 +84,23 @@ holds steady, and a column-permutation test agrees.
 - **HIGD is unaffected.** Its angles are between uniformly sampled
   reference directions and solutions, which is the uniform-sphere null's
   setting.
+
+## Note on previously reported results
+
+The beta-CDF correction is reported on TrueNorth angles in the GECCO 2026
+poster (Figure 1, "CDF-corrected angular distance", m = 10 to 1000). The
+per-m comparisons between algorithms there are unaffected: at a fixed m,
+every algorithm is scored by the same monotone transform, so their order
+does not change.
+
+What should be revisited is any reading of those values *across* m: trends
+along the m axis, and the claim that CDF-corrected angular distance gives
+"stable, dimension-independent tracking and drift detection as m varies".
+Under the uniform-sphere null, TrueNorth scores fall with m even for random
+solutions, so part of the downward trend with m in such plots is an
+artefact of the null rather than an improvement. Re-plotting with
+`null="truenorth"` separates the two effects. This has not yet been redone
+for the poster figures.
 
 ## Assumptions
 

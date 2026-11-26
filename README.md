@@ -155,6 +155,86 @@ The same surface is also exposed via a C ABI when built with
 
 ---
 
+## Angle significance (dimension-free scores)
+
+An HFF angle ranks solutions within one population, but the angle by itself
+can't be compared across different numbers of objectives. Concentration of
+measure shifts the typical angle as m grows, so θ = 40° means something
+different at m = 10 than at m = 40. `calculate_angle_significance` turns an
+angle into **ln P(Θ ≤ θ)**: the log-probability that a *random* solution is at
+least this close to the pole. The score is still lower-is-better and ranks a
+population exactly as the angle does. Unlike the angle, it means the same
+thing at every m, so you can compare runs, set acceptance or stopping
+thresholds, and track quality while objectives are added or removed (for
+example, orders arriving mid-shift in a planning loop).
+
+### The math
+
+The probability depends on a **null**: what a random solution looks like. It
+has to match the angle being scored.
+
+**`null="uniform_sphere"`**: the Beta-CDF correction used for HIGD (GECCO
+2026 poster, eq. 3). For a direction drawn uniformly on S^{m−1}, the angle to
+a fixed pole has
+
+    P(Θ ≤ θ) = I_{sin²θ}((m − 1)/2, 1/2)
+
+where I_x(a, b) is the regularised incomplete beta function. These angles
+concentrate at 90° as m grows.
+
+**`null="truenorth"`**: for HF1 TrueNorth angles. TrueNorth sets
+cos θ = 1 − ‖x‖²/m, so 1 − cos θ is the *mean* squared normalised objective.
+For a random solution (normalised objectives independent and
+Uniform(0, 1)), each x_j² has mean 1/3 and variance 1/5 − 1/9 = 4/45. By the
+central limit theorem,
+
+    P(Θ ≤ θ) ≈ Φ( (1 − cos θ − 1/3) / √(4 / (45 m)) )
+
+so random TrueNorth angles concentrate at arccos(2/3) ≈ 48°, not 90°.
+
+Scoring TrueNorth angles with the uniform-sphere null therefore drifts with m.
+On populations of pure noise, the median random solution scores p ≈ 0.1 at
+m = 5 and p ≈ 10⁻¹¹ at m = 80, so random solutions look more significant as
+objectives are added. With the TrueNorth null, the best of 40 random
+solutions scores p ≈ 1/41 at every m from 5 to 80.
+
+Both nulls are monotone in θ, so **selection is unaffected**. The choice
+matters only when scores are compared across different m. HIGD is unaffected,
+because its angles are between uniformly sampled directions. Full derivation,
+evidence and assumptions: [docs/ANGLE_SIGNIFICANCE.md](docs/ANGLE_SIGNIFICANCE.md).
+
+### Usage
+
+```python
+import hff
+
+# Score a population directly: ln p instead of the angle (same ranking).
+logp = hff.calculate_fitness_hf1_enhanced(
+    objectives, north_pole_method="truenorth", significance="truenorth"
+)
+
+# Or convert angles you already have.
+theta = hff.calculate_fitness_hf1_enhanced(objectives, north_pole_method="truenorth")
+logp = hff.calculate_angle_significance(theta, n_objectives=objectives.shape[1],
+                                        null="truenorth")
+p = hff.calculate_angle_significance(theta, objectives.shape[1], log=False)
+
+# Fixed ranges (stable scale across generations) work the same way.
+hff.calculate_fitness_hf1_fixed(objectives, col_min, col_max,
+                                north_pole_method="truenorth", significance="truenorth")
+```
+
+- **Log values:** `log=True` (the default) returns natural logs, which stay
+  finite deep in the tail where p underflows.
+- **TrueNorth assumptions:** `significance="truenorth"` assumes min-max
+  normalised objectives and no decrowding, and the wrapper refuses it with
+  the balanced pole or decrowding. The approximation is well calibrated
+  from about m ≥ 5.
+- **C ABI:** `hff_angle_log_pvalue(thetas, n, n_objectives, "truenorth", out)`.
+- **Rust:** `significance::angle_log_pvalue(theta, m, AngleNull::TrueNorth)`.
+
+---
+
 ## GPU acceleration
 
 An experimental GPU backend computes HF1 TrueNorth fitness for large batches on
@@ -560,6 +640,53 @@ higd_score = hff.calculate_higd(
 
 La même surface est aussi exposée via une ABI C lors d'une compilation avec
 `--features c-api` ; voir `include/hff.h`.
+
+---
+
+## Significativité des angles (scores indépendants de la dimension)
+
+Un angle HFF classe les solutions au sein d'une population, mais l'angle seul
+n'est pas comparable d'un nombre d'objectifs à l'autre : la concentration de
+la mesure déplace l'angle typique quand m augmente. `calculate_angle_significance`
+transforme un angle en **ln P(Θ ≤ θ)**, la log-probabilité qu'une solution
+*aléatoire* soit au moins aussi proche du pôle. Le score reste « plus bas =
+meilleur » et classe une population exactement comme l'angle. Contrairement à
+l'angle, il a la même signification pour tout m : on peut comparer des
+exécutions, fixer des seuils d'acceptation ou d'arrêt, et suivre la qualité
+quand des objectifs sont ajoutés ou retirés.
+
+### Les mathématiques
+
+La probabilité dépend d'une **hypothèse nulle** adaptée à l'angle :
+
+- **`null="uniform_sphere"`** : correction Beta-CDF utilisée pour HIGD
+  (poster GECCO 2026, éq. 3), P(Θ ≤ θ) = I_{sin²θ}((m − 1)/2, 1/2). Ces angles
+  se concentrent à 90°.
+- **`null="truenorth"`** : pour les angles HF1 TrueNorth. Comme
+  cos θ = 1 − ‖x‖²/m, 1 − cos θ est la *moyenne* des objectifs normalisés au
+  carré, d'espérance 1/3 et de variance 4/(45m) pour une solution aléatoire.
+  D'où P(Θ ≤ θ) ≈ Φ((1 − cos θ − 1/3) / √(4/(45m))). Ces angles se concentrent
+  à arccos(2/3) ≈ 48°.
+
+Appliquée aux angles TrueNorth, la nulle sphérique dérive avec m : sur du
+bruit pur, la solution médiane obtient p ≈ 0,1 à m = 5 et p ≈ 10⁻¹¹ à m = 80.
+Avec la nulle TrueNorth, la meilleure de 40 solutions aléatoires obtient
+p ≈ 1/41 pour tout m. Les deux nulles sont monotones en θ : **la sélection
+n'est pas affectée**, seules les comparaisons entre différents m le sont.
+Détails : [docs/ANGLE_SIGNIFICANCE.md](docs/ANGLE_SIGNIFICANCE.md).
+
+### Utilisation
+
+```python
+logp = hff.calculate_fitness_hf1_enhanced(
+    objectives, north_pole_method="truenorth", significance="truenorth"
+)
+logp = hff.calculate_angle_significance(theta, n_objectives=m, null="truenorth")
+```
+
+`significance="truenorth"` suppose des objectifs normalisés min-max sans
+décrowding. En C : `hff_angle_log_pvalue` ; en Rust :
+`significance::angle_log_pvalue`.
 
 ---
 
