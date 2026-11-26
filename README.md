@@ -148,6 +148,7 @@ higd_score = hff.calculate_higd(
 | `calculate_fitness_hf1_fixed(F, col_min, col_max, decrowding=, north_pole_method=)` | HF1 with caller-supplied column ranges instead of recomputing them — score new points on a fixed, previously-seen scale. |
 | `calculate_higd(solutions, n_reference_points, dimensions, seed, positive_orthant)` | Set-level quality indicator. CDF-corrected angular IGD that is dimensionally robust. |
 | `calculate_angular_igd(solutions, n_reference_points, dimensions, seed, positive_orthant)` | Raw angular IGD (no CDF correction). |
+| `calculate_angle_significance(theta, n_objectives, null="truenorth", log=True)` | Dimension-free score for an angle: ln P(angle ≤ θ) for a random solution. Comparable across objective counts. Use `null="truenorth"` for TrueNorth angles; `"uniform_sphere"` is the Beta-CDF correction. Also available as `significance=` on `calculate_fitness_hf1_enhanced` / `_fixed`. See [docs/ANGLE_SIGNIFICANCE.md](docs/ANGLE_SIGNIFICANCE.md). |
 
 The same surface is also exposed via a C ABI when built with
 `--features c-api`; see `include/hff.h`.
@@ -555,6 +556,7 @@ higd_score = hff.calculate_higd(
 | `calculate_fitness_hf1_fixed(F, col_min, col_max, decrowding=, north_pole_method=)` | HF1 avec plages de colonnes fournies par l'appelant plutôt que recalculées — évaluer de nouveaux points sur une échelle fixe déjà observée. |
 | `calculate_higd(solutions, n_reference_points, dimensions, seed, positive_orthant)` | Indicateur de qualité au niveau de l'ensemble. IGD angulaire corrigé par CDF, robuste à la dimension. |
 | `calculate_angular_igd(solutions, n_reference_points, dimensions, seed, positive_orthant)` | IGD angulaire brut (sans correction CDF). |
+| `calculate_angle_significance(theta, n_objectives, null="truenorth", log=True)` | Score d'un angle indépendant de la dimension : ln P(angle ≤ θ) pour une solution aléatoire. Comparable d'un nombre d'objectifs à l'autre. Utilisez `null="truenorth"` pour les angles TrueNorth ; `"uniform_sphere"` est la correction Beta-CDF. Aussi disponible via `significance=` sur `calculate_fitness_hf1_enhanced` / `_fixed`. Voir [docs/ANGLE_SIGNIFICANCE.md](docs/ANGLE_SIGNIFICANCE.md). |
 
 La même surface est aussi exposée via une ABI C lors d'une compilation avec
 `--features c-api` ; voir `include/hff.h`.

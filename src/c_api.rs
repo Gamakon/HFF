@@ -31,6 +31,7 @@ use std::slice;
 
 use crate::core_functions;
 use crate::higd;
+use crate::significance;
 
 pub const HFF_OK: c_int = 0;
 pub const HFF_ERR_NULL: c_int = -1;
@@ -292,6 +293,49 @@ pub extern "C" fn hff_log_cdf_correction(theta: f64, dimensions: usize) -> f64 {
     higd::log_cdf_beta_correction(theta, dimensions)
 }
 
+/// ln P(Θ ≤ θ) for `n` angles under a named null.
+///
+/// `null` is a NUL-terminated string: `"truenorth"` (for HF1 TrueNorth
+/// angles) or `"uniform_sphere"` (Beta-CDF correction, as
+/// [`hff_log_cdf_correction`]). `out` must hold `n` doubles.
+///
+/// # Safety
+/// `thetas` and `out` must point to `n` valid `f64`s; `null` must be a valid
+/// NUL-terminated C string.
+#[cfg(feature = "c-api")]
+#[no_mangle]
+pub unsafe extern "C" fn hff_angle_log_pvalue(
+    thetas: *const f64,
+    n: usize,
+    n_objectives: usize,
+    null: *const c_char,
+    out: *mut f64,
+) -> c_int {
+    if thetas.is_null() || out.is_null() || null.is_null() {
+        return HFF_ERR_NULL;
+    }
+    if n_objectives == 0 {
+        return HFF_ERR_INVALID;
+    }
+    let name = match CStr::from_ptr(null).to_str() {
+        Ok(s) => s,
+        Err(_) => return HFF_ERR_INVALID,
+    };
+    let null = match significance::AngleNull::parse(name) {
+        Some(v) => v,
+        None => return HFF_ERR_INVALID,
+    };
+    if n == 0 {
+        return HFF_OK;
+    }
+    let thetas = slice::from_raw_parts(thetas, n);
+    let out = slice::from_raw_parts_mut(out, n);
+    for (o, &t) in out.iter_mut().zip(thetas) {
+        *o = significance::angle_log_pvalue(t, n_objectives, null);
+    }
+    HFF_OK
+}
+
 /// Raw angular IGD (no CDF correction).
 ///
 /// # Safety
@@ -420,4 +464,22 @@ mod tests {
         }
         assert!((0.0..=1.0).contains(&out));
     }
+
+    #[test]
+    fn angle_log_pvalue_c_matches_rust_and_rejects_bad_input() {
+        let thetas = [0.2_f64, 0.7, 1.1];
+        let mut out = [0.0_f64; 3];
+        let tn = std::ffi::CString::new("truenorth").unwrap();
+        let rc = unsafe { hff_angle_log_pvalue(thetas.as_ptr(), 3, 12, tn.as_ptr(), out.as_mut_ptr()) };
+        assert_eq!(rc, HFF_OK);
+        for (o, &t) in out.iter().zip(&thetas) {
+            assert_eq!(*o, significance::truenorth_log_pvalue(t, 12));
+        }
+        let bad = std::ffi::CString::new("balanced").unwrap();
+        let rc = unsafe { hff_angle_log_pvalue(thetas.as_ptr(), 3, 12, bad.as_ptr(), out.as_mut_ptr()) };
+        assert_eq!(rc, HFF_ERR_INVALID);
+        let rc = unsafe { hff_angle_log_pvalue(std::ptr::null(), 3, 12, tn.as_ptr(), out.as_mut_ptr()) };
+        assert_eq!(rc, HFF_ERR_NULL);
+    }
+
 }

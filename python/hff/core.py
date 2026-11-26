@@ -1,5 +1,7 @@
 """HFF Python API — column normalization and convenience wrappers over Rust."""
 
+from __future__ import annotations
+
 import os
 
 import numpy as np
@@ -49,6 +51,7 @@ def calculate_fitness_hf1_enhanced(
     normalize: bool = True,
     decrowding: bool = False,
     north_pole_method: str = "balanced",
+    significance: str | None = None,
 ) -> np.ndarray:
     """Calculate HF1 fitness with selectable north-pole method.
 
@@ -60,6 +63,11 @@ def calculate_fitness_hf1_enhanced(
             individual is mapped to all-ones and collapses onto the pole.
         decrowding: Apply decrowding transform.
         north_pole_method: "balanced" or "truenorth".
+        significance: None (default) returns angles in radians. "truenorth"
+            or "uniform_sphere" instead returns ln P(angle <= theta) under
+            that null: a dimension-free score, still lower-is-better, that
+            can be compared across different objective counts. See
+            :func:`calculate_angle_significance`.
 
     Returns:
         1-D array of fitness values (lower is better).
@@ -69,6 +77,12 @@ def calculate_fitness_hf1_enhanced(
         objectives = objectives.reshape(1, -1)
     if objectives.shape[0] == 0:
         return np.array([])
+    if significance is not None:
+        _check_significance(significance, north_pole_method, decrowding)
+        theta = calculate_fitness_hf1_enhanced(
+            objectives, normalize, decrowding, north_pole_method
+        )
+        return calculate_angle_significance(theta, objectives.shape[1], significance)
     # GPU path — opt-in via HFF_GPU=1, only for truenorth (the GPU shader's
     # only supported pole method today). Decrowding stays on CPU.
     if (_HFF_GPU_ENABLED and _HFF_GPU_SYMBOL is not None
@@ -117,6 +131,7 @@ def calculate_fitness_hf1_fixed(
     col_max: np.ndarray,
     decrowding: bool = False,
     north_pole_method: str = "balanced",
+    significance: str | None = None,
 ) -> np.ndarray:
     """Score ``objectives`` using caller-supplied per-column min/max.
     Use this on every generation > 0 with the ``(col_min, col_max)``
@@ -124,6 +139,8 @@ def calculate_fitness_hf1_fixed(
 
     The pole stays geometrically meaningful as the population improves —
     later good solutions can genuinely approach HFF=0.
+
+    ``significance`` works as in :func:`calculate_fitness_hf1_enhanced`.
     """
     objectives = np.asarray(objectives, dtype=np.float64)
     col_min = np.asarray(col_min, dtype=np.float64)
@@ -132,9 +149,61 @@ def calculate_fitness_hf1_fixed(
         objectives = objectives.reshape(1, -1)
     if objectives.shape[0] == 0:
         return np.array([])
-    return hff_core.calculate_hyperspherical_fitness_hf1_fixed(
+    if significance is not None:
+        _check_significance(significance, north_pole_method, decrowding)
+    theta = hff_core.calculate_hyperspherical_fitness_hf1_fixed(
         objectives, col_min, col_max, decrowding, north_pole_method,
     )
+    if significance is None:
+        return theta
+    return calculate_angle_significance(theta, objectives.shape[1], significance)
+
+
+def calculate_angle_significance(
+    theta: np.ndarray,
+    n_objectives: int,
+    null: str = "truenorth",
+    log: bool = True,
+) -> np.ndarray:
+    """Turn HFF angles into dimension-free significance scores.
+
+    Returns ln P(angle <= theta) (or P itself with ``log=False``): how
+    likely a random solution is to be at least this close to the pole.
+    Unlike raw angles, these scores mean the same thing at every objective
+    count, so they can be compared across runs, used as stopping or
+    acceptance thresholds, or tracked over time as objectives are added or
+    removed. Within one population the ranking is identical to ranking by
+    angle.
+
+    Args:
+        theta: angles in radians, e.g. from HF1 TrueNorth.
+        n_objectives: m, the number of objectives the angles were computed on.
+        null: "truenorth" for HF1 TrueNorth angles (random normalised
+            objectives). "uniform_sphere" is the Beta-CDF correction
+            I_{sin^2 theta}((m-1)/2, 1/2), right for angles between uniformly
+            spread directions (as in HIGD). Applied to TrueNorth angles it
+            drifts with m: random solutions look more significant as
+            objectives are added.
+        log: return natural-log p-values (default; never underflows) or p.
+
+    Returns:
+        Array shaped like ``theta``.
+    """
+    theta = np.asarray(theta, dtype=np.float64)
+    flat = np.ascontiguousarray(theta.reshape(-1))
+    out = np.asarray(hff_core.calculate_angle_log_pvalue(flat, int(n_objectives), null))
+    out = out.reshape(theta.shape)
+    return out if log else np.exp(out)
+
+
+def _check_significance(significance, north_pole_method, decrowding):
+    if significance not in ("truenorth", "uniform_sphere"):
+        raise ValueError("significance must be None, 'truenorth' or 'uniform_sphere'")
+    if significance == "truenorth" and (north_pole_method != "truenorth" or decrowding):
+        raise ValueError(
+            "significance='truenorth' is calibrated for north_pole_method='truenorth' "
+            "without decrowding"
+        )
 
 
 def _column_normalize(objectives: np.ndarray) -> np.ndarray:

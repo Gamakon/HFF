@@ -99,6 +99,24 @@ double hff_cdf_correction(double theta, size_t dimensions);
 double hff_log_cdf_correction(double theta, size_t dimensions);
 
 /*
+ * Dimension-free significance of HFF angles: writes ln P(angle <= theta)
+ * for each of `n` angles into `out` (caller-allocated, n doubles).
+ *
+ * null = "truenorth"      — calibrated null for HF1 TrueNorth angles
+ *                            (random normalised objectives). Use this to
+ *                            compare TrueNorth scores across different
+ *                            objective counts.
+ * null = "uniform_sphere" — Beta-CDF correction, identical to
+ *                            hff_log_cdf_correction. Right for angles between
+ *                            uniformly spread directions (e.g. HIGD), but it
+ *                            drifts with m when applied to TrueNorth angles.
+ *
+ * Returns HFF_OK, HFF_ERR_NULL, or HFF_ERR_INVALID (unknown null, m == 0).
+ */
+int32_t hff_angle_log_pvalue(const double* thetas, size_t n, size_t n_objectives,
+                             const char* null, double* out);
+
+/*
  * Raw angular IGD (no CDF correction). Same argument semantics as hff_higd;
  * out_value is the mean minimum angular distance in radians.
  */

@@ -8,17 +8,22 @@
 //       * calculate_hyperspherical_fitness_hf1_enhanced
 //       * calculate_higd
 //       * calculate_angular_igd
+//       * calculate_angle_log_pvalue
 //   - feature "c-api": C ABI symbols exported from the cdylib
 //       * hff_hf1_f64
 //       * hff_hf1_enhanced
 //       * hff_higd
 //       * hff_angular_igd
+//       * hff_angle_log_pvalue
 
 /// Core mathematical functions for Hyperspherical Fitness calculations
 pub mod core_functions;
 
 /// Hyperspherical Inverted Generational Distance (HIGD) - dimensionally-robust IGD variant
 pub mod higd;
+
+/// Angle significance: dimension-free log p-values for HFF angles under a chosen null
+pub mod significance;
 
 /// C ABI bindings for use from Go (cgo), C/C++, and any other C-FFI-capable language.
 #[cfg(feature = "c-api")]
@@ -462,6 +467,35 @@ fn calculate_angular_igd(
 }
 
 // =============================================================================
+// Angle significance (PyO3)
+// =============================================================================
+
+/// ln P(Θ ≤ θ) for each angle under the chosen null ("truenorth" or
+/// "uniform_sphere"). See `significance.rs` for which null fits which angle.
+#[cfg(feature = "python")]
+#[pyfunction]
+#[pyo3(signature = (thetas, n_objectives, null="truenorth"))]
+fn calculate_angle_log_pvalue(
+    py: Python,
+    thetas: PyReadonlyArray1<f64>,
+    n_objectives: usize,
+    null: &str,
+) -> PyResult<Py<PyArray1<f64>>> {
+    let null = significance::AngleNull::parse(null).ok_or_else(|| {
+        PyValueError::new_err("null must be 'truenorth' or 'uniform_sphere'")
+    })?;
+    if n_objectives == 0 {
+        return Err(PyValueError::new_err("n_objectives must be positive"));
+    }
+    let thetas = thetas.as_array();
+    let out: Vec<f64> = thetas
+        .iter()
+        .map(|&t| significance::angle_log_pvalue(t, n_objectives, null))
+        .collect();
+    Ok(Array1::from(out).into_pyarray(py).to_owned())
+}
+
+// =============================================================================
 // GPU entry point (PyO3, feature = "gpu")
 // =============================================================================
 // Same API shape as `calculate_hyperspherical_fitness_hf1_enhanced` but runs
@@ -512,6 +546,9 @@ fn hff_core(_py: Python, m: &PyModule) -> PyResult<()> {
     // HIGD (Hyperspherical Inverted Generational Distance) - paper's reference quality indicator
     m.add_function(wrap_pyfunction!(calculate_higd, m)?)?;
     m.add_function(wrap_pyfunction!(calculate_angular_igd, m)?)?;
+
+    // Angle significance: dimension-free log p-values
+    m.add_function(wrap_pyfunction!(calculate_angle_log_pvalue, m)?)?;
 
     #[cfg(feature = "gpu")]
     m.add_function(wrap_pyfunction!(calculate_hyperspherical_fitness_hf1_enhanced_gpu, m)?)?;
