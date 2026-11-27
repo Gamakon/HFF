@@ -65,8 +65,7 @@ def calculate_fitness_hf1_enhanced(
         north_pole_method: "balanced" or "truenorth".
         significance: None (default) returns angles in radians. "truenorth"
             or "uniform_sphere" instead returns ln P(angle <= theta) under
-            that null: a dimension-free score, still lower-is-better, that
-            can be compared across different objective counts. See
+            that null (still lower-is-better). See
             :func:`calculate_angle_significance`.
 
     Returns:
@@ -165,25 +164,17 @@ def calculate_angle_significance(
     null: str = "truenorth",
     log: bool = True,
 ) -> np.ndarray:
-    """Turn HFF angles into dimension-free significance scores.
+    """Express HFF angles as ln P(angle <= theta) under a chosen null.
 
-    Returns ln P(angle <= theta) (or P itself with ``log=False``): how
-    likely a random solution is to be at least this close to the pole.
-    Unlike raw angles, these scores mean the same thing at every objective
-    count, so they can be compared across runs, used as stopping or
-    acceptance thresholds, or tracked over time as objectives are added or
-    removed. Within one population the ranking is identical to ranking by
-    angle.
+    Within one population the ranking is identical to ranking by angle.
 
     Args:
         theta: angles in radians, e.g. from HF1 TrueNorth.
-        n_objectives: m, the number of objectives the angles were computed on.
-        null: "truenorth" for HF1 TrueNorth angles (random normalised
-            objectives). "uniform_sphere" is the Beta-CDF correction
-            I_{sin^2 theta}((m-1)/2, 1/2), right for angles between uniformly
-            spread directions (as in HIGD). Applied to TrueNorth angles it
-            drifts with m: random solutions look more significant as
-            objectives are added.
+        n_objectives: m, the number of (non-constant) objectives.
+        null: "uniform_sphere" is the Beta-CDF correction
+            I_{sin^2 theta}((m-1)/2, 1/2) used in the GECCO 2026 poster and
+            HIGD. "truenorth" is an optional null for HF1 TrueNorth angles
+            (normalised objectives modelled as independent Uniform(0, 1)).
         log: return natural-log p-values (default; never underflows) or p.
 
     Returns:
@@ -201,7 +192,7 @@ def _check_significance(significance, north_pole_method, decrowding):
         raise ValueError("significance must be None, 'truenorth' or 'uniform_sphere'")
     if significance == "truenorth" and (north_pole_method != "truenorth" or decrowding):
         raise ValueError(
-            "significance='truenorth' is calibrated for north_pole_method='truenorth' "
+            "significance='truenorth' applies to north_pole_method='truenorth' "
             "without decrowding"
         )
 

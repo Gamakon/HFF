@@ -22,7 +22,7 @@ pub mod core_functions;
 /// Hyperspherical Inverted Generational Distance (HIGD) - dimensionally-robust IGD variant
 pub mod higd;
 
-/// Angle significance: dimension-free log p-values for HFF angles under a chosen null
+/// Angle significance: ln P(angle <= theta) for HFF angles under a chosen null
 pub mod significance;
 
 /// C ABI bindings for use from Go (cgo), C/C++, and any other C-FFI-capable language.
@@ -547,7 +547,7 @@ fn hff_core(_py: Python, m: &PyModule) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(calculate_higd, m)?)?;
     m.add_function(wrap_pyfunction!(calculate_angular_igd, m)?)?;
 
-    // Angle significance: dimension-free log p-values
+    // Angle significance: ln P(angle <= theta) under a chosen null
     m.add_function(wrap_pyfunction!(calculate_angle_log_pvalue, m)?)?;
 
     #[cfg(feature = "gpu")]

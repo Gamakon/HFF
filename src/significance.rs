@@ -1,50 +1,18 @@
-//! Angle significance: turn an HFF angle into a dimension-free log p-value.
+//! Angle significance: express an HFF angle as ln P(Θ ≤ θ) under a chosen null.
 //!
-//! An angle on its own is not comparable across objective counts. Concentration
-//! of measure moves the typical angle as `m` grows, so the same θ means
-//! something different at m = 10 and m = 40. A significance score fixes this by
-//! asking how likely a *random* solution is to be at least this close to the
-//! pole, i.e. P(Θ ≤ θ) under a null distribution. The answer has the same
-//! meaning at every `m`.
+//! * [`AngleNull::UniformSphere`]: the Beta-CDF correction
+//!   P(Θ ≤ θ) = I_{sin²θ}((m−1)/2, ½) (Cai & Fang 2013; GECCO 2026 poster,
+//!   eq. 3), as used by HIGD. Identical to
+//!   [`crate::higd::log_cdf_beta_correction`].
 //!
-//! The null must match the geometry of the angle being scored:
+//! * [`AngleNull::TrueNorth`]: an optional null for HF1 TrueNorth angles.
+//!   TrueNorth sets cos θ = 1 − ‖x‖²/m, so with normalised objectives
+//!   modelled as independent Uniform(0, 1), 1 − cos θ has mean 1/3 and
+//!   variance 4/(45m), giving P(Θ ≤ θ) ≈ Φ((1 − cos θ − 1/3) / √(4/(45m))).
 //!
-//! * [`AngleNull::UniformSphere`]: Θ is the angle from a fixed pole to a
-//!   direction drawn uniformly on S^{m-1}. P(Θ ≤ θ) = I_{sin²θ}((m−1)/2, ½)
-//!   (Cai & Fang 2013), the GECCO 2026 poster's eq. 3. This is the right
-//!   null for angles between uniformly spread directions, as in HIGD.
-//!
-//! * [`AngleNull::TrueNorth`]: Θ is the HF1 TrueNorth angle of a solution
-//!   whose min-max normalised objectives are independent Uniform(0, 1).
-//!   TrueNorth sets cos θ = 1 − ‖x‖²/m, so 1 − cos θ is the mean of m iid
-//!   squared uniforms, with mean 1/3 and variance 4/(45m). By the central
-//!   limit theorem, P(Θ ≤ θ) ≈ Φ((1 − cos θ − 1/3) / √(4/(45m))).
-//!
-//! # Why TrueNorth needs its own null
-//!
-//! The TrueNorth angle of a random solution concentrates near
-//! arccos(2/3) ≈ 48°, not near 90°. Scoring it under the uniform-sphere null
-//! therefore drifts with `m`: the median random solution scores
-//! p ≈ 0.1 at m = 5 but p ≈ 1e-11 at m = 80, so random solutions look more
-//! "significant" as objectives are added. Under the TrueNorth null, the
-//! median random solution scores p ≈ 0.5 at every m, and the best of N
-//! random solutions scores p ≈ 1/(N + 1). The unit tests below check this
-//! calibration.
-//!
-//! The ranking of solutions within one population is unchanged by either
-//! null, because both are monotone in θ. The null only matters when scores
-//! are compared across different objective counts: rolling re-planning,
-//! stopping rules, and quality tracking over time.
-//!
-//! # Assumptions and accuracy
-//!
-//! The TrueNorth null assumes normalised objectives in [0, 1] and no
-//! decrowding transform. It is a CLT approximation: well calibrated from
-//! roughly m ≥ 5 and slightly conservative below that. Correlated objectives
-//! are genuine structure, not noise, and correctly produce small p-values.
-//!
-//! All functions return the natural log of p, which stays representable in
-//! the deep left tail where p itself underflows f64.
+//! Both are monotone in θ, so ranking within a population is unchanged.
+//! All functions return natural logs, which stay representable in the deep
+//! left tail.
 
 use statrs::function::erf::erfc;
 use std::f64::consts::{PI, SQRT_2};
@@ -161,7 +129,7 @@ mod tests {
     }
 
     #[test]
-    fn truenorth_null_is_calibrated_across_objective_counts() {
+    fn truenorth_null_matches_uniform_objective_model() {
         for (k, m) in [10usize, 20, 40, 80].into_iter().enumerate() {
             let thetas = random_truenorth_thetas(m, 4000, 7 + k as u64);
             let p: Vec<f64> = thetas.iter().map(|&t| truenorth_log_pvalue(t, m).exp()).collect();
@@ -170,18 +138,6 @@ mod tests {
             assert!((med - 0.5).abs() < 0.06, "m={m}: median p {med}");
             assert!((below_5pct - 0.05).abs() < 0.02, "m={m}: P(p<0.05) = {below_5pct}");
         }
-    }
-
-    #[test]
-    fn uniform_sphere_null_drifts_for_truenorth_angles() {
-        // Documents why the TrueNorth null exists: for random solutions the
-        // Beta-CDF p-value collapses as m grows.
-        let med_low = median(random_truenorth_thetas(5, 2000, 1))
-            .pipe(|t| angle_log_pvalue(t, 5, AngleNull::UniformSphere));
-        let med_high = median(random_truenorth_thetas(80, 2000, 2))
-            .pipe(|t| angle_log_pvalue(t, 80, AngleNull::UniformSphere));
-        assert!(med_low > (0.01f64).ln());
-        assert!(med_high < (1e-8f64).ln());
     }
 
     #[test]
@@ -210,11 +166,4 @@ mod tests {
         assert_eq!(AngleNull::parse("uniform_sphere"), Some(AngleNull::UniformSphere));
         assert_eq!(AngleNull::parse("balanced"), None);
     }
-
-    trait Pipe: Sized {
-        fn pipe<R>(self, f: impl FnOnce(Self) -> R) -> R {
-            f(self)
-        }
-    }
-    impl Pipe for f64 {}
 }
