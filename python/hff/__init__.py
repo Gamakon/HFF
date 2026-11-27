@@ -5,7 +5,7 @@ Public API:
     calculate_fitness_hf1_enhanced() — HF1 with method selection (balanced/truenorth)
     calculate_higd()                 — CDF-corrected angular IGD
     calculate_angular_igd()          — Raw angular IGD
-    calculate_angle_significance()   — Dimension-free log p-value of an angle
+    calculate_angle_significance()   — ln P(angle <= theta) under a chosen null
 """
 
 from hff.core import (

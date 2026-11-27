@@ -99,17 +99,12 @@ double hff_cdf_correction(double theta, size_t dimensions);
 double hff_log_cdf_correction(double theta, size_t dimensions);
 
 /*
- * Dimension-free significance of HFF angles: writes ln P(angle <= theta)
- * for each of `n` angles into `out` (caller-allocated, n doubles).
+ * Significance of HFF angles: writes ln P(angle <= theta) for each of `n`
+ * angles into `out` (caller-allocated, n doubles).
  *
- * null = "truenorth"      — calibrated null for HF1 TrueNorth angles
- *                            (random normalised objectives). Use this to
- *                            compare TrueNorth scores across different
- *                            objective counts.
  * null = "uniform_sphere" — Beta-CDF correction, identical to
- *                            hff_log_cdf_correction. Right for angles between
- *                            uniformly spread directions (e.g. HIGD), but it
- *                            drifts with m when applied to TrueNorth angles.
+ *                            hff_log_cdf_correction.
+ * null = "truenorth"      — optional null for HF1 TrueNorth angles.
  *
  * Returns HFF_OK, HFF_ERR_NULL, or HFF_ERR_INVALID (unknown null, m == 0).
  */

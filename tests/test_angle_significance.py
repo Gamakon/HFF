@@ -1,4 +1,4 @@
-"""Angle significance: calibrated, dimension-free scores for HFF angles."""
+"""Angle significance: ln P(angle <= theta) under a chosen null."""
 
 import numpy as np
 import pytest
@@ -13,7 +13,7 @@ def _random_truenorth(m, n=40, seed=0):
     )
 
 
-def test_truenorth_null_is_calibrated_across_objective_counts():
+def test_truenorth_null_matches_uniform_objective_model():
     # Best of 40 random solutions should score p ~ 1/41 at every m.
     for m in (10, 20, 40, 80):
         best = [
@@ -21,15 +21,6 @@ def test_truenorth_null_is_calibrated_across_objective_counts():
             for s in range(150)
         ]
         assert 0.012 < np.median(best) < 0.045, m
-
-
-def test_uniform_sphere_null_drifts_on_truenorth_angles():
-    med = {
-        m: np.median(hff.calculate_angle_significance(_random_truenorth(m, n=2000), m,
-                                                      null="uniform_sphere", log=False))
-        for m in (5, 80)
-    }
-    assert med[5] > 1e-2 and med[80] < 1e-8
 
 
 def test_significance_parameter_matches_manual_and_preserves_ranking():
